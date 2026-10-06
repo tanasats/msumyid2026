@@ -1,0 +1,2 @@
+# ใช้ LF ทุกไฟล์ (สคริปต์ bash และไฟล์ที่ mount เข้า container จะพังถ้าเป็น CRLF)
+* text=auto eol=lf

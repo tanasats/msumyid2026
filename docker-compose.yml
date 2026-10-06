@@ -1,0 +1,48 @@
+# บริการสำหรับ dev: PostgreSQL + Garage (S3)
+# ค่า port/secret อ่านจาก .env ที่ root (ดู .env.example)
+name: msumyid
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app_dev
+    ports:
+      - "${POSTGRES_PORT:-5442}:5432"
+    volumes:
+      # PostgreSQL 18 ให้ mount ที่ /var/lib/postgresql (ไม่ใช่ /data แบบรุ่นเก่า)
+      - msumyid_pgdata:/var/lib/postgresql
+      # สร้างฐาน app_test ตอนสร้าง volume ครั้งแรก
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  garage:
+    image: dxflrs/garage:v2.4.1
+    # --single-node กำหนด layout ของ cluster ให้อัตโนมัติ (dev เท่านั้น)
+    command: ["/garage", "server", "--single-node"]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?ต้องกำหนด GARAGE_RPC_SECRET ใน .env}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?ต้องกำหนด GARAGE_ADMIN_TOKEN ใน .env}
+    ports:
+      - "${GARAGE_S3_PORT:-3910}:3900"
+      - "${GARAGE_ADMIN_PORT:-3913}:3903"
+    volumes:
+      - ./docker/garage/garage.toml:/etc/garage.toml:ro
+      - msumyid_garage_meta:/var/lib/garage/meta
+      - msumyid_garage_data:/var/lib/garage/data
+    restart: unless-stopped
+
+volumes:
+  msumyid_pgdata:
+    name: msumyid_pgdata
+  msumyid_garage_meta:
+    name: msumyid_garage_meta
+  msumyid_garage_data:
+    name: msumyid_garage_data
