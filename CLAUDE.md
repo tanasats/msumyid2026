@@ -62,7 +62,7 @@ GOOGLE_REDIRECT_URI=http://localhost:4010/auth/google/callback
 SESSION_COOKIE_NAME=msumyid_session
 SESSION_TTL_DAYS=7
 INITIAL_SUPER_ADMIN_EMAIL=tanasat.s@msu.ac.th              # ใช้เฉพาะ seed ครั้งแรก
-ALLOWED_EMAIL_DOMAINS=msu.ac.th               # รับเฉพาะบัญชี @msu.ac.th (ตรวจทั้ง email และ claim hd)
+ALLOWED_EMAIL_DOMAINS=msu.ac.th               # โดเมนที่ไม่ต้องรออนุมัติ (ตรวจทั้ง email และ claim hd) โดเมนอื่น = บุคลากรภายนอก รออนุมัติ
 
 # Storage (Garage)
 S3_ENDPOINT=http://localhost:3910
@@ -162,7 +162,7 @@ Flow (Authorization Code + PKCE):
 - ทุก request อ่านผู้ใช้และ role จากฐานข้อมูลใหม่ (ผ่าน session) ห้ามเชื่อ role ที่มากับ client
 - ผู้ใช้ที่ `is_active = false` ต้องเข้าระบบไม่ได้ทันที
 - **CSRF:** ใช้เฉพาะ POST/PUT/PATCH/DELETE กับการเปลี่ยนข้อมูล และตรวจ header `Origin` ต้องตรงกับ `WEB_URL`
-- ถ้ากำหนด `ALLOWED_EMAIL_DOMAINS` ให้ตรวจโดเมนของ email (และ claim `hd`) ที่ callback
+- ตรวจโดเมนของ email (และ claim `hd`) ที่ callback: อยู่ใน `ALLOWED_EMAIL_DOMAINS` = นิสิต/บุคลากร ใช้งานได้ทันที, โดเมนอื่น = บุคลากรภายนอก สร้างบัญชีสถานะรออนุมัติ (ดูหัวข้อ 9)
 - บน localhost `:3010` กับ `:4010` ถือเป็น site เดียวกัน cookie จึงส่งได้ แต่ fetch จาก browser ต้องใส่ `credentials: 'include'` ส่วนบน production ให้ web และ API อยู่ใต้โดเมนหลักเดียวกัน
 
 ## 9. ระบบสิทธิ์ (Authorization)
@@ -179,13 +179,22 @@ Role และ permission เฉพาะระบบนี้ (**เริ่�
 
 | role code | ชื่อไทย | is_privileged | permissions |
 |---|---|---|---|
-| `student` | นิสิต | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login |
+| `student` | นิสิต | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (ส่วนหน้า @ เป็นตัวเลข 11 หลัก) |
+| `staff` | บุคลากร | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (บัญชี @msu.ac.th อื่น ๆ) |
+| `external` | บุคลากรภายนอก | false | (ยังไม่ผูก) — `is_system`, ระบบให้เมื่อบัญชีภายนอกได้รับอนุมัติ |
+| `admin` | ผู้ดูแลระบบ | true | (ยังไม่ผูก) — ให้/ถอนได้เฉพาะ `super_admin` |
 
 Permission ที่ลงทะเบียนแล้ว (ยังไม่ผูกกับ role ใด → ใช้ได้เฉพาะ `super_admin`):
 
 | permission | คำอธิบาย |
 |---|---|
 | `user_role:assign` | ให้/ถอน role ที่ไม่ใช่ role สิทธิ์สูงแก่ผู้ใช้อื่น |
+| `user:approve` | อนุมัติ/ปฏิเสธบัญชีบุคลากรภายนอกที่รออนุมัติ |
+
+บัญชีบุคลากรภายนอก (ตัดสินใจ 2026-10-07):
+- เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น
+- บัญชีใหม่มี `users.approval_status = 'pending'` ใช้งานไม่ได้จนผู้มี `user:approve` อนุมัติ จึงได้ role `external`
+- `ALLOWED_EMAIL_DOMAINS` จึงหมายถึงโดเมนที่ **ไม่ต้องรออนุมัติ** (ไม่ใช่โดเมนเดียวที่ login ได้)
 
 หลักการ:
 - **1 ผู้ใช้มีได้หลาย role** ผ่านตาราง `user_roles` สิทธิ์จริงของผู้ใช้ = รวม (union) permission จากทุก role ที่ถืออยู่
@@ -207,7 +216,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - ห้ามแก้ role ของตัวเอง, ห้ามถอน role `user`, ห้ามถอน `super_admin` คนสุดท้ายออกจากระบบ
 - ทุกการให้/ถอนต้องเขียน `role_change_logs` (ใครทำ, กับใคร, role อะไร, grant หรือ revoke, เหตุผล, เมื่อไร) ใน **transaction เดียวกัน** และห้ามแก้/ลบ log
 - `super_admin` คนแรกสร้างผ่าน seed script (`INITIAL_SUPER_ADMIN_EMAIL`) เท่านั้น ห้ามมีช่องทางผ่าน UI หรือ API สาธารณะ
-- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client
+- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` ให้ตอนอนุมัติบัญชีเท่านั้น
 
 ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name`, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
 
