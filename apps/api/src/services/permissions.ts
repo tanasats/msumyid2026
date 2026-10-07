@@ -10,4 +10,5 @@ export const PERMISSIONS = {
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 // code ของ role ผู้ดูแลระบบสูงสุด — ใช้ได้เฉพาะใน authorization-service (hasPermission/canGrantRole)
+// และ super-admin-seed-service (ช่องทางเดียวที่สร้าง super_admin คนแรก)
 export const SUPER_ADMIN_ROLE = 'super_admin';

@@ -33,6 +33,8 @@ const envSchema = z.object({
         .filter(Boolean),
     )
     .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1)),
+  // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
+  INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -70,4 +72,5 @@ export const config = {
     redirectUri: env.GOOGLE_REDIRECT_URI,
   },
   allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
+  initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

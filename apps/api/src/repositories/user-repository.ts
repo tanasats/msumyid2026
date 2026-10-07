@@ -22,6 +22,31 @@ export type LoginUserRow = {
   inserted: boolean;
 };
 
+export type UserStatusRow = {
+  id: string;
+  approvalStatus: ApprovalStatus;
+  isActive: boolean;
+};
+
+/**
+ * ค้นผู้ใช้ด้วย email แบบไม่สนตัวพิมพ์ (ใช้ index users_email_lower_idx)
+ * email ไม่ UNIQUE (ตัวระบุจริงคือ google_sub) จึงคืนได้หลายแถว — LIMIT 2 พอให้ผู้เรียกรู้ว่าซ้ำ
+ */
+export async function findUsersByEmail(db: Queryable, email: string): Promise<UserStatusRow[]> {
+  const result = await db.query<UserStatusRow>(
+    `SELECT id,
+            approval_status AS "approvalStatus",
+            is_active       AS "isActive"
+     FROM users
+     WHERE lower(email) = lower($1)
+       AND deleted_at IS NULL
+     ORDER BY created_at
+     LIMIT 2`,
+    [email],
+  );
+  return result.rows;
+}
+
 /**
  * สร้างหรืออัปเดตผู้ใช้จาก Google ใน statement เดียว (ค้นด้วย google_sub ไม่ใช้ email)
  * - ON CONFLICT (google_sub): ถ้ามีแล้วอัปเดตแค่ข้อมูลโปรไฟล์และเวลา login
