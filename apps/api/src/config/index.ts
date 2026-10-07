@@ -16,6 +16,9 @@ const envSchema = z.object({
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // ชื่อ cookie ต้องเฉพาะโปรเจกต์ เพราะ cookie บน localhost ใช้ร่วมกันทุก port
+  SESSION_COOKIE_NAME: z.string().regex(/^[a-z0-9_]+$/),
+  SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -43,4 +46,8 @@ export const config = {
   // ตอนรัน test ใช้ app_test เสมอ เพื่อไม่ให้ test แตะ app_dev
   databaseUrl: env.NODE_ENV === 'test' ? (env.TEST_DATABASE_URL as string) : env.DATABASE_URL,
   logLevel: env.NODE_ENV === 'test' ? 'silent' : env.LOG_LEVEL,
+  session: {
+    cookieName: env.SESSION_COOKIE_NAME,
+    ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
+  },
 } as const;
