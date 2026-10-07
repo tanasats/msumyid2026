@@ -47,6 +47,7 @@ describe('error handler', () => {
   it('JSON ผิดรูปแบบตอบ 400 โดยไม่เปิดเผย stack trace', async () => {
     const res = await request(app)
       .post('/health')
+      .set('Origin', 'http://localhost:3010')
       .set('Content-Type', 'application/json')
       .send('{"broken":');
     expect(res.status).toBe(400);

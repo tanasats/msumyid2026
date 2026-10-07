@@ -16,6 +16,25 @@ const envSchema = z.object({
   DATABASE_URL: z.url(),
   TEST_DATABASE_URL: z.url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // ชื่อ cookie ต้องเฉพาะโปรเจกต์ เพราะ cookie บน localhost ใช้ร่วมกันทุก port
+  SESSION_COOKIE_NAME: z.string().regex(/^[a-z0-9_]+$/),
+  SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30),
+  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  // ต้องตรงกับ redirect URI ที่ลงทะเบียนกับ Google ทุกตัวอักษร
+  GOOGLE_REDIRECT_URI: z.url(),
+  // โดเมนที่ไม่ต้องรออนุมัติ (คั่นด้วย ,) — โดเมนอื่น = บุคลากรภายนอก รออนุมัติ
+  ALLOWED_EMAIL_DOMAINS: z
+    .string()
+    .transform((v) =>
+      v
+        .split(',')
+        .map((d) => d.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1)),
+  // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
+  INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -43,4 +62,15 @@ export const config = {
   // ตอนรัน test ใช้ app_test เสมอ เพื่อไม่ให้ test แตะ app_dev
   databaseUrl: env.NODE_ENV === 'test' ? (env.TEST_DATABASE_URL as string) : env.DATABASE_URL,
   logLevel: env.NODE_ENV === 'test' ? 'silent' : env.LOG_LEVEL,
+  session: {
+    cookieName: env.SESSION_COOKIE_NAME,
+    ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
+  },
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    redirectUri: env.GOOGLE_REDIRECT_URI,
+  },
+  allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
+  initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

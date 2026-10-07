@@ -1,31 +1,32 @@
+import { redirect } from 'next/navigation';
 import { PageShell } from '@/components/PageShell';
-import { apiFetch } from '@/lib/api-server';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
 
-type Health = { status: 'ok' | 'error'; database: 'ok' | 'error' };
-
-// หน้าแรกชั่วคราว: แสดงสถานะการเชื่อมต่อ API (จะแทนด้วยหน้า login/หน้าหลักในขั้นถัดไป)
+// หน้าแรกหลัง login (ชั่วคราว: แสดงข้อมูลบัญชี จะแทนด้วยหน้าหลักของระบบในขั้นถัดไป)
 export default async function HomePage() {
-  let apiOnline: boolean;
-  try {
-    const health = await apiFetch<Health>('/health');
-    apiOnline = health.status === 'ok';
-  } catch {
-    // API ตอบ 503 หรือติดต่อไม่ได้ → แสดงสถานะออฟไลน์ (API เป็นฝ่าย log สาเหตุ)
-    apiOnline = false;
-  }
+  const user = await getCurrentUser();
+  // cookie หมดอายุ/ถูกเพิกถอน (proxy ตรวจแค่ว่ามี cookie)
+  if (!user) redirect('/login');
+  if (user.approvalStatus !== 'approved') redirect('/pending');
 
   return (
-    <PageShell>
+    <PageShell user={user}>
       <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">ยินดีต้อนรับ</h1>
-        <p className="mt-2 text-slate-600">ระบบอยู่ระหว่างการพัฒนา</p>
-        <p className="mt-4 flex items-center gap-2 text-sm">
-          <span
-            className={`inline-block size-2.5 rounded-full ${apiOnline ? 'bg-green-500' : 'bg-red-500'}`}
-            aria-hidden
-          />
-          {apiOnline ? 'เชื่อมต่อระบบหลังบ้านได้' : 'ไม่สามารถเชื่อมต่อระบบหลังบ้านได้'}
-        </p>
+        <h1 className="text-xl font-semibold">ยินดีต้อนรับ {user.name}</h1>
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
+          <dt className="text-slate-500">อีเมล</dt>
+          <dd className="break-all">{user.email}</dd>
+          <dt className="text-slate-500">ประเภทบัญชี</dt>
+          <dd>{ACCOUNT_TYPE_LABELS[user.accountType]}</dd>
+          <dt className="text-slate-500">บทบาท</dt>
+          <dd className="flex flex-wrap gap-2">
+            {user.roles.map((role) => (
+              <span key={role} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs">
+                {role}
+              </span>
+            ))}
+          </dd>
+        </dl>
       </section>
     </PageShell>
   );
