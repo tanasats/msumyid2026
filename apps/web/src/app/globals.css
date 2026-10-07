@@ -1,5 +1,33 @@
 @import 'tailwindcss';
 
+/*
+ * Design tokens — ดูที่มาและค่า contrast ใน docs/design/ui-guidelines.md
+ * หน้าเว็บใช้ชื่อ semantic เหล่านี้ (bg-canvas, text-muted, bg-primary ...) แทนชื่อสีตรง ๆ
+ * เพื่อให้เปลี่ยนสีทั้งระบบ (หรือเพิ่ม dark mode) ได้ที่เดียว
+ */
 @theme {
   --font-sans: var(--font-noto-sans-thai), ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: var(--color-slate-50);
+  --color-surface: var(--color-white);
+  --color-fg: var(--color-slate-900);
+  --color-muted: var(--color-slate-600);
+  --color-subtle: var(--color-slate-500);
+  --color-line: var(--color-slate-200);
+  /* ขอบช่องกรอก/ปุ่ม ต้อง contrast ≥ 3:1 จึงใช้ slate-500 (slate-400 ได้แค่ 2.56) */
+  --color-line-input: var(--color-slate-500);
+  --color-primary: var(--color-blue-700);
+  --color-primary-hover: var(--color-blue-800);
+  --color-primary-soft: var(--color-blue-50);
+  --color-focus: var(--color-blue-600);
+  --color-danger: var(--color-red-700);
+  --color-danger-hover: var(--color-red-800);
+}
+
+@layer base {
+  /* วงแสดง focus เมื่อใช้คีย์บอร์ด — ใช้ร่วมกันทุกองค์ประกอบที่กดได้ */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 }

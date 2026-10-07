@@ -1,15 +1,24 @@
 import Link from 'next/link';
+import { SearchX } from 'lucide-react';
+import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
+import { StatusState } from '@/components/StatusState';
 
 export default function NotFound() {
   return (
-    <PageShell>
-      <section className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-        <h1 className="text-lg font-semibold">ไม่พบหน้าที่ต้องการ</h1>
-        <Link href="/" className="mt-4 inline-block text-sm text-blue-700 underline">
-          กลับหน้าแรก
-        </Link>
-      </section>
+    <PageShell width="form">
+      <StatusState
+        icon={SearchX}
+        headingLevel="h1"
+        title="ไม่พบหน้าที่ต้องการ"
+        action={
+          <Link href="/" className={buttonClasses({ fullWidth: true })}>
+            กลับหน้าหลัก
+          </Link>
+        }
+      >
+        ลิงก์อาจไม่ถูกต้อง หรือหน้านี้ถูกย้ายไปแล้ว
+      </StatusState>
     </PageShell>
   );
 }
