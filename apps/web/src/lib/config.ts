@@ -9,4 +9,7 @@ function required(name: string): string {
 
 export const serverConfig = {
   apiUrl: required('API_URL'),
+  // URL ของ API ที่ browser เข้าถึงได้ (ใช้ทำลิงก์ เช่น ปุ่ม login ด้วย Google)
+  publicApiUrl: required('NEXT_PUBLIC_API_URL'),
+  sessionCookieName: required('SESSION_COOKIE_NAME'),
 };
