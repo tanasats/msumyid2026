@@ -1,4 +1,5 @@
 import type { CookieOptions, RequestHandler, Response } from 'express';
+import { z } from 'zod';
 import { config } from '../config/index.js';
 import { AppError } from '../errors.js';
 import { hasPermission, type AuthUser } from '../services/authorization-service.js';
@@ -31,6 +32,37 @@ export function setSessionCookie(res: Response, token: string, expiresAt: Date):
 
 export function clearSessionCookie(res: Response): void {
   res.clearCookie(config.session.cookieName, sessionCookieOptions());
+}
+
+// cookie อายุสั้นเก็บ state/nonce/PKCE verifier ระหว่างไป login ที่ Google (CLAUDE.md หัวข้อ 8 ข้อ 2)
+// path จำกัดที่ /auth/google จึงส่งเฉพาะตอน callback และ SameSite=Lax ยังส่งได้เพราะ Google redirect กลับแบบ GET
+const OAUTH_COOKIE_NAME = `${config.session.cookieName}_oauth`;
+const OAUTH_COOKIE_MAX_AGE_MS = 10 * 60 * 1000;
+
+const oauthCookieSchema = z.object({
+  state: z.string().min(1),
+  nonce: z.string().min(1),
+  codeVerifier: z.string().min(1),
+});
+
+export type OAuthCookie = z.infer<typeof oauthCookieSchema>;
+
+function oauthCookieOptions(): CookieOptions {
+  return { ...sessionCookieOptions(), path: '/auth/google' };
+}
+
+export function setOAuthCookie(res: Response, value: OAuthCookie): void {
+  // ส่ง object ให้ Express แปลงเป็น JSON cookie (cookie-parser แปลงกลับให้อัตโนมัติ)
+  res.cookie(OAUTH_COOKIE_NAME, value, { ...oauthCookieOptions(), maxAge: OAUTH_COOKIE_MAX_AGE_MS });
+}
+
+export function clearOAuthCookie(res: Response): void {
+  res.clearCookie(OAUTH_COOKIE_NAME, oauthCookieOptions());
+}
+
+export function readOAuthCookie(cookies: unknown): OAuthCookie | undefined {
+  const parsed = oauthCookieSchema.safeParse((cookies as Record<string, unknown> | undefined)?.[OAUTH_COOKIE_NAME]);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export function readSessionToken(cookies: unknown): string | undefined {

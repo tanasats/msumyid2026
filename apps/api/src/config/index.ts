@@ -19,6 +19,20 @@ const envSchema = z.object({
   // ชื่อ cookie ต้องเฉพาะโปรเจกต์ เพราะ cookie บน localhost ใช้ร่วมกันทุก port
   SESSION_COOKIE_NAME: z.string().regex(/^[a-z0-9_]+$/),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30),
+  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  // ต้องตรงกับ redirect URI ที่ลงทะเบียนกับ Google ทุกตัวอักษร
+  GOOGLE_REDIRECT_URI: z.url(),
+  // โดเมนที่ไม่ต้องรออนุมัติ (คั่นด้วย ,) — โดเมนอื่น = บุคลากรภายนอก รออนุมัติ
+  ALLOWED_EMAIL_DOMAINS: z
+    .string()
+    .transform((v) =>
+      v
+        .split(',')
+        .map((d) => d.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1)),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -50,4 +64,10 @@ export const config = {
     cookieName: env.SESSION_COOKIE_NAME,
     ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
   },
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    redirectUri: env.GOOGLE_REDIRECT_URI,
+  },
+  allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
 } as const;
