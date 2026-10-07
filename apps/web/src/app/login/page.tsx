@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { Alert } from '@/components/Alert';
+import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
 import { getCurrentUser } from '@/lib/auth';
 import { serverConfig } from '@/lib/config';
@@ -28,28 +30,31 @@ export default async function LoginPage({
     typeof error === 'string' ? (ERROR_MESSAGES[error] ?? ERROR_MESSAGES.LOGIN_FAILED) : null;
 
   return (
-    <PageShell>
-      <section className="mx-auto max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <h1 className="text-xl font-semibold">เข้าสู่ระบบ</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          นิสิตและบุคลากรใช้บัญชี @msu.ac.th ส่วนบุคลากรภายนอกใช้บัญชี Google ได้ทุกโดเมน (ต้องรอผู้ดูแลระบบอนุมัติ)
-        </p>
-
-        {errorMessage && (
-          <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {errorMessage}
+    <PageShell width="form">
+      {/* มือถือ: ดันการ์ดลงครึ่งล่างของจอ (ใกล้นิ้วโป้ง) / จอใหญ่: กึ่งกลาง */}
+      <div className="flex min-h-[calc(100dvh-8rem)] flex-col justify-end sm:justify-center">
+        <section className="mx-auto w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-sm sm:p-8">
+          <h1 className="text-2xl leading-snug font-semibold">เข้าสู่ระบบ</h1>
+          <p className="mt-2 leading-relaxed text-muted">
+            นิสิตและบุคลากรใช้บัญชี @msu.ac.th ส่วนบุคลากรภายนอกใช้บัญชี Google ได้ทุกโดเมน (ต้องรอผู้ดูแลระบบอนุมัติ)
           </p>
-        )}
 
-        {/* ใช้ <a> ไม่ใช่ <Link> เพราะต้องเปิดหน้าของ API ซึ่ง redirect ต่อไป Google */}
-        <a
-          href={`${serverConfig.publicApiUrl}/auth/google`}
-          className="mt-6 flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-medium hover:bg-slate-50"
-        >
-          <GoogleIcon />
-          เข้าสู่ระบบด้วย Google
-        </a>
-      </section>
+          {errorMessage && (
+            <Alert tone="danger" className="mt-4">
+              {errorMessage}
+            </Alert>
+          )}
+
+          {/* ใช้ <a> ไม่ใช่ <Link> เพราะต้องเปิดหน้าของ API ซึ่ง redirect ต่อไป Google */}
+          <a
+            href={`${serverConfig.publicApiUrl}/auth/google`}
+            className={`${buttonClasses({ variant: 'secondary' })} mt-6 w-full`}
+          >
+            <GoogleIcon />
+            เข้าสู่ระบบด้วย Google
+          </a>
+        </section>
+      </div>
     </PageShell>
   );
 }

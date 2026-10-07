@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { LogOut } from 'lucide-react';
+import { Alert } from './Alert';
+import { Button } from './Button';
 
 /** ปุ่มออกจากระบบ — เรียก API จาก browser เพื่อให้ API ลบ session cookie เอง */
 export function LogoutButton() {
@@ -26,20 +29,12 @@ export function LogoutButton() {
   }
 
   return (
-    <div className="flex flex-col items-end">
-      <button
-        type="button"
-        onClick={logout}
-        disabled={pending}
-        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
-      >
-        {pending ? 'กำลังออก...' : 'ออกจากระบบ'}
-      </button>
-      {failed && (
-        <p role="alert" className="mt-1 text-xs text-red-600">
-          ออกจากระบบไม่สำเร็จ กรุณาลองใหม่
-        </p>
-      )}
+    <div className="space-y-3">
+      {failed && <Alert tone="danger">ออกจากระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง</Alert>}
+      <Button variant="secondary" fullWidth loading={pending} onClick={logout}>
+        {!pending && <LogOut className="size-5" aria-hidden />}
+        {pending ? 'กำลังออกจากระบบ...' : 'ออกจากระบบ'}
+      </Button>
     </div>
   );
 }
