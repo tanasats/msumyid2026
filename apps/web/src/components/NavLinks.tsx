@@ -15,11 +15,12 @@ type NavItem = {
 /**
  * เมนูหลักชุดเดียวใช้ทุกขนาดจอ: bottom nav (มือถือ) → rail (tablet) → sidebar (desktop)
  * เพิ่มเมนูเมื่อมีหน้าของฟังก์ชันนั้นจริง (ไม่เกิน 5 รายการเพราะ bottom nav แสดงได้เท่านั้น)
+ * ป้ายต้องกว้างไม่เกิน 56px ที่ text-xs ตัวหนา (พื้นที่ข้อความของ rail บน tablet) ไม่เช่นนั้นจะตัดบรรทัดกลางคำ
  */
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'หน้าหลัก', icon: House },
-  { href: '/admin/users', label: 'ผู้ใช้', icon: Users, permission: 'user:read' },
-  { href: '/account', label: 'บัญชี', icon: UserRound },
+  { href: '/admin/users', label: 'ผู้ใช้ระบบ', icon: Users, permission: 'user:read' },
+  { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];
 
 function isActive(pathname: string, href: string) {
