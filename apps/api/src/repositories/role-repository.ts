@@ -151,3 +151,20 @@ export async function revokeRoleByActor(
   );
   return (result.rowCount ?? 0) > 0;
 }
+
+/** role ที่ผู้ใช้ถืออยู่ เฉพาะ code ที่ระบุ (เช่น หา role ประเภทบัญชีเดิมก่อนเปลี่ยนประเภท) — ANY(array) = อยู่ในรายการ */
+export async function findUserRolesByCodes(db: Queryable, userId: string, codes: string[]): Promise<RoleRow[]> {
+  const result = await db.query<RoleRow>(
+    `SELECT r.id,
+            r.code,
+            r.name_th       AS "nameTh",
+            r.is_system     AS "isSystem",
+            r.is_privileged AS "isPrivileged"
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = $1
+       AND r.code = ANY($2::text[])`,
+    [userId, codes],
+  );
+  return result.rows;
+}

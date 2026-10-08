@@ -59,6 +59,7 @@ export async function findUsersByEmail(db: Queryable, email: string): Promise<Us
  * - (xmax = 0) เป็นวิธีมาตรฐานของ PostgreSQL บอกว่าแถวนี้เพิ่ง INSERT (แถวที่ถูก UPDATE จะมี xmax ไม่เป็น 0)
  * - org_unit_id หาจากรหัสคณะด้วย subquery ได้ NULL ถ้าไม่พบ
  * - display_name เลือกตามลำดับด้วย COALESCE (ค่าแรกที่ไม่เป็น NULL):
+ *     0) ชื่อที่ผู้ดูแลกำหนด (display_name_override) — ERP/Google ไม่ทับ
  *     1) ชื่อจาก ERP ที่ได้ใน login ครั้งนี้
  *     2) ชื่อจาก staff_profiles ที่เคยเก็บไว้ (ERP ล่มครั้งนี้ ชื่อบุคลากรไม่กลับไปเป็นชื่อ Google)
  *     3) ชื่อจาก Google (นิสิต/บุคลากรภายนอก หรือบุคลากรที่ยังไม่เคยดึง ERP สำเร็จ)
@@ -75,6 +76,7 @@ export async function upsertGoogleUser(db: Queryable, input: UpsertGoogleUserInp
        SET email         = EXCLUDED.email,
            name          = EXCLUDED.name,
            display_name  = COALESCE(
+                             users.display_name_override,
                              $8::text,
                              (SELECT sp.first_name_th || ' ' || sp.last_name_th
                               FROM staff_profiles sp

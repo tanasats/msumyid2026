@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
-import { History } from 'lucide-react';
+import Link from 'next/link';
+import { History, Pencil } from 'lucide-react';
 import { UserAccountActions } from '@/components/admin/UserAccountActions';
 import { UserRoleManager } from '@/components/admin/UserRoleManager';
 import { Alert } from '@/components/Alert';
 import { Avatar } from '@/components/Avatar';
+import { buttonClasses } from '@/components/Button';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { StaffProfileCard } from '@/components/StaffProfileCard';
@@ -84,6 +86,16 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
               </InfoRow>
             )}
           </InfoList>
+
+          {manageable && can('user:update') && (
+            <Link
+              href={`/admin/users/${user.id}/edit`}
+              className={`${buttonClasses({ variant: 'secondary', fullWidth: true })} mt-4`}
+            >
+              <Pencil className="size-5" aria-hidden />
+              แก้ไขข้อมูล
+            </Link>
+          )}
         </section>
 
         <UserRoleManager

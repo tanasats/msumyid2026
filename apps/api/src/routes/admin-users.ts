@@ -8,10 +8,12 @@ import {
   deactivateUser,
   getUserDetail,
   grantRole,
+  listOrgUnits,
   listRolesForActor,
   rejectUser,
   revokeRole,
   searchUsers,
+  updateUser,
 } from '../services/user-admin-service.js';
 
 export const adminUsersRouter = Router();
@@ -137,3 +139,30 @@ adminUsersRouter.delete(
     res.status(204).end();
   },
 );
+
+// สิทธิ์: user:read — หน่วยงานที่ใช้งานอยู่ (ตัวเลือกในฟอร์มแก้ไขผู้ใช้)
+adminUsersRouter.get('/admin/org-units', requirePermission(PERMISSIONS.USER_READ), async (_req, res) => {
+  res.json({ orgUnits: await listOrgUnits() });
+});
+
+// ช่องที่ไม่ส่งมา = ไม่แก้, null = ล้างค่า, ชื่อแสดงเป็นข้อความว่าง = ล้างค่า (กลับไปใช้ชื่อจาก ERP/Google)
+const updateBody = z.object({
+  displayNameOverride: z
+    .string()
+    .trim()
+    .max(200)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v)),
+  accountType: z.enum(['student', 'staff', 'external']).optional(),
+  orgUnitId: z.uuid().nullable().optional(),
+  reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
+});
+
+// สิทธิ์: user:update — แก้ไขชื่อแสดง ประเภทบัญชี หน่วยงาน
+adminUsersRouter.patch('/admin/users/:id', requirePermission(PERMISSIONS.USER_UPDATE), async (req, res) => {
+  const { id } = userIdParams.parse(req.params);
+  const { reason, ...input } = updateBody.parse(req.body);
+  await updateUser(req.user!, id, input, reason);
+  res.status(204).end();
+});

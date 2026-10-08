@@ -28,7 +28,7 @@
 | ระยะ | งาน | สถานะ |
 |---|---|---|
 | 1 | รายการ/ค้นหา/รายละเอียด, ปิด/เปิดบัญชี, ให้/ถอน role, อนุมัติ/ไม่อนุมัติบุคลากรภายนอก, audit log | เสร็จ |
-| 2 | แก้ไขข้อมูล: ชื่อแสดง (`display_name_override`), หน่วยงาน, ประเภทบัญชี | ยังไม่ทำ |
+| 2 | แก้ไขข้อมูล: ชื่อแสดง (`display_name_override`), หน่วยงาน (เฉพาะนิสิต/บุคลากรภายนอก), ประเภทบัญชี | เสร็จ |
 | 3 | ลบข้อมูลส่วนบุคคล (ต้องพิมพ์อีเมลยืนยัน) | ยังไม่ทำ |
 | 4 | ลงทะเบียนล่วงหน้าด้วยอีเมล + ผูกบัญชี Google ตอน login | ยังไม่ทำ |
 | แยก | บัญชีแบบรหัสผ่าน (ต้องมีระบบอีเมลก่อน) | ยังไม่ทำ |
@@ -43,5 +43,7 @@
 | POST | `/admin/users/:id/deactivate` · `/activate` (บังคับเหตุผล) | `user:deactivate` |
 | POST | `/admin/users/:id/approve` (เหตุผลไม่บังคับ) · `/reject` (บังคับ) | `user:approve` |
 | POST · DELETE | `/admin/users/:id/roles/:roleCode` (บังคับเหตุผล) | `user_role:assign` |
+| PATCH | `/admin/users/:id` (`displayNameOverride`, `accountType`, `orgUnitId` + บังคับเหตุผล) | `user:update` |
+| GET | `/admin/org-units` | `user:read` |
 
 รายการผู้ใช้แบ่งหน้าแบบ keyset ด้วย `id` (uuidv7 เรียงตามเวลาสร้าง) และค้นหาบางส่วนด้วย index `pg_trgm`

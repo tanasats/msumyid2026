@@ -10,6 +10,7 @@ import {
   lockManagedUser,
   setApprovalStatus,
   setUserActive,
+  updateUserProfile,
   type ListUsersFilter,
   type ManagedUserRow,
   type UserDetailRow,
@@ -18,13 +19,15 @@ import {
 } from '../repositories/admin-user-repository.js';
 import {
   findRoleByCode,
+  findUserRolesByCodes,
   grantRoleByActor,
   listRoles,
   lockActiveRoleHolderIds,
   revokeRoleByActor,
   type RoleRow,
 } from '../repositories/role-repository.js';
-import { deleteSessionsByUser } from '../repositories/session-repository.js';
+import { findActiveOrgUnit, listActiveOrgUnits, type OrgUnitRow } from '../repositories/org-unit-repository.js';
+import { deleteSessionsByUser, type AccountType } from '../repositories/session-repository.js';
 import { findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { SUPER_ADMIN_ROLE } from './permissions.js';
@@ -235,4 +238,87 @@ export async function revokeRole(actor: AuthUser, userId: string, roleCode: stri
 
 function notFound(): AppError {
   return new AppError(404, 'USER_NOT_FOUND', 'ไม่พบผู้ใช้');
+}
+
+export function listOrgUnits(): Promise<OrgUnitRow[]> {
+  return listActiveOrgUnits(pool);
+}
+
+export type UpdateUserInput = {
+  /** undefined = ไม่แก้, null = ล้าง (กลับไปใช้ชื่อจาก ERP/Google) */
+  displayNameOverride?: string | null;
+  accountType?: AccountType;
+  /** undefined = ไม่แก้, null = ไม่ระบุหน่วยงาน */
+  orgUnitId?: string | null;
+};
+
+// role ประเภทบัญชี — code ตรงกับค่า account_type (แบบเดียวกับที่ระบบให้ตอน login)
+const ACCOUNT_TYPE_ROLES: AccountType[] = ['student', 'staff', 'external'];
+
+/**
+ * แก้ไขข้อมูลผู้ใช้ (ชื่อแสดง, ประเภทบัญชี, หน่วยงาน) — เฉพาะช่องที่ส่งมาและค่าเปลี่ยนจริง
+ * - หน่วยงานของบุคลากรมาจาก ERP ทุกครั้งที่ login จึงแก้เองไม่ได้
+ * - เปลี่ยนประเภทบัญชี → ถอน role ประเภทเดิม ให้ role ประเภทใหม่ (external ให้เมื่ออนุมัติแล้วเท่านั้น)
+ * - audit log ไม่บันทึกค่าชื่อ (PDPA) บันทึกแค่ว่าเปลี่ยน
+ */
+export async function updateUser(
+  actor: AuthUser,
+  userId: string,
+  input: UpdateUserInput,
+  reason: string,
+): Promise<void> {
+  await withTransaction(async (client) => {
+    const target = await lockTarget(client, actor, userId);
+    const changes: Record<string, unknown> = {};
+    const nextAccountType = input.accountType ?? target.accountType;
+
+    const displayNameChanged =
+      input.displayNameOverride !== undefined && input.displayNameOverride !== target.displayNameOverride;
+    if (displayNameChanged) {
+      changes.displayName = input.displayNameOverride === null ? 'reset' : 'changed';
+    }
+
+    const accountTypeChanged = input.accountType !== undefined && input.accountType !== target.accountType;
+    if (accountTypeChanged) {
+      changes.accountType = { from: target.accountType, to: input.accountType };
+    }
+
+    const orgUnitChanged = input.orgUnitId !== undefined && input.orgUnitId !== target.orgUnitId;
+    if (orgUnitChanged) {
+      if (nextAccountType === 'staff') {
+        throw new AppError(409, 'ORG_UNIT_FROM_ERP', 'หน่วยงานของบุคลากรมาจากระบบ ERP แก้ไขเองไม่ได้');
+      }
+      if (input.orgUnitId && !(await findActiveOrgUnit(client, input.orgUnitId))) {
+        throw new AppError(400, 'ORG_UNIT_NOT_FOUND', 'ไม่พบหน่วยงานที่เลือก');
+      }
+      changes.orgUnitId = { from: target.orgUnitId, to: input.orgUnitId };
+    }
+
+    if (Object.keys(changes).length === 0) {
+      throw new AppError(400, 'NO_CHANGES', 'ไม่มีข้อมูลที่เปลี่ยนแปลง');
+    }
+
+    await updateUserProfile(client, {
+      userId,
+      displayNameOverride: displayNameChanged ? input.displayNameOverride : undefined,
+      accountType: accountTypeChanged ? input.accountType : undefined,
+      orgUnitId: orgUnitChanged ? input.orgUnitId : undefined,
+    });
+
+    if (accountTypeChanged) {
+      const roleReason = `เปลี่ยนประเภทบัญชี: ${reason}`;
+      const heldAccountRoles = await findUserRolesByCodes(client, userId, ACCOUNT_TYPE_ROLES);
+      for (const role of heldAccountRoles.filter((r) => r.code !== nextAccountType)) {
+        await revokeRoleByActor(client, { userId, roleId: role.id, actorId: actor.id, reason: roleReason });
+      }
+      if (nextAccountType !== 'external' || target.approvalStatus === 'approved') {
+        const newRole = await findRoleByCode(client, nextAccountType);
+        if (newRole) {
+          await grantRoleByActor(client, { userId, roleId: newRole.id, actorId: actor.id, reason: roleReason });
+        }
+      }
+    }
+
+    await insertUserAuditLog(client, { actorId: actor.id, targetUserId: userId, action: 'update', changes, reason });
+  });
 }

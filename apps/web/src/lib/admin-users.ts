@@ -47,7 +47,10 @@ export type UserDetail = {
     approvalStatus: ApprovalStatus;
     isActive: boolean;
     hasGoogleAccount: boolean;
+    orgUnitId: string | null;
     orgUnitNameTh: string | null;
+    /** ชื่อที่ผู้ดูแลกำหนดเอง (null = ใช้ชื่อจาก ERP/Google) */
+    displayNameOverride: string | null;
     lastLoginAt: string | null;
     createdAt: string;
     approvedAt: string | null;
@@ -108,4 +111,11 @@ export async function getUserDetail(id: string): Promise<UserDetail | null> {
 export async function listAssignableRoles(): Promise<AssignableRole[]> {
   const { roles } = await adminFetch<{ roles: AssignableRole[] }>('/admin/roles');
   return roles;
+}
+
+export type OrgUnit = { id: string; code: string; nameTh: string };
+
+export async function listOrgUnits(): Promise<OrgUnit[]> {
+  const { orgUnits } = await adminFetch<{ orgUnits: OrgUnit[] }>('/admin/org-units');
+  return orgUnits;
 }

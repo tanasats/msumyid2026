@@ -2,9 +2,10 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
+import { upsertGoogleUser } from '../src/repositories/user-repository.js';
 import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
 
-// ระบบจัดการบัญชีผู้ใช้ (ระยะ 1) — ฐานข้อมูลจริง app_test (CLAUDE.md หัวข้อ 15)
+// ระบบจัดการบัญชีผู้ใช้ — ฐานข้อมูลจริง app_test (CLAUDE.md หัวข้อ 15)
 
 const app = createApp();
 const ORIGIN = 'http://localhost:3010';
@@ -387,5 +388,163 @@ describe('user_audit_logs', () => {
     await post(`/admin/users/${target.id}/deactivate`, admin.cookie, { reason: 'ทดสอบ' });
     await expect(pool.query(`UPDATE user_audit_logs SET reason = 'แก้'`)).rejects.toThrow('แก้ไขหรือลบไม่ได้');
     await expect(pool.query(`DELETE FROM user_audit_logs`)).rejects.toThrow('แก้ไขหรือลบไม่ได้');
+  });
+});
+
+describe('แก้ไขข้อมูลผู้ใช้ (PATCH /admin/users/:id)', () => {
+  function patch(path: string, cookie: string, body: object) {
+    return request(app).patch(path).set('Cookie', cookie).set('Origin', ORIGIN).send(body);
+  }
+
+  async function userRow(id: string) {
+    const { rows } = await pool.query(
+      `SELECT u.name, u.display_name, u.display_name_override, u.account_type, ou.code AS org_unit_code, u.google_sub
+       FROM users u LEFT JOIN org_units ou ON ou.id = u.org_unit_id WHERE u.id = $1`,
+      [id],
+    );
+    return rows[0];
+  }
+
+  async function orgUnitId(code: string): Promise<string> {
+    const { rows } = await pool.query(`SELECT id FROM org_units WHERE code = $1`, [code]);
+    return rows[0].id;
+  }
+
+  it('ตั้งชื่อแสดงเอง: ใช้แทนชื่อเดิม และ log ไม่เก็บค่าชื่อ (PDPA)', async () => {
+    const admin = await superAdmin();
+    const target = await createUser({ name: 'ชื่อจาก Google' });
+
+    const res = await patch(`/admin/users/${target.id}`, admin.cookie, {
+      displayNameOverride: 'ชื่อที่ผู้ดูแลตั้ง',
+      reason: 'สะกดชื่อผิด',
+    });
+    expect(res.status).toBe(204);
+    expect(await userRow(target.id)).toMatchObject({
+      display_name: 'ชื่อที่ผู้ดูแลตั้ง',
+      display_name_override: 'ชื่อที่ผู้ดูแลตั้ง',
+      name: 'ชื่อจาก Google',
+    });
+    const logs = await auditLogs(target.id);
+    expect(logs).toEqual([
+      { action: 'update', actor_id: admin.id, reason: 'สะกดชื่อผิด', changes: { displayName: 'changed' } },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain('ชื่อที่ผู้ดูแลตั้ง');
+  });
+
+  it('ชื่อที่ผู้ดูแลตั้งไม่ถูกทับเมื่อผู้ใช้ login และได้ชื่อจาก ERP', async () => {
+    const admin = await superAdmin();
+    const target = await createUser({ name: 'ชื่อจาก Google' });
+    await patch(`/admin/users/${target.id}`, admin.cookie, { displayNameOverride: 'ชื่อที่ตั้ง', reason: 'x' });
+
+    const { google_sub } = await userRow(target.id);
+    await upsertGoogleUser(pool, {
+      googleSub: google_sub,
+      email: 'x@msu.ac.th',
+      name: 'Google ใหม่',
+      erpDisplayName: 'ชื่อจาก ERP',
+      pictureUrl: null,
+      accountType: 'staff',
+      orgUnitCode: null,
+      approvalStatus: 'approved',
+    });
+    expect((await userRow(target.id)).display_name).toBe('ชื่อที่ตั้ง');
+  });
+
+  it('ล้างชื่อที่ตั้ง (ข้อความว่าง) → กลับไปใช้ชื่อจาก ERP ถ้ามี ไม่เช่นนั้นชื่อจาก Google', async () => {
+    const admin = await superAdmin();
+    const staff = await createUser({ name: 'Google Staff' });
+    await pool.query(
+      `INSERT INTO staff_profiles (user_id, staff_id, first_name_th, last_name_th, synced_at)
+       VALUES ($1, '1', 'สมหญิง', 'ตัวอย่าง', now())`,
+      [staff.id],
+    );
+    const student = await createUser({ name: 'Google Student', accountType: 'student' });
+
+    for (const id of [staff.id, student.id]) {
+      await patch(`/admin/users/${id}`, admin.cookie, { displayNameOverride: 'ชั่วคราว', reason: 'x' });
+      const res = await patch(`/admin/users/${id}`, admin.cookie, { displayNameOverride: '', reason: 'ใช้ชื่อเดิม' });
+      expect(res.status).toBe(204);
+    }
+    expect(await userRow(staff.id)).toMatchObject({ display_name: 'สมหญิง ตัวอย่าง', display_name_override: null });
+    expect(await userRow(student.id)).toMatchObject({ display_name: 'Google Student', display_name_override: null });
+    expect((await auditLogs(student.id))[1].changes).toEqual({ displayName: 'reset' });
+  });
+
+  it('เปลี่ยนประเภทบัญชี: ถอน role ประเภทเดิม ให้ role ประเภทใหม่ พร้อม log', async () => {
+    const admin = await superAdmin();
+    const target = await createUser({ accountType: 'staff', roles: ['user', 'staff'] });
+
+    const res = await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'student', reason: 'เป็นนิสิต' });
+    expect(res.status).toBe(204);
+    expect((await userRow(target.id)).account_type).toBe('student');
+    expect(await rolesOf(target.id)).toEqual(['student', 'user']);
+
+    const { rows } = await pool.query(
+      `SELECT l.action, r.code, l.reason FROM role_change_logs l JOIN roles r ON r.id = l.role_id
+       WHERE l.target_user_id = $1 ORDER BY l.action DESC`,
+      [target.id],
+    );
+    expect(rows).toEqual([
+      { action: 'revoke', code: 'staff', reason: 'เปลี่ยนประเภทบัญชี: เป็นนิสิต' },
+      { action: 'grant', code: 'student', reason: 'เปลี่ยนประเภทบัญชี: เป็นนิสิต' },
+    ]);
+    expect((await auditLogs(target.id))[0].changes).toEqual({ accountType: { from: 'staff', to: 'student' } });
+  });
+
+  it('เปลี่ยนเป็นบุคลากรภายนอก: ให้ role external เฉพาะบัญชีที่อนุมัติแล้ว', async () => {
+    const admin = await superAdmin();
+    const approved = await createUser({ accountType: 'student', roles: ['user', 'student'] });
+    const pending = await createUser({ accountType: 'student', approvalStatus: 'pending', roles: ['user'] });
+    await patch(`/admin/users/${approved.id}`, admin.cookie, { accountType: 'external', reason: 'x' });
+    await patch(`/admin/users/${pending.id}`, admin.cookie, { accountType: 'external', reason: 'x' });
+    expect(await rolesOf(approved.id)).toEqual(['external', 'user']);
+    expect(await rolesOf(pending.id)).toEqual(['user']);
+  });
+
+  it('แก้หน่วยงานของนิสิตได้ แต่ของบุคลากรไม่ได้ (มาจาก ERP)', async () => {
+    const admin = await superAdmin();
+    const student = await createUser({ accountType: 'student' });
+    const staff = await createUser({ accountType: 'staff' });
+    const unit = await orgUnitId('25');
+
+    const ok = await patch(`/admin/users/${student.id}`, admin.cookie, { orgUnitId: unit, reason: 'x' });
+    expect(ok.status).toBe(204);
+    expect((await userRow(student.id)).org_unit_code).toBe('25');
+
+    const denied = await patch(`/admin/users/${staff.id}`, admin.cookie, { orgUnitId: unit, reason: 'x' });
+    expect(denied.status).toBe(409);
+    expect(denied.body.error.code).toBe('ORG_UNIT_FROM_ERP');
+
+    const missing = await patch(`/admin/users/${student.id}`, admin.cookie, {
+      orgUnitId: crypto.randomUUID(),
+      reason: 'x',
+    });
+    expect(missing.body.error.code).toBe('ORG_UNIT_NOT_FOUND');
+  });
+
+  it('ไม่มีอะไรเปลี่ยน → 400, ไม่มีเหตุผล → 400', async () => {
+    const admin = await superAdmin();
+    const target = await createUser({ accountType: 'staff' });
+    const same = await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'staff', reason: 'x' });
+    expect(same.body.error.code).toBe('NO_CHANGES');
+    expect((await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'student' })).status).toBe(400);
+  });
+
+  it('ต้องมี user:update และห้ามแก้บัญชีของตัวเอง', async () => {
+    const reader = await userWithPermissions('user:read');
+    const target = await createUser();
+    const denied = await patch(`/admin/users/${target.id}`, reader.cookie, { accountType: 'student', reason: 'x' });
+    expect(denied.status).toBe(403);
+
+    const admin = await superAdmin();
+    const self = await patch(`/admin/users/${admin.id}`, admin.cookie, { displayNameOverride: 'ฉัน', reason: 'x' });
+    expect(self.body.error.code).toBe('CANNOT_MANAGE_SELF');
+  });
+
+  it('GET /admin/org-units คืนหน่วยงานที่ใช้งานอยู่', async () => {
+    const admin = await superAdmin();
+    const res = await request(app).get('/admin/org-units').set('Cookie', admin.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.orgUnits).toEqual(expect.arrayContaining([expect.objectContaining({ code: '25' })]));
   });
 });

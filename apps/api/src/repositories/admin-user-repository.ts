@@ -103,7 +103,10 @@ export type UserDetailRow = {
   approvalStatus: ApprovalStatus;
   isActive: boolean;
   hasGoogleAccount: boolean;
+  orgUnitId: string | null;
   orgUnitNameTh: string | null;
+  /** ชื่อที่ผู้ดูแลกำหนดเอง (null = ใช้ชื่อจาก ERP/Google) */
+  displayNameOverride: string | null;
   lastLoginAt: Date | null;
   createdAt: Date;
   approvedAt: Date | null;
@@ -128,7 +131,9 @@ export async function findUserDetail(db: Queryable, userId: string): Promise<Use
             u.approval_status       AS "approvalStatus",
             u.is_active             AS "isActive",
             (u.google_sub IS NOT NULL) AS "hasGoogleAccount",
+            u.org_unit_id           AS "orgUnitId",
             ou.name_th              AS "orgUnitNameTh",
+            u.display_name_override AS "displayNameOverride",
             u.last_login_at         AS "lastLoginAt",
             u.created_at            AS "createdAt",
             u.approved_at           AS "approvedAt",
@@ -160,6 +165,8 @@ export type ManagedUserRow = {
   approvalStatus: ApprovalStatus;
   accountType: AccountType;
   hasPrivilegedRole: boolean;
+  orgUnitId: string | null;
+  displayNameOverride: string | null;
 };
 
 /**
@@ -173,6 +180,8 @@ export async function lockManagedUser(db: Queryable, userId: string): Promise<Ma
             u.is_active       AS "isActive",
             u.approval_status AS "approvalStatus",
             u.account_type    AS "accountType",
+            u.org_unit_id     AS "orgUnitId",
+            u.display_name_override AS "displayNameOverride",
             EXISTS (
               SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
               WHERE ur.user_id = u.id AND r.is_privileged
@@ -283,4 +292,45 @@ export async function listUserHistory(db: Queryable, userId: string, limit: numb
     [userId, limit],
   );
   return result.rows;
+}
+
+export type UpdateUserProfileInput = {
+  userId: string;
+  /** undefined = ไม่แก้, null = ล้าง (กลับไปใช้ชื่อจาก ERP/Google), string = ชื่อใหม่ */
+  displayNameOverride?: string | null;
+  accountType?: AccountType;
+  /** undefined = ไม่แก้, null = ไม่ระบุหน่วยงาน */
+  orgUnitId?: string | null;
+};
+
+/**
+ * แก้ข้อมูลผู้ใช้โดยผู้ดูแล — ช่องที่ไม่ส่งมาคงค่าเดิม
+ * - "ส่งมาหรือไม่" ใช้ flag boolean แยก ($2, $5) เพราะ null มีความหมาย (ล้างค่า) ต่างจาก "ไม่แก้"
+ *   CASE WHEN flag THEN ค่าใหม่ ELSE ค่าเดิม END
+ * - display_name คำนวณใหม่ใน statement เดียวกันตามลำดับเดียวกับตอน login:
+ *   override ใหม่ → ชื่อจาก staff_profiles (ERP) → ชื่อจาก Google
+ *   (ใน SET อ้างค่าใหม่ของคอลัมน์อื่นไม่ได้ จึงเขียน CASE ของ override ซ้ำ)
+ */
+export async function updateUserProfile(db: Queryable, input: UpdateUserProfileInput): Promise<void> {
+  await db.query(
+    `UPDATE users u
+     SET display_name_override = CASE WHEN $2 THEN $3::text ELSE u.display_name_override END,
+         display_name = COALESCE(
+                          CASE WHEN $2 THEN $3::text ELSE u.display_name_override END,
+                          (SELECT sp.first_name_th || ' ' || sp.last_name_th
+                           FROM staff_profiles sp WHERE sp.user_id = u.id),
+                          u.name
+                        ),
+         account_type = COALESCE($4::text, u.account_type),
+         org_unit_id  = CASE WHEN $5 THEN $6::uuid ELSE u.org_unit_id END
+     WHERE u.id = $1`,
+    [
+      input.userId,
+      input.displayNameOverride !== undefined,
+      input.displayNameOverride ?? null,
+      input.accountType ?? null,
+      input.orgUnitId !== undefined,
+      input.orgUnitId ?? null,
+    ],
+  );
 }
