@@ -11,6 +11,7 @@ import {
   grantRole,
   listOrgUnits,
   listRolesForActor,
+  preRegisterUser,
   rejectUser,
   revokeRole,
   searchUsers,
@@ -179,4 +180,24 @@ adminUsersRouter.delete('/admin/users/:id', requirePermission(PERMISSIONS.USER_D
   const { confirmEmail, reason } = deleteBody.parse(req.body);
   await deleteUser(req.user!, id, confirmEmail, reason);
   res.status(204).end();
+});
+
+const createBody = z.object({
+  email: z.email('อีเมลไม่ถูกต้อง').trim().max(320),
+  name: z.string().trim().min(1, 'กรุณากรอกชื่อ').max(200),
+  accountType: z.enum(['student', 'staff', 'external']),
+  orgUnitId: z.uuid().nullable().optional().default(null),
+  reason: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .transform((v) => v || null),
+});
+
+// สิทธิ์: user:create — ลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล (ผูก Google ตอน login ครั้งแรก)
+adminUsersRouter.post('/admin/users', requirePermission(PERMISSIONS.USER_CREATE), async (req, res) => {
+  const { reason, ...input } = createBody.parse(req.body);
+  const { id } = await preRegisterUser(req.user!, input, reason);
+  res.status(201).json({ id });
 });

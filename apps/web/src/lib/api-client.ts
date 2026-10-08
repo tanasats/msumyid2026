@@ -13,7 +13,12 @@ export class ApiClientError extends Error {
   }
 }
 
-export async function apiMutate(path: string, method: 'POST' | 'PATCH' | 'DELETE', body: object = {}): Promise<void> {
+/** ส่งคำขอเปลี่ยนข้อมูล — คืน JSON ที่ API ตอบ (204 No Content = undefined) */
+export async function apiMutate<T = void>(
+  path: string,
+  method: 'POST' | 'PATCH' | 'DELETE',
+  body: object = {},
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${path}`, {
@@ -33,4 +38,5 @@ export async function apiMutate(path: string, method: 'POST' | 'PATCH' | 'DELETE
       data?.error?.message ?? 'ดำเนินการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
     );
   }
+  return (res.status === 204 ? undefined : await res.json()) as T;
 }

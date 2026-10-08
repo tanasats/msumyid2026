@@ -6,7 +6,8 @@ import { grantRoleBySystem } from '../repositories/role-repository.js';
 import type { AccountType } from '../repositories/session-repository.js';
 import { upsertErpOrgUnit } from '../repositories/erp-org-unit-repository.js';
 import { upsertStaffProfile } from '../repositories/staff-profile-repository.js';
-import { syncStaffOrgUnit, upsertGoogleUser } from '../repositories/user-repository.js';
+import { insertUserAuditLog } from '../repositories/admin-user-repository.js';
+import { linkPreRegisteredUser, syncStaffOrgUnit, upsertGoogleUser } from '../repositories/user-repository.js';
 import { erpHr, type ErpStaffInfo } from './erp-hr.js';
 import { googleOAuth, type GoogleAuthRequest } from './google-oauth.js';
 import { createSession } from './session-service.js';
@@ -135,7 +136,27 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       ? await fetchStaffInfoSafely(identity.accessToken)
       : null;
 
+  // บัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้า: ผูกได้เมื่ออีเมลยืนยันแล้ว (ตรวจข้างบน) และอีเมลโดเมน มมส. ต้องมี hd ตรง
+  // (classifyAccount ให้ external เมื่อโดเมน มมส. ไม่มี hd = บัญชี Google ส่วนตัวที่ใช้อีเมล มมส. ห้ามสวมสิทธิ์)
+  const emailDomain = identity.email.slice(identity.email.lastIndexOf('@') + 1).toLowerCase();
+  const canLinkPreRegistered =
+    !config.allowedEmailDomains.includes(emailDomain) || classification.accountType !== 'external';
+
   const result = await withTransaction(async (client) => {
+    // ไม่พบ google_sub นี้ แต่มีบัญชีลงทะเบียนล่วงหน้าด้วยอีเมลนี้ → ผูก google_sub ก่อน
+    // แล้ว upsert ด้านล่างจะเข้าทาง "ผู้ใช้เดิม" (คงประเภทบัญชี/สถานะอนุมัติที่ผู้ดูแลกำหนด)
+    const linkedUserId = canLinkPreRegistered
+      ? await linkPreRegisteredUser(client, { googleSub: identity.sub, email: identity.email })
+      : null;
+    if (linkedUserId) {
+      await insertUserAuditLog(client, {
+        actorId: null,
+        targetUserId: linkedUserId,
+        action: 'link_google',
+        reason: 'ผูกบัญชี Google ตอนเข้าสู่ระบบครั้งแรก',
+      });
+    }
+
     const user = await upsertGoogleUser(client, {
       googleSub: identity.sub,
       email: identity.email,
@@ -176,7 +197,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
     }
 
     const session = await createSession(client, user.id);
-    return { user, grantedRoles, session };
+    return { user, grantedRoles, session, linked: linkedUserId !== null };
   });
 
   if (!result) {
@@ -185,7 +206,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
     return { ok: false, reason: 'ACCOUNT_DISABLED' };
   }
 
-  const { user, grantedRoles, session } = result;
+  const { user, grantedRoles, session, linked } = result;
   if (!user.inserted && user.accountType !== classification.accountType) {
     // ประเภทบัญชีไม่ถูกเปลี่ยนอัตโนมัติ ให้ผู้ดูแลตรวจสอบ
     logger.warn(
@@ -202,6 +223,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       approvalStatus: user.approvalStatus,
       grantedRoles,
       erpSynced: staffInfo !== null,
+      linkedPreRegistered: linked,
     },
     'เข้าสู่ระบบด้วย Google สำเร็จ',
   );

@@ -364,3 +364,23 @@ export async function anonymizeUser(db: Queryable, input: { userId: string; acto
     [input.userId, input.actorId, DELETED_USER_NAME],
   );
 }
+
+/**
+ * ลงทะเบียนผู้ใช้ล่วงหน้า — ยังไม่ผูก Google (google_sub = NULL) จะผูกตอนเจ้าของอีเมล login ครั้งแรก
+ * - name (ชื่อจาก Google) ใช้ชื่อที่ผู้ดูแลกรอกไปก่อน และจะถูกแทนด้วยชื่อจริงจาก Google ตอน login
+ * - อนุมัติไว้แล้ว (approved_by = ผู้ลงทะเบียน) จึงไม่ต้องรออนุมัติแม้เป็นบุคลากรภายนอก
+ * - อีเมลซ้ำกับแถวที่ยังไม่ผูก → unique index ปฏิเสธ (error 23505) ให้ service แปลงเป็นข้อความ
+ */
+export async function insertPreRegisteredUser(
+  db: Queryable,
+  input: { email: string; name: string; accountType: AccountType; orgUnitId: string | null; actorId: string },
+): Promise<string> {
+  const result = await db.query<{ id: string }>(
+    `INSERT INTO users (google_sub, email, name, display_name, account_type, org_unit_id,
+                        approval_status, approved_by, approved_at)
+     VALUES (NULL, lower($1), $2, $2, $3, $4, 'approved', $5, now())
+     RETURNING id`,
+    [input.email, input.name, input.accountType, input.orgUnitId, input.actorId],
+  );
+  return result.rows[0]!.id;
+}

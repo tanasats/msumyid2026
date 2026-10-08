@@ -127,3 +127,31 @@ export async function syncStaffOrgUnit(db: Queryable, userId: string): Promise<v
     [userId],
   );
 }
+
+/**
+ * ผูกบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้า (google_sub = NULL) กับบัญชี Google ตอน login ครั้งแรก
+ * - หาแถวด้วยอีเมล (ไม่สนตัวพิมพ์) — unique index users_pre_registered_email_idx รับประกันว่ามีไม่เกิน 1 แถว
+ * - FOR UPDATE ในซับคิวรีล็อกแถวนั้น กัน login 2 แท็บพร้อมกันผูกซ้ำ
+ * - NOT EXISTS: ถ้า google_sub นี้มีผู้ใช้อยู่แล้ว ไม่ผูก (ผู้ใช้เดิมสำคัญกว่า)
+ * คืน id ของแถวที่ผูก หรือ null ถ้าไม่มีแถวให้ผูก
+ */
+export async function linkPreRegisteredUser(
+  db: Queryable,
+  input: { googleSub: string; email: string },
+): Promise<string | null> {
+  const result = await db.query<{ id: string }>(
+    `UPDATE users
+     SET google_sub = $1
+     WHERE id = (
+             SELECT id FROM users
+             WHERE google_sub IS NULL
+               AND lower(email) = lower($2)
+               AND deleted_at IS NULL
+             FOR UPDATE
+           )
+       AND NOT EXISTS (SELECT 1 FROM users WHERE google_sub = $1)
+     RETURNING id`,
+    [input.googleSub, input.email],
+  );
+  return result.rows[0]?.id ?? null;
+}

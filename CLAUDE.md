@@ -154,7 +154,7 @@ Flow (Authorization Code + PKCE):
 2. API สร้าง `state`, `nonce`, PKCE verifier เก็บใน cookie อายุสั้น (httpOnly) แล้ว redirect ไป Google (scope: `openid email profile`)
 3. Google เรียกกลับ `GET /auth/google/callback` → API ตรวจ `state`, แลก code, **ตรวจ ID token** (signature, `aud`, `iss`, `exp`, `nonce`) ด้วย `google-auth-library`
 4. ต้องได้ `email_verified = true` ไม่เช่นนั้นปฏิเสธ
-5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบให้สร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
+5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบ: ผูกกับบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้าด้วยอีเมลนั้นก่อน (`google_sub` ยังเป็น NULL, อีเมลโดเมน มมส. ต้องมี `hd` ตรง) ถ้าไม่มีจึงสร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
 5.1 แยกประเภทบัญชีจากส่วนหน้า @: ตัวเลข 11 หลักพอดี = นิสิต (ให้ role `student`, คณะ = หลักที่ 5-6 อ้างอิง `org_units.code`, ไม่พบ = NULL) นอกนั้น = บุคลากร (ให้ role `staff` และดึงข้อมูลจาก ERP-HR ด้วย Google access token) ตรวจและให้ role ทุกครั้งที่ login พร้อม log
 6. สร้าง session แล้ว redirect กลับ `WEB_URL`
 7. web ถามผู้ใช้ปัจจุบันจาก `GET /auth/me`, ออกจากระบบด้วย `POST /auth/logout`

@@ -10,6 +10,7 @@ import {
   lockManagedUser,
   setApprovalStatus,
   anonymizeUser,
+  insertPreRegisteredUser,
   setUserActive,
   updateUserProfile,
   type ListUsersFilter,
@@ -30,6 +31,7 @@ import {
 } from '../repositories/role-repository.js';
 import { findActiveOrgUnit, listActiveOrgUnits, type OrgUnitRow } from '../repositories/org-unit-repository.js';
 import { deleteSessionsByUser, type AccountType } from '../repositories/session-repository.js';
+import { findUsersByEmail } from '../repositories/user-repository.js';
 import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { SUPER_ADMIN_ROLE } from './permissions.js';
@@ -361,5 +363,67 @@ export async function deleteUser(
       changes: { personalData: 'deleted', revokedSessions, revokedRoles },
       reason,
     });
+  });
+}
+
+export type PreRegisterInput = {
+  email: string;
+  name: string;
+  accountType: AccountType;
+  orgUnitId: string | null;
+};
+
+/** error ของ PostgreSQL เมื่อชนเงื่อนไข UNIQUE */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+}
+
+/**
+ * ลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล — บัญชีอนุมัติแล้วและได้ role ประเภทบัญชีทันที
+ * จะผูกกับบัญชี Google ตอนเจ้าของอีเมล login ครั้งแรก (google-login-service)
+ */
+export async function preRegisterUser(
+  actor: AuthUser,
+  input: PreRegisterInput,
+  reason: string | null,
+): Promise<{ id: string }> {
+  return withTransaction(async (client) => {
+    if (input.orgUnitId) {
+      if (input.accountType === 'staff') {
+        throw new AppError(409, 'ORG_UNIT_FROM_ERP', 'หน่วยงานของบุคลากรมาจากระบบ ERP กำหนดเองไม่ได้');
+      }
+      if (!(await findActiveOrgUnit(client, input.orgUnitId))) {
+        throw new AppError(400, 'ORG_UNIT_NOT_FOUND', 'ไม่พบหน่วยงานที่เลือก');
+      }
+    }
+
+    // มีผู้ใช้อีเมลนี้อยู่แล้ว (ผูก Google แล้ว หรือลงทะเบียนไว้แล้ว) → ไม่สร้างซ้ำ
+    if ((await findUsersByEmail(client, input.email)).length > 0) {
+      throw new AppError(409, 'EMAIL_EXISTS', 'มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว');
+    }
+
+    let userId: string;
+    try {
+      userId = await insertPreRegisteredUser(client, { ...input, actorId: actor.id });
+    } catch (err) {
+      // ผู้ดูแล 2 คนลงทะเบียนอีเมลเดียวกันพร้อมกัน — unique index กันไว้
+      if (isUniqueViolation(err)) throw new AppError(409, 'EMAIL_EXISTS', 'มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว');
+      throw err;
+    }
+
+    for (const code of ['user', input.accountType]) {
+      const role = await findRoleByCode(client, code);
+      if (role) {
+        await grantRoleByActor(client, { userId, roleId: role.id, actorId: actor.id, reason: 'ลงทะเบียนล่วงหน้า' });
+      }
+    }
+    await insertUserAuditLog(client, {
+      actorId: actor.id,
+      targetUserId: userId,
+      action: 'create',
+      changes: { accountType: input.accountType, preRegistered: true },
+      reason,
+    });
+    return { id: userId };
   });
 }

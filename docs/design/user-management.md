@@ -30,7 +30,7 @@
 | 1 | รายการ/ค้นหา/รายละเอียด, ปิด/เปิดบัญชี, ให้/ถอน role, อนุมัติ/ไม่อนุมัติบุคลากรภายนอก, audit log | เสร็จ |
 | 2 | แก้ไขข้อมูล: ชื่อแสดง (`display_name_override`), หน่วยงาน (เฉพาะนิสิต/บุคลากรภายนอก), ประเภทบัญชี | เสร็จ |
 | 3 | ลบข้อมูลส่วนบุคคล (ต้องพิมพ์อีเมลยืนยัน) | เสร็จ |
-| 4 | ลงทะเบียนล่วงหน้าด้วยอีเมล + ผูกบัญชี Google ตอน login | ยังไม่ทำ |
+| 4 | ลงทะเบียนล่วงหน้าด้วยอีเมล + ผูกบัญชี Google ตอน login (โดเมน มมส. ต้องมี `hd` ตรง) | เสร็จ |
 | แยก | บัญชีแบบรหัสผ่าน (ต้องมีระบบอีเมลก่อน) | ยังไม่ทำ |
 
 ## API
@@ -38,6 +38,7 @@
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/admin/users?q=&status=&accountType=&role=&cursor=` | `user:read` |
+| POST | `/admin/users` (`email`, `name`, `accountType`, `orgUnitId`) — ลงทะเบียนล่วงหน้า อนุมัติไว้แล้ว | `user:create` |
 | GET | `/admin/roles` | `user:read` |
 | GET | `/admin/users/:id` | `user:read` |
 | POST | `/admin/users/:id/deactivate` · `/activate` (บังคับเหตุผล) | `user:deactivate` |

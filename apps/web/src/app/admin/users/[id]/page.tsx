@@ -54,6 +54,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
     <PageShell title={user.displayName} backHref="/admin/users" user={currentUser} width="form">
       <div className="space-y-6">
         {isSelf && <Alert tone="info">นี่คือบัญชีของคุณ — แก้ไขบทบาทหรือปิดบัญชีของตัวเองไม่ได้</Alert>}
+        {!user.hasGoogleAccount && (
+          <Alert tone="info" title="ลงทะเบียนล่วงหน้า — ยังไม่เคยเข้าสู่ระบบ">
+            บัญชีจะผูกกับบัญชี Google อัตโนมัติเมื่อผู้ใช้เข้าสู่ระบบด้วยอีเมล {user.email} ครั้งแรก
+          </Alert>
+        )}
 
         <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
           <div className="flex items-center gap-4">
