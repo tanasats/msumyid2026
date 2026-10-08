@@ -16,7 +16,7 @@ export default async function HomePage() {
       <div className="space-y-6">
         <section>
           <h2 className="text-xl font-semibold lg:text-2xl">สวัสดี {user.name}</h2>
-          <p className="mt-1 text-muted">ยินดีต้อนรับสู่ระบบบริหารจัดการใบรับรองดิจิทัล</p>
+          <p className="mt-1 text-muted">ยินดีต้อนรับสู่ MSU Digital ID</p>
         </section>
 
         <div className="rounded-xl border border-line bg-surface">

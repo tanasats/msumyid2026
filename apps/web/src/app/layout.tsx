@@ -10,8 +10,8 @@ const notoSansThai = Noto_Sans_Thai({
 
 export const metadata: Metadata = {
   title: {
-    default: 'ระบบบริหารจัดการใบรับรองดิจิทัล | มหาวิทยาลัยมหาสารคาม',
-    template: '%s | ระบบบริหารจัดการใบรับรองดิจิทัล',
+    default: 'MSU Digital ID | มหาวิทยาลัยมหาสารคาม',
+    template: '%s | MSU Digital ID',
   },
   description: 'ระบบบริการใบรับรองดิจิทัลแบบครบวงจร มหาวิทยาลัยมหาสารคาม',
 };

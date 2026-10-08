@@ -35,7 +35,7 @@ export function PageShell({ children, title, backHref, user, width = 'wide' }: P
           <div className="flex h-14 items-center justify-center gap-2 border-b border-line lg:justify-start lg:px-5">
             <ShieldCheck className="size-7 shrink-0 text-primary" aria-hidden />
             <span className="hidden text-sm leading-tight font-semibold lg:block">
-              ใบรับรองดิจิทัล
+              MSU Digital ID
               <span className="block text-xs font-normal text-muted">มหาวิทยาลัยมหาสารคาม</span>
             </span>
           </div>
@@ -65,7 +65,7 @@ export function PageShell({ children, title, backHref, user, width = 'wide' }: P
               <h1 className="truncate text-lg font-semibold">{title}</h1>
             ) : (
               <p className="truncate text-base leading-tight font-semibold">
-                ระบบบริหารจัดการใบรับรองดิจิทัล
+                MSU Digital ID
                 <span className="block text-xs font-normal text-muted">มหาวิทยาลัยมหาสารคาม</span>
               </p>
             )}
