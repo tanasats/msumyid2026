@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import type { AccountType } from './account-type';
 import { ApiError, apiFetch } from './api-server';
 
 export type CurrentUser = {
@@ -6,7 +7,7 @@ export type CurrentUser = {
   email: string;
   name: string;
   pictureUrl: string | null;
-  accountType: 'student' | 'staff' | 'external';
+  accountType: AccountType;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   roles: string[];
   /** ใช้ซ่อน/แสดงเมนูเท่านั้น การตรวจสิทธิ์จริงอยู่ที่ API */
@@ -28,8 +29,5 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   }
 });
 
-export const ACCOUNT_TYPE_LABELS: Record<CurrentUser['accountType'], string> = {
-  student: 'นิสิต',
-  staff: 'บุคลากร',
-  external: 'บุคลากรภายนอก',
-};
+// Server Component ยัง import จากที่นี่ได้ ส่วน Client Component ให้ import จาก ./account-type โดยตรง
+export { ACCOUNT_TYPE_LABELS } from './account-type';

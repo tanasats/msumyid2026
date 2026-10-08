@@ -8,7 +8,7 @@ import { Button, buttonClasses } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import type { AccountType, OrgUnit } from '@/lib/admin-users';
 import { apiMutate } from '@/lib/api-client';
-import { ACCOUNT_TYPE_LABELS } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS } from '@/lib/account-type';
 
 const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-slate-100';
 
