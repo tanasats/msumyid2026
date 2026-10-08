@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { seedInitialSuperAdmin } from '../src/services/super-admin-seed-service.js';
 import { createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { PERMISSIONS } from '../src/services/permissions.js';
 
 const app = createApp();
 const EMAIL = 'admin.first@msu.ac.th';
@@ -112,6 +113,7 @@ describe('seedInitialSuperAdmin', () => {
 
     const res = await request(app).get('/auth/me').set('Cookie', cookie);
     expect(res.body.user.roles).toContain('super_admin');
-    expect(res.body.user.permissions).toEqual(['user:approve', 'user_role:assign']);
+    // ต้องตรงกับ permission ที่ประกาศในโค้ด (ตรวจว่า migration ลงทะเบียนครบด้วย)
+    expect([...res.body.user.permissions].sort()).toEqual(Object.values(PERMISSIONS).sort());
   });
 });
