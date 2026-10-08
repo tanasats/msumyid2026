@@ -21,9 +21,11 @@ import { revokeSession } from '../services/session-service.js';
 
 export const authRouter = Router();
 
-// จำกัดจำนวนครั้งต่อ IP สำหรับ /auth/* (CLAUDE.md หัวข้อ 7)
+// จำกัดจำนวนครั้งต่อ IP เฉพาะขั้นตอนเข้าสู่ระบบ (/auth/google และ /auth/google/callback)
+// ไม่จำกัด /auth/me และ /auth/logout: หน้าเว็บเรียก /auth/me จาก Next.js server ทุกครั้งที่เปิดหน้า
+// API จึงเห็นทุกคำขอมาจาก IP เดียวกัน ถ้าจำกัดไว้ ผู้ใช้ทั้งระบบจะใช้โควตาร่วมกันและถูกบล็อกพร้อมกัน
 authRouter.use(
-  '/auth',
+  '/auth/google',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 100,

@@ -142,7 +142,7 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - error ทุกตัวไปจบที่ error middleware ตัวเดียว รูปแบบ `{ "error": { "code": "...", "message": "..." } }` ห้ามส่ง stack trace หรือรายละเอียด SQL ออกไป
 - Middleware ที่ต้องมี: `helmet`, `cors`, `cookie-parser`, JSON body limit, request logger (`pino`), error handler
 - **CORS:** `origin` ต้องเป็นค่าจาก `CORS_ORIGIN` เท่านั้น (ห้าม `*`) และเปิด `credentials: true`
-- ใส่ rate limit (`express-rate-limit`) ที่ endpoint `/auth/*`
+- ใส่ rate limit (`express-rate-limit`) ที่ขั้นตอนเข้าสู่ระบบ (`/auth/google`, `/auth/google/callback` และ login ด้วยรหัสผ่านในอนาคต) — **ห้าม**จำกัด `/auth/me` เพราะ Next.js เรียกจาก server ทุกหน้า (IP เดียวกันทุกผู้ใช้) จะทำให้ทั้งระบบถูกบล็อก
 - ต้องมี `GET /health` ที่ตรวจการเชื่อมต่อ database
 - Graceful shutdown: ปิด HTTP server แล้วค่อย `pool.end()`
 
