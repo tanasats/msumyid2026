@@ -18,6 +18,11 @@ import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
 export const metadata: Metadata = { title: 'รายละเอียดผู้ใช้' };
 
 const dateTime = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+const dateOnly = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long' });
+
+function isPast(iso: string): boolean {
+  return new Date(iso).getTime() <= Date.now();
+}
 
 const USER_ACTION_LABELS: Record<string, string> = {
   create: 'ลงทะเบียนบัญชี',
@@ -28,6 +33,7 @@ const USER_ACTION_LABELS: Record<string, string> = {
   approve: 'อนุมัติบัญชี',
   reject: 'ไม่อนุมัติบัญชี',
   link_google: 'ผูกบัญชี Google',
+  expire: 'ปิดบัญชีอัตโนมัติ (หมดอายุ)',
 };
 
 function historyLabel(item: UserHistoryItem): string {
@@ -49,6 +55,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
 
   const { user, staffProfile, history, manageable, isSelf } = detail;
   const can = (permission: string) => currentUser.permissions.includes(permission);
+  const isService = user.accountType === 'service';
+  // บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ (API ตรวจซ้ำ)
+  const missingForApproval = isService
+    ? [!user.orgUnitId && 'หน่วยงาน', !user.responsibleUser && 'ผู้รับผิดชอบ'].filter((v): v is string => Boolean(v))
+    : [];
 
   return (
     <PageShell title={user.displayName} backHref="/admin/users" user={currentUser} width="form">
@@ -57,6 +68,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         {!user.hasGoogleAccount && (
           <Alert tone="info" title="ลงทะเบียนล่วงหน้า — ยังไม่เคยเข้าสู่ระบบ">
             บัญชีจะผูกกับบัญชี Google อัตโนมัติเมื่อผู้ใช้เข้าสู่ระบบด้วยอีเมล {user.email} ครั้งแรก
+          </Alert>
+        )}
+        {user.approvalStatus !== 'approved' && missingForApproval.length > 0 && (
+          <Alert tone="warning" title="ยังอนุมัติไม่ได้">
+            บัญชีหน่วยงานต้องกำหนด{missingForApproval.join('และ')}ก่อน — กด &quot;แก้ไขข้อมูล&quot; เพื่อกำหนด
           </Alert>
         )}
 
@@ -76,6 +92,29 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
           <InfoList className="mt-6">
             {user.googleName !== user.displayName && <InfoRow label="ชื่อในบัญชี Google">{user.googleName}</InfoRow>}
             <InfoRow label="หน่วยงาน">{user.orgUnitNameTh ?? <span className="text-subtle">ไม่ระบุ</span>}</InfoRow>
+            {isService && (
+              <InfoRow label="ผู้รับผิดชอบ">
+                {user.responsibleUser ? (
+                  <Link href={`/admin/users/${user.responsibleUser.id}`} className="text-primary underline">
+                    {user.responsibleUser.displayName}
+                  </Link>
+                ) : (
+                  <span className="text-subtle">ยังไม่กำหนด</span>
+                )}
+              </InfoRow>
+            )}
+            {isService && (
+              <InfoRow label="วันหมดอายุ">
+                {user.accountExpiresAt ? (
+                  <>
+                    {dateOnly.format(new Date(user.accountExpiresAt))}
+                    {isPast(user.accountExpiresAt) && <span className="text-red-800"> (หมดอายุแล้ว)</span>}
+                  </>
+                ) : (
+                  <span className="text-subtle">ไม่หมดอายุ</span>
+                )}
+              </InfoRow>
+            )}
             <InfoRow label="เข้าระบบล่าสุด">
               {user.lastLoginAt ? dateTime.format(new Date(user.lastLoginAt)) : <span className="text-subtle">ยังไม่เคย</span>}
             </InfoRow>
@@ -119,6 +158,10 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             email={user.email}
             isActive={user.isActive}
             approvalStatus={user.approvalStatus}
+            accountType={user.accountType}
+            approveBlockedReason={
+              missingForApproval.length > 0 ? `กำหนด${missingForApproval.join('และ')}ก่อนจึงจะอนุมัติได้` : undefined
+            }
             canApprove={can('user:approve')}
             canDeactivate={can('user:deactivate')}
             canDelete={can('user:delete')}

@@ -113,12 +113,17 @@ export type UserDetailRow = {
   approvedByName: string | null;
   deactivatedAt: Date | null;
   deactivatedByName: string | null;
+  /** วันหมดอายุของบัญชี (บัญชีหน่วยงาน) — null = ไม่หมดอายุ */
+  accountExpiresAt: Date | null;
+  /** ผู้รับผิดชอบบัญชีหน่วยงาน */
+  responsibleUser: { id: string; displayName: string; email: string } | null;
   roles: { code: string; nameTh: string; isSystem: boolean; isPrivileged: boolean; grantedAt: Date }[];
 };
 
 /**
  * รายละเอียดผู้ใช้ 1 คน — ชื่อผู้อนุมัติ/ผู้ปิดบัญชีด้วย LEFT JOIN users ซ้ำ (self join) คนละ alias
  * roles: json_agg รวม role เป็น array ของ object ในแถวเดียว (COALESCE กันได้ NULL เมื่อไม่มี role)
+ * responsibleUser: CASE คืน NULL เมื่อไม่มีผู้รับผิดชอบ ไม่เช่นนั้นสร้าง object จาก self join อีกตัว
  */
 export async function findUserDetail(db: Queryable, userId: string): Promise<UserDetailRow | null> {
   const result = await db.query<UserDetailRow>(
@@ -140,6 +145,11 @@ export async function findUserDetail(db: Queryable, userId: string): Promise<Use
             approver.display_name   AS "approvedByName",
             u.deactivated_at        AS "deactivatedAt",
             deactivator.display_name AS "deactivatedByName",
+            u.account_expires_at    AS "accountExpiresAt",
+            CASE WHEN responsible.id IS NULL THEN NULL
+                 ELSE json_build_object('id', responsible.id, 'displayName', responsible.display_name,
+                                        'email', responsible.email)
+            END                     AS "responsibleUser",
             COALESCE((
               SELECT json_agg(json_build_object(
                        'code', r.code, 'nameTh', r.name_th, 'isSystem', r.is_system,
@@ -152,6 +162,7 @@ export async function findUserDetail(db: Queryable, userId: string): Promise<Use
      LEFT JOIN org_units ou ON ou.id = u.org_unit_id
      LEFT JOIN users approver ON approver.id = u.approved_by
      LEFT JOIN users deactivator ON deactivator.id = u.deactivated_by
+     LEFT JOIN users responsible ON responsible.id = u.responsible_user_id
      WHERE u.id = $1
        AND u.deleted_at IS NULL`,
     [userId],
@@ -168,6 +179,8 @@ export type ManagedUserRow = {
   hasPrivilegedRole: boolean;
   orgUnitId: string | null;
   displayNameOverride: string | null;
+  accountExpiresAt: Date | null;
+  responsibleUserId: string | null;
 };
 
 /**
@@ -184,6 +197,8 @@ export async function lockManagedUser(db: Queryable, userId: string): Promise<Ma
             u.account_type    AS "accountType",
             u.org_unit_id     AS "orgUnitId",
             u.display_name_override AS "displayNameOverride",
+            u.account_expires_at    AS "accountExpiresAt",
+            u.responsible_user_id   AS "responsibleUserId",
             EXISTS (
               SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
               WHERE ur.user_id = u.id AND r.is_privileged
@@ -197,10 +212,10 @@ export async function lockManagedUser(db: Queryable, userId: string): Promise<Ma
   return result.rows[0] ?? null;
 }
 
-/** ปิด/เปิดบัญชี — เปิดคืนล้างข้อมูลผู้ปิด */
+/** ปิด/เปิดบัญชี — เปิดคืนล้างข้อมูลผู้ปิด, actorId = null คือระบบปิดเอง (บัญชีหมดอายุ) */
 export async function setUserActive(
   db: Queryable,
-  input: { userId: string; active: boolean; actorId: string },
+  input: { userId: string; active: boolean; actorId: string | null },
 ): Promise<void> {
   await db.query(
     `UPDATE users
@@ -235,7 +250,8 @@ export type UserAuditAction =
   | 'delete'
   | 'approve'
   | 'reject'
-  | 'link_google';
+  | 'link_google'
+  | 'expire';
 
 /** บันทึกประวัติการจัดการบัญชี — changes ห้ามมีค่าข้อมูลส่วนบุคคล (ดูคอมเมนต์ใน migration) */
 export async function insertUserAuditLog(
@@ -303,11 +319,15 @@ export type UpdateUserProfileInput = {
   accountType?: AccountType;
   /** undefined = ไม่แก้, null = ไม่ระบุหน่วยงาน */
   orgUnitId?: string | null;
+  /** undefined = ไม่แก้, null = ไม่หมดอายุ */
+  accountExpiresAt?: Date | null;
+  /** undefined = ไม่แก้, null = ไม่มีผู้รับผิดชอบ */
+  responsibleUserId?: string | null;
 };
 
 /**
  * แก้ข้อมูลผู้ใช้โดยผู้ดูแล — ช่องที่ไม่ส่งมาคงค่าเดิม
- * - "ส่งมาหรือไม่" ใช้ flag boolean แยก ($2, $5) เพราะ null มีความหมาย (ล้างค่า) ต่างจาก "ไม่แก้"
+ * - "ส่งมาหรือไม่" ใช้ flag boolean แยก ($2, $5, $7, $9) เพราะ null มีความหมาย (ล้างค่า) ต่างจาก "ไม่แก้"
  *   CASE WHEN flag THEN ค่าใหม่ ELSE ค่าเดิม END
  * - display_name คำนวณใหม่ใน statement เดียวกันตามลำดับเดียวกับตอน login:
  *   override ใหม่ → ชื่อจาก staff_profiles (ERP) → ชื่อจาก Google
@@ -324,7 +344,9 @@ export async function updateUserProfile(db: Queryable, input: UpdateUserProfileI
                           u.name
                         ),
          account_type = COALESCE($4::text, u.account_type),
-         org_unit_id  = CASE WHEN $5 THEN $6::uuid ELSE u.org_unit_id END
+         org_unit_id  = CASE WHEN $5 THEN $6::uuid ELSE u.org_unit_id END,
+         account_expires_at  = CASE WHEN $7 THEN $8::timestamptz ELSE u.account_expires_at END,
+         responsible_user_id = CASE WHEN $9 THEN $10::uuid ELSE u.responsible_user_id END
      WHERE u.id = $1`,
     [
       input.userId,
@@ -333,6 +355,10 @@ export async function updateUserProfile(db: Queryable, input: UpdateUserProfileI
       input.accountType ?? null,
       input.orgUnitId !== undefined,
       input.orgUnitId ?? null,
+      input.accountExpiresAt !== undefined,
+      input.accountExpiresAt ?? null,
+      input.responsibleUserId !== undefined,
+      input.responsibleUserId ?? null,
     ],
   );
 }
@@ -359,7 +385,8 @@ export async function anonymizeUser(db: Queryable, input: { userId: string; acto
          display_name          = $3,
          display_name_override = NULL,
          picture_url           = NULL,
-         org_unit_id           = NULL
+         org_unit_id           = NULL,
+         responsible_user_id   = NULL
      WHERE id = $1`,
     [input.userId, input.actorId, DELETED_USER_NAME],
   );
@@ -373,14 +400,73 @@ export async function anonymizeUser(db: Queryable, input: { userId: string; acto
  */
 export async function insertPreRegisteredUser(
   db: Queryable,
-  input: { email: string; name: string; accountType: AccountType; orgUnitId: string | null; actorId: string },
+  input: {
+    email: string;
+    name: string;
+    accountType: AccountType;
+    orgUnitId: string | null;
+    accountExpiresAt: Date | null;
+    responsibleUserId: string | null;
+    actorId: string;
+  },
 ): Promise<string> {
   const result = await db.query<{ id: string }>(
     `INSERT INTO users (google_sub, email, name, display_name, account_type, org_unit_id,
-                        approval_status, approved_by, approved_at)
-     VALUES (NULL, lower($1), $2, $2, $3, $4, 'approved', $5, now())
+                        account_expires_at, responsible_user_id, approval_status, approved_by, approved_at)
+     VALUES (NULL, lower($1), $2, $2, $3, $4, $5, $6, 'approved', $7, now())
      RETURNING id`,
-    [input.email, input.name, input.accountType, input.orgUnitId, input.actorId],
+    [
+      input.email,
+      input.name,
+      input.accountType,
+      input.orgUnitId,
+      input.accountExpiresAt,
+      input.responsibleUserId,
+      input.actorId,
+    ],
   );
   return result.rows[0]!.id;
+}
+
+export type ResponsibleCandidateRow = {
+  id: string;
+  accountType: AccountType;
+  approvalStatus: ApprovalStatus;
+  isActive: boolean;
+};
+
+/** ข้อมูลที่ใช้ตรวจว่าผู้ใช้คนนี้เป็นผู้รับผิดชอบบัญชีหน่วยงานได้หรือไม่ (ต้องเป็นบุคลากรที่ใช้งานได้) */
+export async function findResponsibleCandidate(db: Queryable, userId: string): Promise<ResponsibleCandidateRow | null> {
+  const result = await db.query<ResponsibleCandidateRow>(
+    `SELECT id,
+            account_type    AS "accountType",
+            approval_status AS "approvalStatus",
+            (is_active AND (account_expires_at IS NULL OR account_expires_at > now())) AS "isActive"
+     FROM users
+     WHERE id = $1
+       AND deleted_at IS NULL`,
+    [userId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * ล็อกบัญชีที่ถึงวันหมดอายุแต่ยังเปิดอยู่ทีละชุด (ใช้ partial index users_account_expires_at_idx)
+ * FOR UPDATE SKIP LOCKED: ข้ามแถวที่ transaction อื่นล็อกอยู่ (ผู้ดูแลกำลังแก้ หรือ API อีก instance รัน job พร้อมกัน)
+ * จึงไม่รอกันและไม่ปิดซ้ำ — แถวที่ถูกข้ามจะถูกปิดในรอบถัดไป
+ */
+export async function lockExpiredActiveUsers(db: Queryable, limit: number): Promise<{ id: string }[]> {
+  const result = await db.query<{ id: string }>(
+    `SELECT id
+     FROM users
+     WHERE account_expires_at IS NOT NULL
+       AND account_expires_at <= now()
+       AND is_active
+       AND deleted_at IS NULL
+     ORDER BY account_expires_at
+     LIMIT $1
+     FOR UPDATE SKIP LOCKED`,
+    [limit],
+  );
+  return result.rows;
 }

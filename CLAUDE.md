@@ -77,6 +77,9 @@ S3_FORCE_PATH_STYLE=true
 ERP_HR_STAFFINFO_URL=https://erp.msu.ac.th/service/api/staffinfo
 ERP_HR_TIMEOUT_MS=5000                    # เกินเวลานี้ข้ามไป login ยังผ่าน
 
+# รอบตรวจปิดบัญชีที่ถึงวันหมดอายุ (ms, ไม่ใส่ = 1 ชั่วโมง) — การตัดสิทธิ์มีผลทันทีอยู่แล้ว
+ACCOUNT_EXPIRY_CHECK_INTERVAL_MS=3600000
+
 # อีเมลแจ้งเตือน (ยังไม่ได้สร้าง — ทำภายหลัง) — dev/test: log, production: gmail + GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN
 MAIL_TRANSPORT=log
 
@@ -156,6 +159,7 @@ Flow (Authorization Code + PKCE):
 4. ต้องได้ `email_verified = true` ไม่เช่นนั้นปฏิเสธ
 5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบ: ผูกกับบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้าด้วยอีเมลนั้นก่อน (`google_sub` ยังเป็น NULL, อีเมลโดเมน มมส. ต้องมี `hd` ตรง) ถ้าไม่มีจึงสร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
 5.1 แยกประเภทบัญชีจากส่วนหน้า @: ตัวเลข 11 หลักพอดี = นิสิต (ให้ role `student`, คณะ = หลักที่ 5-6 อ้างอิง `org_units.code`, ไม่พบ = NULL) นอกนั้น = บุคลากร (ให้ role `staff` และดึงข้อมูลจาก ERP-HR ด้วย Google access token) ตรวจและให้ role ทุกครั้งที่ login พร้อม log
+5.2 บัญชีใหม่ที่ ERP ตอบว่า **ไม่พบบุคลากร** = บัญชีหน่วยงาน (`service`) สถานะรออนุมัติ (ERP เรียกไม่สำเร็จ = ยังเป็นบุคลากร, บัญชีเดิมไม่เปลี่ยนประเภทอัตโนมัติ)
 6. สร้าง session แล้ว redirect กลับ `WEB_URL`
 7. web ถามผู้ใช้ปัจจุบันจาก `GET /auth/me`, ออกจากระบบด้วย `POST /auth/logout`
 
@@ -186,6 +190,7 @@ Role และ permission เฉพาะระบบนี้ (**เริ่�
 | `student` | นิสิต | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (ส่วนหน้า @ เป็นตัวเลข 11 หลัก) |
 | `staff` | บุคลากร | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (บัญชี @msu.ac.th อื่น ๆ) |
 | `external` | บุคลากรภายนอก | false | (ยังไม่ผูก) — `is_system`, ระบบให้เมื่อบัญชีภายนอกได้รับอนุมัติ |
+| `service` | บัญชีหน่วยงาน | false | (ยังไม่ผูก) — `is_system`, ระบบให้เมื่อบัญชีหน่วยงานได้รับอนุมัติ (บัญชีที่ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ขอใบรับรองได้เหมือนบุคคล) |
 | `admin` | ผู้ดูแลระบบ | true | (ยังไม่ผูก) — ให้/ถอนได้เฉพาะ `super_admin` |
 
 Permission ที่ลงทะเบียนแล้ว (ยังไม่ผูกกับ role ใด → ใช้ได้เฉพาะ `super_admin`):
@@ -193,7 +198,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | permission | คำอธิบาย |
 |---|---|
 | `user_role:assign` | ให้/ถอน role ที่ไม่ใช่ role สิทธิ์สูงแก่ผู้ใช้อื่น |
-| `user:approve` | อนุมัติ/ปฏิเสธบัญชีบุคลากรภายนอกที่รออนุมัติ |
+| `user:approve` | อนุมัติ/ปฏิเสธบัญชีบุคลากรภายนอกและบัญชีหน่วยงานที่รออนุมัติ |
 | `user:read` | ดูรายชื่อ ค้นหา และดูรายละเอียดผู้ใช้ |
 | `user:create` | ลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล |
 | `user:update` | แก้ไขข้อมูลผู้ใช้ |
@@ -206,6 +211,11 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น
 - บัญชีใหม่มี `users.approval_status = 'pending'` ใช้งานไม่ได้จนผู้มี `user:approve` อนุมัติ จึงได้ role `external`
 - `ALLOWED_EMAIL_DOMAINS` จึงหมายถึงโดเมนที่ **ไม่ต้องรออนุมัติ** (ไม่ใช่โดเมนเดียวที่ login ได้)
+
+บัญชีหน่วยงาน (ตัดสินใจ 2026-10-08):
+- ประเภทเดียว (`account_type = 'service'`) ครอบคลุมบัญชีระบบสารสนเทศ คณะ/หน่วยงาน และกิจกรรม — ขอใบรับรองได้ไม่ต่างจากบุคคล
+- ต้องกำหนด **หน่วยงาน** และ **ผู้รับผิดชอบ** (`responsible_user_id` = บุคลากรที่ใช้งานได้) ก่อนอนุมัติ จึงได้ role `service`
+- กำหนด **วันหมดอายุ** ได้ (`account_expires_at`, ไม่บังคับ) ถึงเวลาแล้วตัดสิทธิ์ทันที และ job ปิดบัญชีพร้อมเขียน `user_audit_logs` (action `expire`)
 
 หลักการ:
 - **1 ผู้ใช้มีได้หลาย role** ผ่านตาราง `user_roles` สิทธิ์จริงของผู้ใช้ = รวม (union) permission จากทุก role ที่ถืออยู่
@@ -227,7 +237,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - ห้ามแก้ role ของตัวเอง, ห้ามถอน role `user`, ห้ามถอน `super_admin` คนสุดท้ายออกจากระบบ
 - ทุกการให้/ถอนต้องเขียน `role_change_logs` (ใครทำ, กับใคร, role อะไร, grant หรือ revoke, เหตุผล, เมื่อไร) ใน **transaction เดียวกัน** และห้ามแก้/ลบ log
 - `super_admin` คนแรกสร้างผ่าน seed script (`INITIAL_SUPER_ADMIN_EMAIL`) เท่านั้น ห้ามมีช่องทางผ่าน UI หรือ API สาธารณะ
-- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` ให้ตอนอนุมัติบัญชีเท่านั้น
+- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` และ `service` ให้ตอนอนุมัติบัญชีเท่านั้น
 
 ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name` = ชื่อจาก Google, `display_name` = ชื่อที่ระบบแสดง, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
 

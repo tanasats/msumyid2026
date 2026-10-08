@@ -46,25 +46,55 @@ export function classifyAccount(
   return { accountType: 'staff' };
 }
 
-/** role ประเภทบัญชีที่ระบบให้ตอน login — external ให้ตอนอนุมัติเท่านั้น (CLAUDE.md หัวข้อ 9) */
+/** role ประเภทบัญชีที่ระบบให้ตอน login — external/service ให้ตอนอนุมัติเท่านั้น (CLAUDE.md หัวข้อ 9) */
 function accountRoleOnLogin(accountType: AccountType): string | null {
-  return accountType === 'external' ? null : accountType;
+  return accountType === 'external' || accountType === 'service' ? null : accountType;
 }
+
+/**
+ * ผลการเรียก ERP-HR — แยก "ไม่พบบุคลากร" ออกจาก "เรียกไม่สำเร็จ"
+ * เพราะ not_found ใช้ตัดสินว่าบัญชีใหม่เป็นบัญชีหน่วยงาน ส่วน failed (ERP ล่ม) ต้องไม่ทำให้ใครเสียสิทธิ์
+ */
+export type StaffInfoResult =
+  | { status: 'found'; info: ErpStaffInfo }
+  | { status: 'not_found' }
+  | { status: 'failed' };
 
 /**
  * เรียก ERP-HR โดยไม่ให้ error หลุดออกไปทำให้ login ล้ม
  * log เฉพาะประเภท error — ห้าม log access token หรือข้อมูลบุคลากร (CLAUDE.md หัวข้อ 13, 18)
  */
-async function fetchStaffInfoSafely(accessToken: string): Promise<ErpStaffInfo | null> {
+async function fetchStaffInfoSafely(accessToken: string): Promise<StaffInfoResult> {
   try {
     const info = await erpHr.fetchStaffInfo(accessToken);
-    if (!info) logger.info('ERP-HR ไม่พบข้อมูลบุคลากรของบัญชีนี้');
-    return info;
+    if (!info) {
+      logger.info('ERP-HR ไม่พบข้อมูลบุคลากรของบัญชีนี้');
+      return { status: 'not_found' };
+    }
+    return { status: 'found', info };
   } catch (err) {
     const reason = err instanceof Error ? `${err.name}: ${err.message}` : 'unknown';
     logger.warn({ reason }, 'เรียก ERP-HR ไม่สำเร็จ ใช้ข้อมูลบุคลากรเดิม');
-    return null;
+    return { status: 'failed' };
   }
+}
+
+/**
+ * ประเภทบัญชีและสถานะอนุมัติ "สำหรับผู้ใช้ใหม่" (ผู้ใช้เดิมไม่ถูกเปลี่ยน — upsertGoogleUser ใช้ค่านี้ตอน INSERT เท่านั้น)
+ * - บุคลากรภายนอก → รออนุมัติ
+ * - บัญชี มมส. ที่ไม่ใช่นิสิต และ ERP ยืนยันว่าไม่พบบุคลากร → บัญชีหน่วยงาน รออนุมัติ
+ *   (บัญชีที่ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม — ผู้มี user:approve กำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ)
+ * - ERP เรียกไม่สำเร็จ → ยังเป็นบุคลากร (ERP ล่มต้องไม่ทำให้บุคลากรใช้งานไม่ได้ — CLAUDE.md หัวข้อ 18)
+ */
+export function newAccountStatus(
+  classification: AccountClassification,
+  staffInfo: StaffInfoResult | null,
+): { accountType: AccountType; approvalStatus: 'pending' | 'approved' } {
+  if (classification.accountType === 'external') return { accountType: 'external', approvalStatus: 'pending' };
+  if (classification.accountType === 'staff' && staffInfo?.status === 'not_found') {
+    return { accountType: 'service', approvalStatus: 'pending' };
+  }
+  return { accountType: classification.accountType, approvalStatus: 'approved' };
 }
 
 export async function startGoogleLogin(): Promise<GoogleAuthRequest> {
@@ -131,10 +161,12 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
 
   // บุคลากร: ดึงข้อมูลจาก ERP-HR "นอก transaction" (ไม่ถือ connection ไว้ระหว่างรอ ERP)
   // ล้มเหลว = null แล้ว login ต่อได้ตามปกติ (CLAUDE.md หัวข้อ 18)
-  const staffInfo =
+  const staffResult =
     classification.accountType === 'staff' && identity.accessToken
       ? await fetchStaffInfoSafely(identity.accessToken)
       : null;
+  const staffInfo = staffResult?.status === 'found' ? staffResult.info : null;
+  const newAccount = newAccountStatus(classification, staffResult);
 
   // บัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้า: ผูกได้เมื่ออีเมลยืนยันแล้ว (ตรวจข้างบน) และอีเมลโดเมน มมส. ต้องมี hd ตรง
   // (classifyAccount ให้ external เมื่อโดเมน มมส. ไม่มี hd = บัญชี Google ส่วนตัวที่ใช้อีเมล มมส. ห้ามสวมสิทธิ์)
@@ -163,9 +195,9 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       name: identity.name ?? identity.email,
       erpDisplayName: staffInfo ? `${staffInfo.firstNameTh} ${staffInfo.lastNameTh}` : null,
       pictureUrl: identity.picture,
-      accountType: classification.accountType,
+      accountType: newAccount.accountType,
       orgUnitCode: classification.accountType === 'student' ? classification.facultyCode : null,
-      approvalStatus: classification.accountType === 'external' ? 'pending' : 'approved',
+      approvalStatus: newAccount.approvalStatus,
     });
     if (!user) return null;
 
@@ -201,13 +233,17 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
   });
 
   if (!result) {
-    // ผู้ใช้ถูกระงับหรือถูกลบ — ไม่สร้าง session
-    logger.info('Google login: บัญชีถูกระงับหรือถูกลบ');
+    // ผู้ใช้ถูกระงับ ถูกลบ หรือบัญชีหมดอายุ — ไม่สร้าง session
+    logger.info('Google login: บัญชีถูกระงับ ถูกลบ หรือหมดอายุ');
     return { ok: false, reason: 'ACCOUNT_DISABLED' };
   }
 
   const { user, grantedRoles, session, linked } = result;
-  if (!user.inserted && user.accountType !== classification.accountType) {
+  // บัญชีหน่วยงานใช้อีเมล มมส. ที่ไม่ใช่นิสิต จึงตรวจพบเป็น staff เสมอ — ไม่ถือว่าไม่ตรง
+  const matchesDetected =
+    user.accountType === classification.accountType ||
+    (user.accountType === 'service' && classification.accountType === 'staff');
+  if (!user.inserted && !matchesDetected) {
     // ประเภทบัญชีไม่ถูกเปลี่ยนอัตโนมัติ ให้ผู้ดูแลตรวจสอบ
     logger.warn(
       { userId: user.id, stored: user.accountType, detected: classification.accountType },

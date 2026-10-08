@@ -26,16 +26,20 @@ type CreateUserInput = {
   email?: string;
   /** ชื่อ (ใช้ทั้ง name และ display_name) */
   name?: string;
-  accountType?: 'student' | 'staff' | 'external';
+  accountType?: 'student' | 'staff' | 'external' | 'service';
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   isActive?: boolean;
   roles?: string[];
+  orgUnitId?: string | null;
+  responsibleUserId?: string | null;
+  accountExpiresAt?: Date | null;
 };
 
 export async function createUser(input: CreateUserInput = {}): Promise<{ id: string }> {
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO users (google_sub, email, name, display_name, account_type, approval_status, is_active)
-     VALUES ($1, $2, $3, $3, $4, $5, $6)
+    `INSERT INTO users (google_sub, email, name, display_name, account_type, approval_status, is_active,
+                        org_unit_id, responsible_user_id, account_expires_at)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       `sub-${crypto.randomUUID()}`,
@@ -44,6 +48,9 @@ export async function createUser(input: CreateUserInput = {}): Promise<{ id: str
       input.accountType ?? 'staff',
       input.approvalStatus ?? 'approved',
       input.isActive ?? true,
+      input.orgUnitId ?? null,
+      input.responsibleUserId ?? null,
+      input.accountExpiresAt ?? null,
     ],
   );
   const user = result.rows[0]!;

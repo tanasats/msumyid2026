@@ -1,6 +1,7 @@
 import type { Queryable } from '../db/types.js';
 
-export type AccountType = 'student' | 'staff' | 'external';
+/** service = บัญชีหน่วยงาน (ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ไม่ใช่ของบุคคล) */
+export type AccountType = 'student' | 'staff' | 'external' | 'service';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 export type SessionUserRow = {
@@ -35,6 +36,7 @@ export async function insertSession(
  * - roles: ARRAY(subquery) ได้ role ทั้งหมดของผู้ใช้เป็น text[]
  * - permissions: union ของ permission จากทุก role (DISTINCT กันซ้ำเมื่อหลาย role มี permission เดียวกัน)
  * - ไม่กรอง is_active ที่นี่ เพื่อให้ service ตัดสินและลบ session ของผู้ใช้ที่ถูกระงับได้
+ * - บัญชีที่ถึงวันหมดอายุแล้วถือว่าถูกระงับทันที (isActive = false) ไม่ต้องรอ job ปิดบัญชี
  */
 export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise<SessionUserRow | null> {
   const result = await db.query<SessionUserRow>(
@@ -45,7 +47,7 @@ export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise
             u.picture_url      AS "pictureUrl",
             u.account_type     AS "accountType",
             u.approval_status  AS "approvalStatus",
-            u.is_active        AS "isActive",
+            (u.is_active AND (u.account_expires_at IS NULL OR u.account_expires_at > now())) AS "isActive",
             ARRAY(
               SELECT r.code
               FROM user_roles ur

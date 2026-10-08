@@ -3,6 +3,7 @@ import { withTransaction } from '../db/transaction.js';
 import type { PoolClient } from 'pg';
 import { AppError } from '../errors.js';
 import {
+  findResponsibleCandidate,
   findUserDetail,
   insertUserAuditLog,
   listUserHistory,
@@ -112,6 +113,42 @@ function assertNotLastSuperAdmin(activeSuperAdminIds: string[], userId: string):
   }
 }
 
+// ---- บัญชีหน่วยงาน (account_type = 'service') ----
+// บัญชีที่ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม — ต้องมีหน่วยงานและผู้รับผิดชอบ (บุคลากรตัวจริง) ก่อนใช้งาน
+// และกำหนดวันหมดอายุได้ (ถึงเวลาแล้วระบบปิดบัญชีเอง — account-expiry-service)
+
+const SERVICE_ONLY_FIELD_ERROR = () =>
+  new AppError(409, 'SERVICE_ONLY_FIELD', 'วันหมดอายุและผู้รับผิดชอบใช้ได้เฉพาะบัญชีหน่วยงาน');
+
+/** ผู้รับผิดชอบต้องเป็นบุคลากรที่อนุมัติแล้วและใช้งานได้ และไม่ใช่บัญชีหน่วยงานนั้นเอง */
+async function assertValidResponsible(client: PoolClient, responsibleUserId: string, targetUserId: string | null) {
+  const candidate = responsibleUserId === targetUserId ? null : await findResponsibleCandidate(client, responsibleUserId);
+  if (
+    !candidate ||
+    candidate.accountType !== 'staff' ||
+    candidate.approvalStatus !== 'approved' ||
+    !candidate.isActive
+  ) {
+    throw new AppError(400, 'RESPONSIBLE_INVALID', 'ผู้รับผิดชอบต้องเป็นบุคลากรที่ใช้งานได้');
+  }
+}
+
+function assertFutureExpiry(expiresAt: Date): void {
+  if (expiresAt.getTime() <= Date.now()) {
+    throw new AppError(400, 'EXPIRY_IN_PAST', 'วันหมดอายุต้องเป็นเวลาในอนาคต');
+  }
+}
+
+/** บัญชีหน่วยงานที่ใช้งาน (อนุมัติแล้ว) ต้องมีหน่วยงานและผู้รับผิดชอบเสมอ */
+function assertServiceAccountComplete(orgUnitId: string | null, responsibleUserId: string | null): void {
+  if (!orgUnitId) {
+    throw new AppError(409, 'SERVICE_ORG_UNIT_REQUIRED', 'บัญชีหน่วยงานต้องกำหนดหน่วยงาน');
+  }
+  if (!responsibleUserId) {
+    throw new AppError(409, 'SERVICE_RESPONSIBLE_REQUIRED', 'บัญชีหน่วยงานต้องกำหนดผู้รับผิดชอบ');
+  }
+}
+
 /** ปิดบัญชี: ใช้งานไม่ได้ทันที และเพิกถอน session ทั้งหมดใน transaction เดียวกัน */
 export async function deactivateUser(actor: AuthUser, userId: string, reason: string): Promise<void> {
   await withTransaction(async (client) => {
@@ -136,6 +173,10 @@ export async function activateUser(actor: AuthUser, userId: string, reason: stri
   await withTransaction(async (client) => {
     const target = await lockTarget(client, actor, userId);
     if (target.isActive) throw new AppError(409, 'ALREADY_ACTIVE', 'บัญชีนี้เปิดใช้งานอยู่แล้ว');
+    // ไม่เช่นนั้นจะถูกตัดสิทธิ์และปิดซ้ำทันที
+    if (target.accountExpiresAt && target.accountExpiresAt.getTime() <= Date.now()) {
+      throw new AppError(409, 'ACCOUNT_EXPIRED', 'บัญชีหมดอายุแล้ว กรุณาขยายวันหมดอายุก่อนเปิดบัญชี');
+    }
 
     await setUserActive(client, { userId, active: true, actorId: actor.id });
     await insertUserAuditLog(client, {
@@ -149,14 +190,19 @@ export async function activateUser(actor: AuthUser, userId: string, reason: stri
 }
 
 /**
- * อนุมัติบัญชีบุคลากรภายนอก (รออนุมัติ หรือเคยถูกปฏิเสธ)
- * ให้ role ประเภทบัญชี (external) ตอนอนุมัติ — CLAUDE.md หัวข้อ 9
+ * อนุมัติบัญชีบุคลากรภายนอกหรือบัญชีหน่วยงาน (รออนุมัติ หรือเคยถูกปฏิเสธ)
+ * - ให้ role ประเภทบัญชี (external/service) ตอนอนุมัติ — CLAUDE.md หัวข้อ 9
+ * - บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อน (ตรวจผู้รับผิดชอบซ้ำ เพราะอาจถูกปิดบัญชีไปแล้ว)
  */
 export async function approveUser(actor: AuthUser, userId: string, reason: string | null): Promise<void> {
   await withTransaction(async (client) => {
     const target = await lockTarget(client, actor, userId);
     if (target.approvalStatus === 'approved') {
       throw new AppError(409, 'ALREADY_APPROVED', 'บัญชีนี้ได้รับอนุมัติแล้ว');
+    }
+    if (target.accountType === 'service') {
+      assertServiceAccountComplete(target.orgUnitId, target.responsibleUserId);
+      await assertValidResponsible(client, target.responsibleUserId!, userId);
     }
 
     await setApprovalStatus(client, { userId, status: 'approved', actorId: actor.id });
@@ -254,15 +300,26 @@ export type UpdateUserInput = {
   accountType?: AccountType;
   /** undefined = ไม่แก้, null = ไม่ระบุหน่วยงาน */
   orgUnitId?: string | null;
+  /** undefined = ไม่แก้, null = ไม่หมดอายุ (เฉพาะบัญชีหน่วยงาน) */
+  accountExpiresAt?: Date | null;
+  /** undefined = ไม่แก้, null = ล้าง (เฉพาะบัญชีหน่วยงาน) */
+  responsibleUserId?: string | null;
 };
 
 // role ประเภทบัญชี — code ตรงกับค่า account_type (แบบเดียวกับที่ระบบให้ตอน login)
-const ACCOUNT_TYPE_ROLES: AccountType[] = ['student', 'staff', 'external'];
+const ACCOUNT_TYPE_ROLES: AccountType[] = ['student', 'staff', 'external', 'service'];
+
+// ประเภทบัญชีที่ได้ role ประเภทเมื่ออนุมัติแล้วเท่านั้น
+const APPROVAL_GRANTED_TYPES: AccountType[] = ['external', 'service'];
+
+const toIso = (d: Date | null) => (d ? d.toISOString() : null);
 
 /**
  * แก้ไขข้อมูลผู้ใช้ (ชื่อแสดง, ประเภทบัญชี, หน่วยงาน) — เฉพาะช่องที่ส่งมาและค่าเปลี่ยนจริง
  * - หน่วยงานของบุคลากรมาจาก ERP ทุกครั้งที่ login จึงแก้เองไม่ได้
- * - เปลี่ยนประเภทบัญชี → ถอน role ประเภทเดิม ให้ role ประเภทใหม่ (external ให้เมื่ออนุมัติแล้วเท่านั้น)
+ * - เปลี่ยนประเภทบัญชี → ถอน role ประเภทเดิม ให้ role ประเภทใหม่ (external/service ให้เมื่ออนุมัติแล้วเท่านั้น)
+ * - วันหมดอายุ/ผู้รับผิดชอบใช้ได้เฉพาะบัญชีหน่วยงาน เปลี่ยนเป็นประเภทอื่นแล้วระบบล้างให้
+ * - บัญชีหน่วยงานที่อนุมัติแล้วต้องมีหน่วยงานและผู้รับผิดชอบเสมอ
  * - audit log ไม่บันทึกค่าชื่อ (PDPA) บันทึกแค่ว่าเปลี่ยน
  */
 export async function updateUser(
@@ -298,6 +355,30 @@ export async function updateUser(
       changes.orgUnitId = { from: target.orgUnitId, to: input.orgUnitId };
     }
 
+    const isService = nextAccountType === 'service';
+    if (!isService && (input.accountExpiresAt || input.responsibleUserId)) throw SERVICE_ONLY_FIELD_ERROR();
+    // เปลี่ยนจากบัญชีหน่วยงานเป็นประเภทอื่น → ล้างวันหมดอายุและผู้รับผิดชอบ
+    const nextExpiresAt = isService
+      ? input.accountExpiresAt !== undefined ? input.accountExpiresAt : target.accountExpiresAt
+      : null;
+    const nextResponsibleId = isService
+      ? input.responsibleUserId !== undefined ? input.responsibleUserId : target.responsibleUserId
+      : null;
+
+    const expiryChanged = toIso(nextExpiresAt) !== toIso(target.accountExpiresAt);
+    if (expiryChanged) {
+      if (nextExpiresAt) assertFutureExpiry(nextExpiresAt);
+      changes.accountExpiresAt = { from: toIso(target.accountExpiresAt), to: toIso(nextExpiresAt) };
+    }
+    const responsibleChanged = nextResponsibleId !== target.responsibleUserId;
+    if (responsibleChanged) {
+      if (nextResponsibleId) await assertValidResponsible(client, nextResponsibleId, userId);
+      changes.responsibleUserId = { from: target.responsibleUserId, to: nextResponsibleId };
+    }
+    if (isService && target.approvalStatus === 'approved') {
+      assertServiceAccountComplete(orgUnitChanged ? (input.orgUnitId ?? null) : target.orgUnitId, nextResponsibleId);
+    }
+
     if (Object.keys(changes).length === 0) {
       throw new AppError(400, 'NO_CHANGES', 'ไม่มีข้อมูลที่เปลี่ยนแปลง');
     }
@@ -307,6 +388,8 @@ export async function updateUser(
       displayNameOverride: displayNameChanged ? input.displayNameOverride : undefined,
       accountType: accountTypeChanged ? input.accountType : undefined,
       orgUnitId: orgUnitChanged ? input.orgUnitId : undefined,
+      accountExpiresAt: expiryChanged ? nextExpiresAt : undefined,
+      responsibleUserId: responsibleChanged ? nextResponsibleId : undefined,
     });
 
     if (accountTypeChanged) {
@@ -315,7 +398,7 @@ export async function updateUser(
       for (const role of heldAccountRoles.filter((r) => r.code !== nextAccountType)) {
         await revokeRoleByActor(client, { userId, roleId: role.id, actorId: actor.id, reason: roleReason });
       }
-      if (nextAccountType !== 'external' || target.approvalStatus === 'approved') {
+      if (!APPROVAL_GRANTED_TYPES.includes(nextAccountType) || target.approvalStatus === 'approved') {
         const newRole = await findRoleByCode(client, nextAccountType);
         if (newRole) {
           await grantRoleByActor(client, { userId, roleId: newRole.id, actorId: actor.id, reason: roleReason });
@@ -371,6 +454,10 @@ export type PreRegisterInput = {
   name: string;
   accountType: AccountType;
   orgUnitId: string | null;
+  /** เฉพาะบัญชีหน่วยงาน — null = ไม่หมดอายุ */
+  accountExpiresAt: Date | null;
+  /** เฉพาะบัญชีหน่วยงาน (บังคับ) */
+  responsibleUserId: string | null;
 };
 
 /** error ของ PostgreSQL เมื่อชนเงื่อนไข UNIQUE */
@@ -381,6 +468,7 @@ function isUniqueViolation(err: unknown): boolean {
 /**
  * ลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล — บัญชีอนุมัติแล้วและได้ role ประเภทบัญชีทันที
  * จะผูกกับบัญชี Google ตอนเจ้าของอีเมล login ครั้งแรก (google-login-service)
+ * บัญชีหน่วยงานต้องระบุหน่วยงานและผู้รับผิดชอบ (เพราะถือว่าอนุมัติแล้ว)
  */
 export async function preRegisterUser(
   actor: AuthUser,
@@ -388,6 +476,13 @@ export async function preRegisterUser(
   reason: string | null,
 ): Promise<{ id: string }> {
   return withTransaction(async (client) => {
+    if (input.accountType === 'service') {
+      assertServiceAccountComplete(input.orgUnitId, input.responsibleUserId);
+      await assertValidResponsible(client, input.responsibleUserId!, null);
+      if (input.accountExpiresAt) assertFutureExpiry(input.accountExpiresAt);
+    } else if (input.accountExpiresAt || input.responsibleUserId) {
+      throw SERVICE_ONLY_FIELD_ERROR();
+    }
     if (input.orgUnitId) {
       if (input.accountType === 'staff') {
         throw new AppError(409, 'ORG_UNIT_FROM_ERP', 'หน่วยงานของบุคลากรมาจากระบบ ERP กำหนดเองไม่ได้');

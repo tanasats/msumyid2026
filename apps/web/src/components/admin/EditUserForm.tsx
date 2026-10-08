@@ -8,13 +8,21 @@ import { Button, buttonClasses } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import type { AccountType, OrgUnit } from '@/lib/admin-users';
 import { apiMutate } from '@/lib/api-client';
-import { ACCOUNT_TYPE_LABELS } from '@/lib/account-type';
+import { ACCOUNT_TYPE_LABELS, expiryDateToIso, isoToExpiryDate, type ResponsibleUser } from '@/lib/account-type';
+import { AccountExpiryField } from './AccountExpiryField';
+import { ResponsibleUserField } from './ResponsibleUserField';
 
 type EditUserFormProps = {
   userId: string;
   /** ชื่อที่ใช้เมื่อไม่ได้ตั้งเอง (จาก ERP/Google) — แสดงเป็นคำแนะนำ */
   fallbackName: string;
-  initial: { displayNameOverride: string | null; accountType: AccountType; orgUnitId: string | null };
+  initial: {
+    displayNameOverride: string | null;
+    accountType: AccountType;
+    orgUnitId: string | null;
+    accountExpiresAt: string | null;
+    responsibleUser: ResponsibleUser | null;
+  };
   orgUnits: OrgUnit[];
 };
 
@@ -29,6 +37,8 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
   const [displayName, setDisplayName] = useState(initial.displayNameOverride ?? '');
   const [accountType, setAccountType] = useState<AccountType>(initial.accountType);
   const [orgUnitId, setOrgUnitId] = useState(initial.orgUnitId ?? '');
+  const [responsible, setResponsible] = useState<ResponsibleUser | null>(initial.responsibleUser);
+  const [expiryDate, setExpiryDate] = useState(isoToExpiryDate(initial.accountExpiresAt));
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +46,8 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
 
   // หน่วยงานของบุคลากรมาจาก ERP ทุกครั้งที่ login จึงแก้เองไม่ได้
   const orgUnitLocked = accountType === 'staff';
+  // วันหมดอายุ/ผู้รับผิดชอบใช้เฉพาะบัญชีหน่วยงาน (เปลี่ยนเป็นประเภทอื่น API ล้างให้เอง)
+  const isService = accountType === 'service';
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -50,6 +62,14 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
     if (displayName.trim() !== (initial.displayNameOverride ?? '')) body.displayNameOverride = displayName.trim();
     if (accountType !== initial.accountType) body.accountType = accountType;
     if (!orgUnitLocked && orgUnitId !== (initial.orgUnitId ?? '')) body.orgUnitId = orgUnitId || null;
+    if (isService) {
+      if ((responsible?.id ?? null) !== (initial.responsibleUser?.id ?? null)) {
+        body.responsibleUserId = responsible?.id ?? null;
+      }
+      if (expiryDate !== isoToExpiryDate(initial.accountExpiresAt)) {
+        body.accountExpiresAt = expiryDate ? expiryDateToIso(expiryDate) : null;
+      }
+    }
 
     if (Object.keys(body).length === 1) {
       setError('ยังไม่ได้แก้ไขข้อมูลใด');
@@ -131,9 +151,18 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
           <p id="field-orgUnitId-hint" className="text-sm text-muted">
             {orgUnitLocked
               ? 'หน่วยงานของบุคลากรมาจากระบบ ERP อัตโนมัติทุกครั้งที่เข้าสู่ระบบ'
-              : 'นิสิตและบุคลากรภายนอกกำหนดหน่วยงานได้เอง'}
+              : isService
+                ? 'หน่วยงานเจ้าของบัญชี — ต้องกำหนดก่อนอนุมัติ'
+                : 'นิสิตและบุคลากรภายนอกกำหนดหน่วยงานได้เอง'}
           </p>
         </div>
+
+        {isService && (
+          <>
+            <ResponsibleUserField value={responsible} onChange={setResponsible} />
+            <AccountExpiryField value={expiryDate} onChange={setExpiryDate} />
+          </>
+        )}
 
         <div className="space-y-1.5">
           <label htmlFor="field-reason" className="block text-sm font-medium">

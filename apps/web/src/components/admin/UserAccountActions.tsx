@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CircleCheck, CircleSlash, RotateCcw, ShieldX, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ACCOUNT_TYPE_LABELS, type AccountType } from '@/lib/account-type';
 import { apiMutate } from '@/lib/api-client';
 
 type Action = 'approve' | 'reject' | 'deactivate' | 'activate' | 'delete';
@@ -66,6 +67,8 @@ export function UserAccountActions({
   email,
   isActive,
   approvalStatus,
+  accountType,
+  approveBlockedReason,
   canApprove,
   canDeactivate,
   canDelete,
@@ -75,13 +78,25 @@ export function UserAccountActions({
   email: string;
   isActive: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';
+  accountType: AccountType;
+  /** มีค่า = ยังอนุมัติไม่ได้ (เช่น บัญชีหน่วยงานยังไม่กำหนดหน่วยงาน/ผู้รับผิดชอบ) ปุ่มจะถูกปิดพร้อมเหตุผล */
+  approveBlockedReason?: string;
   canApprove: boolean;
   canDeactivate: boolean;
   canDelete: boolean;
 }) {
   const router = useRouter();
   const [action, setAction] = useState<Action | null>(null);
-  const config = action ? ACTIONS[action] : null;
+  // ข้อความยืนยันการอนุมัติบอกบทบาทที่จะได้ตามประเภทบัญชี
+  const config =
+    action === 'approve'
+      ? {
+          ...ACTIONS.approve,
+          description: `ผู้ใช้จะได้รับบทบาท${ACCOUNT_TYPE_LABELS[accountType]}และใช้งานระบบได้ทันที`,
+        }
+      : action
+        ? ACTIONS[action]
+        : null;
 
   const showApprove = canApprove && isActive && approvalStatus !== 'approved';
   const showReject = canApprove && isActive && approvalStatus === 'pending';
@@ -106,7 +121,12 @@ export function UserAccountActions({
       <h2 className="text-lg font-semibold">การจัดการบัญชี</h2>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
         {showApprove && (
-          <Button fullWidth onClick={() => setAction('approve')}>
+          <Button
+            fullWidth
+            disabled={Boolean(approveBlockedReason)}
+            aria-describedby={approveBlockedReason ? 'approve-blocked-reason' : undefined}
+            onClick={() => setAction('approve')}
+          >
             <CircleCheck className="size-5" aria-hidden />
             อนุมัติบัญชี
           </Button>
@@ -130,6 +150,11 @@ export function UserAccountActions({
             </Button>
           ))}
       </div>
+      {showApprove && approveBlockedReason && (
+        <p id="approve-blocked-reason" className="text-sm text-muted">
+          {approveBlockedReason}
+        </p>
+      )}
 
       {/* งานที่ย้อนกลับไม่ได้ แยกไว้ท้ายสุดให้เห็นชัดว่าต่างจากปุ่มอื่น */}
       {canDelete && (

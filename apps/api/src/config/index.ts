@@ -37,6 +37,8 @@ const envSchema = z.object({
   ERP_HR_STAFFINFO_URL: z.url(),
   // ERP ช้าหรือล่มต้องไม่ทำให้ login ค้าง — เกินเวลานี้ข้ามไป
   ERP_HR_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
+  // รอบตรวจปิดบัญชีที่ถึงวันหมดอายุ (การตัดสิทธิ์มีผลทันทีอยู่แล้ว job นี้ปิดบัญชีและเขียน audit log)
+  ACCOUNT_EXPIRY_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(3_600_000),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
@@ -80,5 +82,6 @@ export const config = {
     staffInfoUrl: env.ERP_HR_STAFFINFO_URL,
     timeoutMs: env.ERP_HR_TIMEOUT_MS,
   },
+  accountExpiryCheckIntervalMs: env.ACCOUNT_EXPIRY_CHECK_INTERVAL_MS,
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

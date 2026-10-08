@@ -8,11 +8,13 @@ import { Button, buttonClasses } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import type { AccountType, OrgUnit } from '@/lib/admin-users';
 import { apiMutate } from '@/lib/api-client';
-import { ACCOUNT_TYPE_LABELS } from '@/lib/account-type';
+import { ACCOUNT_TYPE_LABELS, expiryDateToIso, type ResponsibleUser } from '@/lib/account-type';
+import { AccountExpiryField } from './AccountExpiryField';
+import { ResponsibleUserField } from './ResponsibleUserField';
 
 const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-slate-100';
 
-type FieldErrors = Partial<Record<'email' | 'name', string>>;
+type FieldErrors = Partial<Record<'email' | 'name' | 'orgUnitId' | 'responsible', string>>;
 
 /**
  * ฟอร์มลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล — บัญชีจะผูกกับ Google เมื่อเจ้าของอีเมลเข้าระบบครั้งแรก
@@ -24,17 +26,23 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState<AccountType>('external');
   const [orgUnitId, setOrgUnitId] = useState('');
+  const [responsible, setResponsible] = useState<ResponsibleUser | null>(null);
+  const [expiryDate, setExpiryDate] = useState('');
   const [reason, setReason] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const orgUnitLocked = accountType === 'staff';
+  // บัญชีหน่วยงานต้องมีหน่วยงานและผู้รับผิดชอบ (ลงทะเบียนล่วงหน้า = อนุมัติแล้ว)
+  const isService = accountType === 'service';
 
   function validate(): FieldErrors {
     const errors: FieldErrors = {};
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errors.email = 'กรุณากรอกอีเมลให้ถูกต้อง เช่น name@gmail.com';
-    if (!name.trim()) errors.name = 'กรุณากรอกชื่อ-นามสกุล';
+    if (!name.trim()) errors.name = isService ? 'กรุณากรอกชื่อบัญชี' : 'กรุณากรอกชื่อ-นามสกุล';
+    if (isService && !orgUnitId) errors.orgUnitId = 'กรุณาเลือกหน่วยงานของบัญชีนี้';
+    if (isService && !responsible) errors.responsible = 'กรุณาเลือกผู้รับผิดชอบ';
     return errors;
   }
 
@@ -56,6 +64,8 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
         name: name.trim(),
         accountType,
         orgUnitId: orgUnitLocked ? null : orgUnitId || null,
+        responsibleUserId: isService ? responsible?.id : undefined,
+        accountExpiresAt: isService && expiryDate ? expiryDateToIso(expiryDate) : undefined,
         reason: reason.trim() || undefined,
       });
       router.push(`/admin/users/${id}`);
@@ -90,11 +100,15 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
         />
         <TextField
           name="name"
-          label="ชื่อ-นามสกุล"
+          label={isService ? 'ชื่อบัญชี' : 'ชื่อ-นามสกุล'}
           value={name}
           onChange={(e) => setName(e.target.value)}
           error={fieldErrors.name}
-          hint="ใช้แสดงจนกว่าผู้ใช้จะเข้าสู่ระบบ จากนั้นจะใช้ชื่อจากระบบ ERP หรือบัญชี Google"
+          hint={
+            isService
+              ? 'เช่น ระบบทะเบียนนิสิต, งานเปิดบ้าน 2569 — จะถูกแทนด้วยชื่อจากบัญชี Google เมื่อเข้าสู่ระบบ'
+              : 'ใช้แสดงจนกว่าผู้ใช้จะเข้าสู่ระบบ จากนั้นจะใช้ชื่อจากระบบ ERP หรือบัญชี Google'
+          }
           maxLength={200}
         />
 
@@ -118,15 +132,16 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
 
         <div className="space-y-1.5">
           <label htmlFor="field-orgUnitId" className="block text-sm font-medium">
-            หน่วยงาน <span className="font-normal text-muted">(ไม่บังคับ)</span>
+            หน่วยงาน {!isService && <span className="font-normal text-muted">(ไม่บังคับ)</span>}
           </label>
           <select
             id="field-orgUnitId"
             value={orgUnitLocked ? '' : orgUnitId}
             onChange={(e) => setOrgUnitId(e.target.value)}
             disabled={orgUnitLocked}
+            aria-invalid={fieldErrors.orgUnitId ? true : undefined}
             aria-describedby="field-orgUnitId-hint"
-            className={selectClass}
+            className={fieldErrors.orgUnitId ? selectClass.replace('border-line-input', 'border-red-700') : selectClass}
           >
             <option value="">ไม่ระบุ</option>
             {orgUnits.map((unit) => (
@@ -135,12 +150,27 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
               </option>
             ))}
           </select>
-          <p id="field-orgUnitId-hint" className="text-sm text-muted">
-            {orgUnitLocked
-              ? 'หน่วยงานของบุคลากรมาจากระบบ ERP เมื่อเข้าสู่ระบบครั้งแรก'
-              : 'นิสิตและบุคลากรภายนอกกำหนดหน่วยงานได้เอง'}
-          </p>
+          {fieldErrors.orgUnitId ? (
+            <p id="field-orgUnitId-hint" className="text-sm text-red-800">
+              {fieldErrors.orgUnitId}
+            </p>
+          ) : (
+            <p id="field-orgUnitId-hint" className="text-sm text-muted">
+              {orgUnitLocked
+                ? 'หน่วยงานของบุคลากรมาจากระบบ ERP เมื่อเข้าสู่ระบบครั้งแรก'
+                : isService
+                  ? 'หน่วยงานเจ้าของบัญชี'
+                  : 'นิสิตและบุคลากรภายนอกกำหนดหน่วยงานได้เอง'}
+            </p>
+          )}
         </div>
+
+        {isService && (
+          <>
+            <ResponsibleUserField value={responsible} onChange={setResponsible} error={fieldErrors.responsible} />
+            <AccountExpiryField value={expiryDate} onChange={setExpiryDate} />
+          </>
+        )}
 
         <div className="space-y-1.5">
           <label htmlFor="field-reason" className="block text-sm font-medium">

@@ -35,6 +35,8 @@ export default async function EditUserPage({ params }: { params: Promise<{ id: s
           displayNameOverride: user.displayNameOverride,
           accountType: user.accountType,
           orgUnitId: user.orgUnitId,
+          accountExpiresAt: user.accountExpiresAt,
+          responsibleUser: user.responsibleUser,
         }}
         orgUnits={orgUnits}
       />

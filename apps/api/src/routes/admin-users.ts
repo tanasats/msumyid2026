@@ -25,6 +25,13 @@ const PAGE_SIZE = 20;
 // query ที่ไม่ส่งมา → null (repository ใช้ null = ไม่กรอง)
 const nullable = <T extends z.ZodType>(schema: T) => schema.optional().transform((v) => v ?? null);
 
+const accountTypeSchema = z.enum(['student', 'staff', 'external', 'service']);
+// วันหมดอายุ: ISO 8601 พร้อม timezone (เช่น 2026-12-31T23:59:59+07:00) — null = ไม่หมดอายุ
+const accountExpiresAtSchema = z.iso
+  .datetime({ offset: true })
+  .transform((v) => new Date(v))
+  .nullable();
+
 const listQuerySchema = z.object({
   q: z
     .string()
@@ -33,7 +40,7 @@ const listQuerySchema = z.object({
     .optional()
     .transform((v) => v || null),
   status: nullable(z.enum(['active', 'pending', 'rejected', 'inactive'])),
-  accountType: nullable(z.enum(['student', 'staff', 'external'])),
+  accountType: nullable(accountTypeSchema),
   role: nullable(z.string().regex(/^[a-z0-9_]+$/)),
   cursor: nullable(z.uuid()),
 });
@@ -102,7 +109,7 @@ adminUsersRouter.post(
   },
 );
 
-// สิทธิ์: user:approve — อนุมัติบัญชีบุคลากรภายนอก
+// สิทธิ์: user:approve — อนุมัติบัญชีบุคลากรภายนอก/บัญชีหน่วยงาน
 adminUsersRouter.post('/admin/users/:id/approve', requirePermission(PERMISSIONS.USER_APPROVE), async (req, res) => {
   const { id } = userIdParams.parse(req.params);
   const { reason } = optionalReasonBody.parse(req.body ?? {});
@@ -156,12 +163,14 @@ const updateBody = z.object({
     .nullable()
     .optional()
     .transform((v) => (v === '' ? null : v)),
-  accountType: z.enum(['student', 'staff', 'external']).optional(),
+  accountType: accountTypeSchema.optional(),
   orgUnitId: z.uuid().nullable().optional(),
+  accountExpiresAt: accountExpiresAtSchema.optional(),
+  responsibleUserId: z.uuid().nullable().optional(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
 });
 
-// สิทธิ์: user:update — แก้ไขชื่อแสดง ประเภทบัญชี หน่วยงาน
+// สิทธิ์: user:update — แก้ไขชื่อแสดง ประเภทบัญชี หน่วยงาน วันหมดอายุ ผู้รับผิดชอบ
 adminUsersRouter.patch('/admin/users/:id', requirePermission(PERMISSIONS.USER_UPDATE), async (req, res) => {
   const { id } = userIdParams.parse(req.params);
   const { reason, ...input } = updateBody.parse(req.body);
@@ -185,8 +194,10 @@ adminUsersRouter.delete('/admin/users/:id', requirePermission(PERMISSIONS.USER_D
 const createBody = z.object({
   email: z.email('อีเมลไม่ถูกต้อง').trim().max(320),
   name: z.string().trim().min(1, 'กรุณากรอกชื่อ').max(200),
-  accountType: z.enum(['student', 'staff', 'external']),
+  accountType: accountTypeSchema,
   orgUnitId: z.uuid().nullable().optional().default(null),
+  accountExpiresAt: accountExpiresAtSchema.optional().default(null),
+  responsibleUserId: z.uuid().nullable().optional().default(null),
   reason: z
     .string()
     .trim()

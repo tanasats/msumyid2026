@@ -55,7 +55,7 @@ export async function findUsersByEmail(db: Queryable, email: string): Promise<Us
  * - ON CONFLICT (google_sub): ถ้ามีแล้วอัปเดตแค่ข้อมูลโปรไฟล์และเวลา login
  *   ส่วน account_type / approval_status / org_unit_id ไม่ถูกทับ
  *   และกันกรณี login ครั้งแรกพร้อมกัน 2 แท็บไม่ให้เกิด error UNIQUE
- * - DO UPDATE ... WHERE: ผู้ใช้ที่ถูกระงับหรือถูกลบจะไม่ถูกอัปเดตและไม่คืนแถว → คืน null
+ * - DO UPDATE ... WHERE: ผู้ใช้ที่ถูกระงับ ถูกลบ หรือบัญชีหมดอายุ จะไม่ถูกอัปเดตและไม่คืนแถว → คืน null
  * - (xmax = 0) เป็นวิธีมาตรฐานของ PostgreSQL บอกว่าแถวนี้เพิ่ง INSERT (แถวที่ถูก UPDATE จะมี xmax ไม่เป็น 0)
  * - org_unit_id หาจากรหัสคณะด้วย subquery ได้ NULL ถ้าไม่พบ
  * - display_name เลือกตามลำดับด้วย COALESCE (ค่าแรกที่ไม่เป็น NULL):
@@ -86,6 +86,7 @@ export async function upsertGoogleUser(db: Queryable, input: UpsertGoogleUserInp
            picture_url   = EXCLUDED.picture_url,
            last_login_at = now()
        WHERE users.is_active AND users.deleted_at IS NULL
+         AND (users.account_expires_at IS NULL OR users.account_expires_at > now())
      RETURNING id,
                account_type    AS "accountType",
                approval_status AS "approvalStatus",

@@ -31,6 +31,7 @@
 | 2 | แก้ไขข้อมูล: ชื่อแสดง (`display_name_override`), หน่วยงาน (เฉพาะนิสิต/บุคลากรภายนอก), ประเภทบัญชี | เสร็จ |
 | 3 | ลบข้อมูลส่วนบุคคล (ต้องพิมพ์อีเมลยืนยัน) | เสร็จ |
 | 4 | ลงทะเบียนล่วงหน้าด้วยอีเมล + ผูกบัญชี Google ตอน login (โดเมน มมส. ต้องมี `hd` ตรง) | เสร็จ |
+| 5 | บัญชีหน่วยงาน (`service`): จัดประเภทตอน login (ERP ไม่พบ = รออนุมัติ), หน่วยงาน + ผู้รับผิดชอบก่อนอนุมัติ, วันหมดอายุ + ปิดอัตโนมัติ | เสร็จ |
 | แยก | บัญชีแบบรหัสผ่าน (ต้องมีระบบอีเมลก่อน) | ยังไม่ทำ |
 
 ## API
@@ -38,13 +39,13 @@
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/admin/users?q=&status=&accountType=&role=&cursor=` | `user:read` |
-| POST | `/admin/users` (`email`, `name`, `accountType`, `orgUnitId`) — ลงทะเบียนล่วงหน้า อนุมัติไว้แล้ว | `user:create` |
+| POST | `/admin/users` (`email`, `name`, `accountType`, `orgUnitId`, `responsibleUserId`, `accountExpiresAt`) — ลงทะเบียนล่วงหน้า อนุมัติไว้แล้ว (บัญชีหน่วยงานบังคับหน่วยงาน + ผู้รับผิดชอบ) | `user:create` |
 | GET | `/admin/roles` | `user:read` |
 | GET | `/admin/users/:id` | `user:read` |
 | POST | `/admin/users/:id/deactivate` · `/activate` (บังคับเหตุผล) | `user:deactivate` |
-| POST | `/admin/users/:id/approve` (เหตุผลไม่บังคับ) · `/reject` (บังคับ) | `user:approve` |
+| POST | `/admin/users/:id/approve` (เหตุผลไม่บังคับ, บัญชีหน่วยงานต้องมีหน่วยงาน + ผู้รับผิดชอบ) · `/reject` (บังคับ) | `user:approve` |
 | POST · DELETE | `/admin/users/:id/roles/:roleCode` (บังคับเหตุผล) | `user_role:assign` |
-| PATCH | `/admin/users/:id` (`displayNameOverride`, `accountType`, `orgUnitId` + บังคับเหตุผล) | `user:update` |
+| PATCH | `/admin/users/:id` (`displayNameOverride`, `accountType`, `orgUnitId`, `responsibleUserId`, `accountExpiresAt` + บังคับเหตุผล) | `user:update` |
 | GET | `/admin/org-units` | `user:read` |
 | DELETE | `/admin/users/:id` (`confirmEmail` + บังคับเหตุผล) — ลบข้อมูลส่วนบุคคล ย้อนกลับไม่ได้ | `user:delete` |
 

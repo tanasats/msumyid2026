@@ -8,7 +8,7 @@ import { getCurrentUser } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'รอการอนุมัติ' };
 
-// หน้าสำหรับบัญชีบุคลากรภายนอกที่ยังไม่ได้รับอนุมัติ หรือถูกปฏิเสธ
+// หน้าสำหรับบัญชีบุคลากรภายนอก/บัญชีหน่วยงานที่ยังไม่ได้รับอนุมัติ หรือถูกปฏิเสธ
 export default async function PendingPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
@@ -28,7 +28,9 @@ export default async function PendingPage() {
         <p>
           {rejected
             ? 'หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ'
-            : 'ผู้ดูแลระบบจะตรวจสอบบัญชีของคุณ เมื่อได้รับอนุมัติแล้วจึงจะใช้งานระบบได้'}
+            : user.accountType === 'service'
+              ? 'บัญชีนี้ไม่พบในระบบบุคลากร (ERP) จึงถือเป็นบัญชีหน่วยงาน ผู้ดูแลระบบจะกำหนดหน่วยงานและผู้รับผิดชอบ แล้วจึงอนุมัติ หากเป็นบัญชีส่วนตัวของบุคลากร กรุณาติดต่อผู้ดูแลระบบ'
+              : 'ผู้ดูแลระบบจะตรวจสอบบัญชีของคุณ เมื่อได้รับอนุมัติแล้วจึงจะใช้งานระบบได้'}
         </p>
         <p className="mt-3 text-sm break-all">บัญชี: {user.email}</p>
       </StatusState>

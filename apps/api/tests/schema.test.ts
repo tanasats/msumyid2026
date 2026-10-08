@@ -30,13 +30,14 @@ async function createUser(client: PoolClient): Promise<string> {
 }
 
 describe('ข้อมูลตั้งต้น', () => {
-  it('มี role ตั้งต้นครบ 6 ตัว พร้อม is_system / is_privileged ถูกต้อง', async () => {
+  it('มี role ตั้งต้นครบ 7 ตัว พร้อม is_system / is_privileged ถูกต้อง', async () => {
     const { rows } = await pool.query<{ code: string; is_system: boolean; is_privileged: boolean }>(
       'SELECT code, is_system, is_privileged FROM roles ORDER BY code',
     );
     expect(rows).toEqual([
       { code: 'admin', is_system: false, is_privileged: true },
       { code: 'external', is_system: true, is_privileged: false },
+      { code: 'service', is_system: true, is_privileged: false },
       { code: 'staff', is_system: true, is_privileged: false },
       { code: 'student', is_system: true, is_privileged: false },
       { code: 'super_admin', is_system: true, is_privileged: true },

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { ApiError, apiFetch } from './api-server';
+import type { ResponsibleUser } from './account-type';
 import type { CurrentUser } from './auth';
 import type { StaffProfile } from './staff-profile';
 
@@ -57,6 +58,9 @@ export type UserDetail = {
     approvedByName: string | null;
     deactivatedAt: string | null;
     deactivatedByName: string | null;
+    /** วันหมดอายุของบัญชีหน่วยงาน — null = ไม่หมดอายุ */
+    accountExpiresAt: string | null;
+    responsibleUser: ResponsibleUser | null;
     roles: UserRole[];
   };
   staffProfile: StaffProfile | null;

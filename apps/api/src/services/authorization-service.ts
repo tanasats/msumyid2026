@@ -1,3 +1,4 @@
+import type { AccountType } from '../repositories/session-repository.js';
 import { PERMISSIONS, SUPER_ADMIN_ROLE, type Permission } from './permissions.js';
 
 export type AuthUser = {
@@ -5,7 +6,7 @@ export type AuthUser = {
   email: string;
   name: string;
   pictureUrl: string | null;
-  accountType: 'student' | 'staff' | 'external';
+  accountType: AccountType;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   roles: string[];
   permissions: string[];
@@ -33,8 +34,8 @@ export type RoleChangeDenial = 'SELF' | 'SYSTEM_ROLE' | 'PRIVILEGED_ROLE' | 'FOR
 /**
  * กฎการให้/ถอน role — ที่เดียวในระบบ (CLAUDE.md หัวข้อ 9)
  * - ห้ามแก้ role ของตัวเอง
- * - role ระบบที่ไม่ใช่สิทธิ์สูง (user/student/staff/external) ระบบจัดการเอง แก้ด้วยมือไม่ได้
- *   (user ถอนไม่ได้, student/staff ให้ตอน login, external ให้ตอนอนุมัติ)
+ * - role ระบบที่ไม่ใช่สิทธิ์สูง (user/student/staff/external/service) ระบบจัดการเอง แก้ด้วยมือไม่ได้
+ *   (user ถอนไม่ได้, student/staff ให้ตอน login, external/service ให้ตอนอนุมัติ)
  * - role สิทธิ์สูง (is_privileged รวม super_admin) ให้/ถอนได้เฉพาะ super_admin
  * - role อื่นต้องมี user_role:assign
  * กฎ "ห้ามถอน super_admin คนสุดท้าย" ต้องนับจากฐานข้อมูล จึงตรวจใน user-admin-service
