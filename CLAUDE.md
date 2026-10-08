@@ -73,6 +73,10 @@ S3_SECRET_KEY=...
 S3_BUCKET=app-files
 S3_FORCE_PATH_STYLE=true
 
+# ERP-HR มมส. — ดึงข้อมูลบุคลากรด้วย Google access token ตอน login
+ERP_HR_STAFFINFO_URL=https://erp.msu.ac.th/service/api/staffinfo
+ERP_HR_TIMEOUT_MS=5000                    # เกินเวลานี้ข้ามไป login ยังผ่าน
+
 # อีเมลแจ้งเตือน (ยังไม่ได้สร้าง — ทำภายหลัง) — dev/test: log, production: gmail + GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN
 MAIL_TRANSPORT=log
 
@@ -218,7 +222,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - `super_admin` คนแรกสร้างผ่าน seed script (`INITIAL_SUPER_ADMIN_EMAIL`) เท่านั้น ห้ามมีช่องทางผ่าน UI หรือ API สาธารณะ
 - ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` ให้ตอนอนุมัติบัญชีเท่านั้น
 
-ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name`, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
+ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name` = ชื่อจาก Google, `display_name` = ชื่อที่ระบบแสดง, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
 
 ## 10. กฎการเขียน SQL (สำคัญ)
 - **ห้ามใช้ ORM หรือ query builder** ให้เขียน SQL ตรง ๆ ผ่าน `pg`
@@ -304,8 +308,9 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - **สรุปท้ายงาน:** บอกว่าแก้ไฟล์ไหนบ้าง และต้องรันคำสั่งอะไรต่อ (เช่น migration)
 
 ## 18. ข้อควรระวังเฉพาะโปรเจกต์
-> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ส่วนต่อไปนี้ **ยังไม่ได้สร้าง** และไฟล์ที่อ้างถึงยังไม่มีอยู่จริง: ERP-HR, PDPA (`/privacy`, `PrivacyNotice.tsx`, `privacy-service.ts`, `docs/design/pdpa.md`), อีเมลแจ้งเตือน (`src/mail`), deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น
+> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) ส่วนต่อไปนี้ **ยังไม่ได้สร้าง** และไฟล์ที่อ้างถึงยังไม่มีอยู่จริง: หน้าจับคู่หน่วยงาน ERP แบบ `manual`, PDPA (`/privacy`, `PrivacyNotice.tsx`, `privacy-service.ts`, `docs/design/pdpa.md`), อีเมลแจ้งเตือน (`src/mail`), deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น
 - **ERP-HR** (`ERP_HR_STAFFINFO_URL`): เรียกด้วย Google access token ของผู้ใช้ตอน callback เท่านั้น ห้ามเก็บ access token ลงฐานข้อมูลหรือ log เรียกนอก transaction และถ้าล้มเหลวต้องไม่ทำให้ login ล้ม (รายละเอียด API: `docs/erp_hr_msu_staff_info_integration.md`)
+- ข้อมูลบุคลากรเก็บที่ `staff_profiles` (รหัสบุคลากร, ชื่อไทย/อังกฤษ, ตำแหน่ง, คณะ/กอง/กลุ่มงาน) อัปเดตทุกครั้งที่ login ถ้า ERP ล้มเหลวใช้ข้อมูลเดิม — `users.display_name` ของบุคลากร = ชื่อ-นามสกุลไทยจาก ERP (ไม่มีคำนำหน้า) ส่วนนิสิต/บุคลากรภายนอก = ชื่อจาก Google ทุกหน้าที่แสดงชื่อผู้ใช้ต้องใช้ `display_name`
 - รหัสหน่วยงานของ ERP (`facultyid`/`departmentid` 12 หลัก) เป็นคนละชุดกับ `org_units.code` (2 หลัก) ห้ามนำมาเทียบกันตรง ๆ ให้ผูกผ่านตาราง `erp_org_units` (จับคู่ด้วยรหัส ERP, ระบบจับคู่จากชื่อที่ตรงกันให้อัตโนมัติ, การจับคู่แบบ `manual` ห้ามถูกทับ) หน่วยงานของบุคลากรใช้ระดับกอง/ฝ่ายก่อน แล้วค่อยคณะ/สำนัก
 - ไม่เก็บเบอร์โทรศัพท์จาก ERP (PDPA)
 - **PDPA:** ระบบมีประกาศความเป็นส่วนตัวเฉพาะบริการ (`/privacy`, อ้างนโยบายมหาวิทยาลัยและประกาศสำหรับบุคลากร) ผู้ใช้ต้องกด "รับทราบ" ก่อนใช้ระบบ ฐานหลักคือประโยชน์โดยชอบด้วยกฎหมาย (ไม่ใช้ความยินยอมเป็นเงื่อนไขการใช้ระบบ) ดู `docs/design/pdpa.md`
