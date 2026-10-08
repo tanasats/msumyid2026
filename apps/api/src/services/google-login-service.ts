@@ -4,7 +4,10 @@ import { withTransaction } from '../db/transaction.js';
 import { logger } from '../middlewares/logger.js';
 import { grantRoleBySystem } from '../repositories/role-repository.js';
 import type { AccountType } from '../repositories/session-repository.js';
-import { upsertGoogleUser } from '../repositories/user-repository.js';
+import { upsertErpOrgUnit } from '../repositories/erp-org-unit-repository.js';
+import { upsertStaffProfile } from '../repositories/staff-profile-repository.js';
+import { syncStaffOrgUnit, upsertGoogleUser } from '../repositories/user-repository.js';
+import { erpHr, type ErpStaffInfo } from './erp-hr.js';
 import { googleOAuth, type GoogleAuthRequest } from './google-oauth.js';
 import { createSession } from './session-service.js';
 
@@ -45,6 +48,22 @@ export function classifyAccount(
 /** role ประเภทบัญชีที่ระบบให้ตอน login — external ให้ตอนอนุมัติเท่านั้น (CLAUDE.md หัวข้อ 9) */
 function accountRoleOnLogin(accountType: AccountType): string | null {
   return accountType === 'external' ? null : accountType;
+}
+
+/**
+ * เรียก ERP-HR โดยไม่ให้ error หลุดออกไปทำให้ login ล้ม
+ * log เฉพาะประเภท error — ห้าม log access token หรือข้อมูลบุคลากร (CLAUDE.md หัวข้อ 13, 18)
+ */
+async function fetchStaffInfoSafely(accessToken: string): Promise<ErpStaffInfo | null> {
+  try {
+    const info = await erpHr.fetchStaffInfo(accessToken);
+    if (!info) logger.info('ERP-HR ไม่พบข้อมูลบุคลากรของบัญชีนี้');
+    return info;
+  } catch (err) {
+    const reason = err instanceof Error ? `${err.name}: ${err.message}` : 'unknown';
+    logger.warn({ reason }, 'เรียก ERP-HR ไม่สำเร็จ ใช้ข้อมูลบุคลากรเดิม');
+    return null;
+  }
 }
 
 export async function startGoogleLogin(): Promise<GoogleAuthRequest> {
@@ -109,18 +128,40 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
 
   const classification = classifyAccount(identity.email, identity.hd, config.allowedEmailDomains);
 
-  // TODO(ERP-HR): บุคลากรดึงหน่วยงานจาก ERP-HR นอก transaction (ยังไม่ได้สร้าง — CLAUDE.md หัวข้อ 18)
+  // บุคลากร: ดึงข้อมูลจาก ERP-HR "นอก transaction" (ไม่ถือ connection ไว้ระหว่างรอ ERP)
+  // ล้มเหลว = null แล้ว login ต่อได้ตามปกติ (CLAUDE.md หัวข้อ 18)
+  const staffInfo =
+    classification.accountType === 'staff' && identity.accessToken
+      ? await fetchStaffInfoSafely(identity.accessToken)
+      : null;
+
   const result = await withTransaction(async (client) => {
     const user = await upsertGoogleUser(client, {
       googleSub: identity.sub,
       email: identity.email,
       name: identity.name ?? identity.email,
+      erpDisplayName: staffInfo ? `${staffInfo.firstNameTh} ${staffInfo.lastNameTh}` : null,
       pictureUrl: identity.picture,
       accountType: classification.accountType,
       orgUnitCode: classification.accountType === 'student' ? classification.facultyCode : null,
       approvalStatus: classification.accountType === 'external' ? 'pending' : 'approved',
     });
     if (!user) return null;
+
+    if (user.accountType === 'staff') {
+      if (staffInfo) {
+        // ต้องบันทึกหน่วยงาน ERP ก่อน เพราะ staff_profiles อ้างถึงด้วยรหัส ERP
+        if (staffInfo.faculty) {
+          await upsertErpOrgUnit(client, { ...staffInfo.faculty, level: 'faculty' });
+        }
+        if (staffInfo.department) {
+          await upsertErpOrgUnit(client, { ...staffInfo.department, level: 'department' });
+        }
+        await upsertStaffProfile(client, user.id, staffInfo);
+      }
+      // คำนวณหน่วยงานใหม่ทุกครั้ง (รวมกรณี ERP ล่มแต่ผู้ดูแลเพิ่งแก้การจับคู่)
+      await syncStaffOrgUnit(client, user.id);
+    }
 
     // ตรวจและให้ role ทุกครั้งที่ login (ให้เฉพาะที่ยังไม่มี) — ใช้ประเภทบัญชีที่บันทึกไว้ ไม่ใช่ค่าจาก client
     const grantedRoles: string[] = [];
@@ -160,6 +201,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       accountType: user.accountType,
       approvalStatus: user.approvalStatus,
       grantedRoles,
+      erpSynced: staffInfo !== null,
     },
     'เข้าสู่ระบบด้วย Google สำเร็จ',
   );

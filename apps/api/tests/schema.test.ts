@@ -22,8 +22,8 @@ async function inRollback(work: (client: PoolClient) => Promise<void>) {
 
 async function createUser(client: PoolClient): Promise<string> {
   const result = await client.query<{ id: string }>(
-    `INSERT INTO users (google_sub, email, name, account_type)
-     VALUES ($1, $2, $3, 'staff') RETURNING id`,
+    `INSERT INTO users (google_sub, email, name, display_name, account_type)
+     VALUES ($1, $2, $3, $3, 'staff') RETURNING id`,
     [`sub-${crypto.randomUUID()}`, 'test@msu.ac.th', 'ทดสอบ'],
   );
   return result.rows[0]!.id;

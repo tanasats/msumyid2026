@@ -9,6 +9,7 @@ import { csrfProtection } from './middlewares/csrf.js';
 import { loadSession } from './middlewares/auth.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
+import { meRouter } from './routes/me.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -31,6 +32,7 @@ export function createApp() {
 
   app.use(healthRouter);
   app.use(authRouter);
+  app.use(meRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

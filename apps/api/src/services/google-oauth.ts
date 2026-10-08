@@ -21,6 +21,8 @@ export type GoogleIdentity = {
   /** โดเมนของ Google Workspace (ไม่มีสำหรับ Gmail ทั่วไป) */
   hd: string | null;
   nonce: string | null;
+  /** ใช้เรียก ERP-HR ตอน callback เท่านั้น ห้ามเก็บลงฐานข้อมูลหรือ log (CLAUDE.md หัวข้อ 18) */
+  accessToken: string | null;
 };
 
 function createClient(): OAuth2Client {
@@ -73,6 +75,7 @@ export const googleOAuth = {
       picture: payload.picture ?? null,
       hd: payload.hd ?? null,
       nonce: payload.nonce ?? null,
+      accessToken: tokens.access_token ?? null,
     };
   },
 };

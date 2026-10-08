@@ -7,6 +7,7 @@ export type SessionUserRow = {
   sessionId: string;
   userId: string;
   email: string;
+  /** ชื่อแสดงของระบบ (users.display_name) ไม่ใช่ชื่อจาก Google */
   name: string;
   pictureUrl: string | null;
   accountType: AccountType;
@@ -40,7 +41,7 @@ export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise
     `SELECT s.id               AS "sessionId",
             u.id               AS "userId",
             u.email,
-            u.name,
+            u.display_name     AS name,
             u.picture_url      AS "pictureUrl",
             u.account_type     AS "accountType",
             u.approval_status  AS "approvalStatus",

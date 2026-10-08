@@ -11,7 +11,7 @@ import { createSession } from '../../src/services/session-service.js';
 export async function resetDatabase(): Promise<void> {
   await withTransaction(async (client) => {
     await client.query('ALTER TABLE role_change_logs DISABLE TRIGGER trg_role_change_logs_no_truncate');
-    await client.query('TRUNCATE users, sessions, user_roles, role_change_logs CASCADE');
+    await client.query('TRUNCATE users, sessions, user_roles, role_change_logs, erp_org_units CASCADE');
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query(`DELETE FROM role_permissions`);
     await client.query(`DELETE FROM roles WHERE code LIKE 'test\\_%'`);
@@ -28,8 +28,8 @@ type CreateUserInput = {
 
 export async function createUser(input: CreateUserInput = {}): Promise<{ id: string }> {
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO users (google_sub, email, name, account_type, approval_status, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (google_sub, email, name, display_name, account_type, approval_status, is_active)
+     VALUES ($1, $2, $3, $3, $4, $5, $6)
      RETURNING id`,
     [
       `sub-${crypto.randomUUID()}`,

@@ -33,6 +33,10 @@ const envSchema = z.object({
         .filter(Boolean),
     )
     .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1)),
+  // ERP-HR มมส. เรียกด้วย Google access token ของบุคลากรตอน login (CLAUDE.md หัวข้อ 18)
+  ERP_HR_STAFFINFO_URL: z.url(),
+  // ERP ช้าหรือล่มต้องไม่ทำให้ login ค้าง — เกินเวลานี้ข้ามไป
+  ERP_HR_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
@@ -72,5 +76,9 @@ export const config = {
     redirectUri: env.GOOGLE_REDIRECT_URI,
   },
   allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
+  erpHr: {
+    staffInfoUrl: env.ERP_HR_STAFFINFO_URL,
+    timeoutMs: env.ERP_HR_TIMEOUT_MS,
+  },
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;
