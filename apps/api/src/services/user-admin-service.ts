@@ -9,6 +9,7 @@ import {
   listUsers,
   lockManagedUser,
   setApprovalStatus,
+  anonymizeUser,
   setUserActive,
   updateUserProfile,
   type ListUsersFilter,
@@ -23,12 +24,13 @@ import {
   grantRoleByActor,
   listRoles,
   lockActiveRoleHolderIds,
+  revokeAllRolesByActor,
   revokeRoleByActor,
   type RoleRow,
 } from '../repositories/role-repository.js';
 import { findActiveOrgUnit, listActiveOrgUnits, type OrgUnitRow } from '../repositories/org-unit-repository.js';
 import { deleteSessionsByUser, type AccountType } from '../repositories/session-repository.js';
-import { findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
+import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { SUPER_ADMIN_ROLE } from './permissions.js';
 
@@ -320,5 +322,44 @@ export async function updateUser(
     }
 
     await insertUserAuditLog(client, { actorId: actor.id, targetUserId: userId, action: 'update', changes, reason });
+  });
+}
+
+/**
+ * ลบบัญชีและข้อมูลส่วนบุคคล (ย้อนกลับไม่ได้) — ใช้กับคำขอลบข้อมูลตาม PDPA หรือบัญชีที่สร้างผิด
+ * งานปกติให้ใช้ "ปิดบัญชี" แทน
+ * - ต้องพิมพ์อีเมลของผู้ใช้ยืนยัน (กันลบผิดคน)
+ * - ทำทั้งหมดใน transaction เดียว: เพิกถอน session, ลบข้อมูลบุคลากร, ถอนทุก role, ตัดข้อมูลส่วนบุคคล, เขียน log
+ * - log ไม่เก็บข้อมูลส่วนบุคคล (อีเมล/ชื่อ) ของผู้ใช้ที่ถูกลบ
+ */
+export async function deleteUser(
+  actor: AuthUser,
+  userId: string,
+  confirmEmail: string,
+  reason: string,
+): Promise<void> {
+  await withTransaction(async (client) => {
+    const superAdminIds = await lockActiveSuperAdmins(client);
+    const target = await lockTarget(client, actor, userId);
+    if (target.email.toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      throw new AppError(400, 'EMAIL_MISMATCH', 'อีเมลที่พิมพ์ยืนยันไม่ตรงกับบัญชีนี้');
+    }
+    assertNotLastSuperAdmin(superAdminIds, userId);
+
+    const revokedSessions = await deleteSessionsByUser(client, userId);
+    await deleteStaffProfile(client, userId);
+    const revokedRoles = await revokeAllRolesByActor(client, {
+      userId,
+      actorId: actor.id,
+      reason: `ลบบัญชี: ${reason}`,
+    });
+    await anonymizeUser(client, { userId, actorId: actor.id });
+    await insertUserAuditLog(client, {
+      actorId: actor.id,
+      targetUserId: userId,
+      action: 'delete',
+      changes: { personalData: 'deleted', revokedSessions, revokedRoles },
+      reason,
+    });
   });
 }

@@ -168,3 +168,22 @@ export async function findUserRolesByCodes(db: Queryable, userId: string, codes:
   );
   return result.rows;
 }
+
+/**
+ * ถอนทุก role ของผู้ใช้พร้อมเขียน role_change_logs ทีละ role ใน statement เดียว (ใช้ตอนลบบัญชี)
+ * DELETE ... RETURNING ส่งทุกแถวที่ลบไปให้ INSERT log — คืนจำนวน role ที่ถอน
+ */
+export async function revokeAllRolesByActor(
+  db: Queryable,
+  input: { userId: string; actorId: string; reason: string },
+): Promise<number> {
+  const result = await db.query(
+    `WITH del AS (
+       DELETE FROM user_roles WHERE user_id = $1 RETURNING role_id
+     )
+     INSERT INTO role_change_logs (actor_id, target_user_id, role_id, action, reason)
+     SELECT $2, $1, del.role_id, 'revoke', $3 FROM del`,
+    [input.userId, input.actorId, input.reason],
+  );
+  return result.rowCount ?? 0;
+}

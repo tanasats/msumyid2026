@@ -116,3 +116,8 @@ export async function findStaffProfileByUserId(db: Queryable, userId: string): P
   );
   return result.rows[0] ?? null;
 }
+
+/** ลบข้อมูลบุคลากรของผู้ใช้ (ใช้ตอนลบข้อมูลส่วนบุคคล) */
+export async function deleteStaffProfile(db: Queryable, userId: string): Promise<void> {
+  await db.query('DELETE FROM staff_profiles WHERE user_id = $1', [userId]);
+}

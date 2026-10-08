@@ -111,10 +111,12 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         {manageable && (
           <UserAccountActions
             userId={user.id}
+            email={user.email}
             isActive={user.isActive}
             approvalStatus={user.approvalStatus}
             canApprove={can('user:approve')}
             canDeactivate={can('user:deactivate')}
+            canDelete={can('user:delete')}
           />
         )}
 

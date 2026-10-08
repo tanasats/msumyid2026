@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleCheck, CircleSlash, RotateCcw, ShieldX } from 'lucide-react';
+import { CircleCheck, CircleSlash, RotateCcw, ShieldX, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { apiMutate } from '@/lib/api-client';
 
-type Action = 'approve' | 'reject' | 'deactivate' | 'activate';
+type Action = 'approve' | 'reject' | 'deactivate' | 'activate' | 'delete';
 
 const ACTIONS: Record<
   Action,
@@ -47,6 +47,14 @@ const ACTIONS: Record<
     tone: 'primary',
     reason: 'required',
   },
+  delete: {
+    title: 'ลบบัญชีและข้อมูลส่วนบุคคลหรือไม่?',
+    description:
+      'ชื่อ อีเมล รูป ข้อมูลบุคลากร และบทบาททั้งหมดจะถูกลบถาวร ย้อนกลับไม่ได้ ถ้าต้องการหยุดการใช้งานชั่วคราวให้ใช้ "ปิดบัญชี" แทน — ห้ามใส่ข้อมูลส่วนบุคคลในเหตุผล',
+    confirmLabel: 'ลบบัญชีถาวร',
+    tone: 'danger',
+    reason: 'required',
+  },
 };
 
 /**
@@ -55,16 +63,21 @@ const ACTIONS: Record<
  */
 export function UserAccountActions({
   userId,
+  email,
   isActive,
   approvalStatus,
   canApprove,
   canDeactivate,
+  canDelete,
 }: {
   userId: string;
+  /** ใช้เป็นข้อความที่ต้องพิมพ์ยืนยันก่อนลบ */
+  email: string;
   isActive: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   canApprove: boolean;
   canDeactivate: boolean;
+  canDelete: boolean;
 }) {
   const router = useRouter();
   const [action, setAction] = useState<Action | null>(null);
@@ -72,10 +85,17 @@ export function UserAccountActions({
 
   const showApprove = canApprove && isActive && approvalStatus !== 'approved';
   const showReject = canApprove && isActive && approvalStatus === 'pending';
-  if (!showApprove && !showReject && !canDeactivate) return null;
+  if (!showApprove && !showReject && !canDeactivate && !canDelete) return null;
 
-  async function confirm(reason: string) {
+  async function confirm(reason: string, confirmText: string) {
     if (!action) return;
+    if (action === 'delete') {
+      await apiMutate(`/admin/users/${userId}`, 'DELETE', { reason, confirmEmail: confirmText });
+      // บัญชีไม่มีแล้ว กลับไปหน้ารายชื่อ
+      router.push('/admin/users');
+      router.refresh();
+      return;
+    }
     await apiMutate(`/admin/users/${userId}/${action}`, 'POST', reason ? { reason } : {});
     // โหลดข้อมูลหน้าใหม่จาก server (สถานะ, ประวัติ)
     router.refresh();
@@ -111,6 +131,19 @@ export function UserAccountActions({
           ))}
       </div>
 
+      {/* งานที่ย้อนกลับไม่ได้ แยกไว้ท้ายสุดให้เห็นชัดว่าต่างจากปุ่มอื่น */}
+      {canDelete && (
+        <div className="border-t border-line pt-4">
+          <p className="mb-3 text-sm text-muted">
+            ลบถาวรใช้กับคำขอลบข้อมูลตาม PDPA หรือบัญชีที่สร้างผิดเท่านั้น ข้อมูลที่ลบกู้คืนไม่ได้
+          </p>
+          <Button variant="danger" fullWidth onClick={() => setAction('delete')}>
+            <Trash2 className="size-5" aria-hidden />
+            ลบบัญชีและข้อมูลส่วนบุคคล
+          </Button>
+        </div>
+      )}
+
       <ConfirmDialog
         open={config !== null}
         onClose={() => setAction(null)}
@@ -119,6 +152,7 @@ export function UserAccountActions({
         confirmLabel={config?.confirmLabel ?? ''}
         tone={config?.tone}
         reason={config?.reason}
+        confirmText={action === 'delete' ? { label: `พิมพ์อีเมล ${email} เพื่อยืนยัน`, expected: email } : undefined}
         onConfirm={confirm}
       />
     </section>

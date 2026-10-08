@@ -15,8 +15,10 @@ type ConfirmDialogProps = {
   tone?: 'primary' | 'danger';
   /** ช่องกรอกเหตุผล: required = บังคับกรอก, optional = ไม่บังคับ, ไม่ระบุ = ไม่มีช่อง */
   reason?: 'required' | 'optional';
+  /** งานที่ย้อนกลับไม่ได้: ต้องพิมพ์ข้อความนี้ให้ตรง (ไม่สนตัวพิมพ์) จึงกดยืนยันได้ เช่น อีเมลของบัญชี */
+  confirmText?: { label: string; expected: string };
   /** throw Error พร้อมข้อความภาษาไทยเพื่อแสดงในกล่อง (กล่องไม่ปิด ข้อมูลที่กรอกไม่หาย) */
-  onConfirm: (reason: string) => Promise<void>;
+  onConfirm: (reason: string, confirmText: string) => Promise<void>;
 };
 
 /**
@@ -32,10 +34,12 @@ export function ConfirmDialog({
   confirmLabel,
   tone = 'primary',
   reason,
+  confirmText,
   onConfirm,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [reasonText, setReasonText] = useState('');
+  const [typedText, setTypedText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,6 +48,7 @@ export function ConfirmDialog({
     if (!dialog) return;
     if (open && !dialog.open) {
       setReasonText('');
+      setTypedText('');
       setError(null);
       dialog.showModal();
     } else if (!open && dialog.open) {
@@ -60,7 +65,7 @@ export function ConfirmDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await onConfirm(reasonText.trim());
+      await onConfirm(reasonText.trim(), typedText.trim());
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ดำเนินการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
@@ -100,6 +105,23 @@ export function ConfirmDialog({
           </div>
         )}
 
+        {confirmText && (
+          <div className="space-y-1.5">
+            <label htmlFor="confirm-dialog-text" className="block text-sm font-medium">
+              {confirmText.label}
+            </label>
+            <input
+              id="confirm-dialog-text"
+              value={typedText}
+              onChange={(e) => setTypedText(e.target.value)}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base"
+            />
+          </div>
+        )}
+
         {error && <Alert tone="danger">{error}</Alert>}
 
         <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
@@ -107,7 +129,13 @@ export function ConfirmDialog({
           <Button variant="secondary" fullWidth autoFocus onClick={onClose} disabled={submitting}>
             ยกเลิก
           </Button>
-          <Button type="submit" variant={tone === 'danger' ? 'danger' : 'primary'} fullWidth loading={submitting}>
+          <Button
+            type="submit"
+            variant={tone === 'danger' ? 'danger' : 'primary'}
+            fullWidth
+            loading={submitting}
+            disabled={!!confirmText && typedText.trim().toLowerCase() !== confirmText.expected.toLowerCase()}
+          >
             {confirmLabel}
           </Button>
         </div>

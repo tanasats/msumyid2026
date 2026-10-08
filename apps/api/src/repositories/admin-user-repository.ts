@@ -161,6 +161,7 @@ export async function findUserDetail(db: Queryable, userId: string): Promise<Use
 
 export type ManagedUserRow = {
   id: string;
+  email: string;
   isActive: boolean;
   approvalStatus: ApprovalStatus;
   accountType: AccountType;
@@ -177,6 +178,7 @@ export type ManagedUserRow = {
 export async function lockManagedUser(db: Queryable, userId: string): Promise<ManagedUserRow | null> {
   const result = await db.query<ManagedUserRow>(
     `SELECT u.id,
+            u.email,
             u.is_active       AS "isActive",
             u.approval_status AS "approvalStatus",
             u.account_type    AS "accountType",
@@ -332,5 +334,33 @@ export async function updateUserProfile(db: Queryable, input: UpdateUserProfileI
       input.orgUnitId !== undefined,
       input.orgUnitId ?? null,
     ],
+  );
+}
+
+/** ข้อความแทนชื่อของบัญชีที่ถูกลบข้อมูลส่วนบุคคล */
+export const DELETED_USER_NAME = 'ผู้ใช้ที่ถูกลบ';
+
+/**
+ * ลบข้อมูลส่วนบุคคลของผู้ใช้ (anonymize) — คงแถวไว้เพราะ log อ้างถึงด้วย id (ลบแถวจริงจะติด foreign key)
+ * - google_sub = NULL: คืนตัวระบุ Google ถ้าเจ้าของกลับมา login จะได้บัญชีใหม่ (UNIQUE ยอมให้ NULL ซ้ำได้)
+ * - email แทนด้วยค่าที่ไม่ซ้ำและไม่ใช่อีเมลจริง (โดเมน .invalid สงวนไว้ว่าไม่มีอยู่จริง)
+ * - ปิดบัญชีด้วย: deactivated_* เก็บค่าเดิมถ้าเคยปิดไว้แล้ว (COALESCE)
+ */
+export async function anonymizeUser(db: Queryable, input: { userId: string; actorId: string }): Promise<void> {
+  await db.query(
+    `UPDATE users
+     SET deleted_at            = now(),
+         is_active             = false,
+         deactivated_at        = COALESCE(deactivated_at, now()),
+         deactivated_by        = COALESCE(deactivated_by, $2::uuid),
+         google_sub            = NULL,
+         email                 = 'deleted-' || id || '@deleted.invalid',
+         name                  = $3,
+         display_name          = $3,
+         display_name_override = NULL,
+         picture_url           = NULL,
+         org_unit_id           = NULL
+     WHERE id = $1`,
+    [input.userId, input.actorId, DELETED_USER_NAME],
   );
 }

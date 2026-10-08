@@ -6,6 +6,7 @@ import {
   activateUser,
   approveUser,
   deactivateUser,
+  deleteUser,
   getUserDetail,
   grantRole,
   listOrgUnits,
@@ -164,5 +165,18 @@ adminUsersRouter.patch('/admin/users/:id', requirePermission(PERMISSIONS.USER_UP
   const { id } = userIdParams.parse(req.params);
   const { reason, ...input } = updateBody.parse(req.body);
   await updateUser(req.user!, id, input, reason);
+  res.status(204).end();
+});
+
+const deleteBody = z.object({
+  confirmEmail: z.string().trim().min(1, 'กรุณาพิมพ์อีเมลเพื่อยืนยัน').max(320),
+  reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
+});
+
+// สิทธิ์: user:delete — ลบบัญชีและข้อมูลส่วนบุคคล (ย้อนกลับไม่ได้ ต้องพิมพ์อีเมลยืนยัน)
+adminUsersRouter.delete('/admin/users/:id', requirePermission(PERMISSIONS.USER_DELETE), async (req, res) => {
+  const { id } = userIdParams.parse(req.params);
+  const { confirmEmail, reason } = deleteBody.parse(req.body);
+  await deleteUser(req.user!, id, confirmEmail, reason);
   res.status(204).end();
 });
