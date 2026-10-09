@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { ShieldCheck } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
+import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { getCurrentUser } from '@/lib/auth';
 import { serverConfig } from '@/lib/config';
+import { getThemePreference } from '@/lib/theme-server';
 
 export const metadata: Metadata = { title: 'เข้าสู่ระบบ' };
 
@@ -28,13 +31,24 @@ export default async function LoginPage({
   const { error } = await searchParams;
   const errorMessage =
     typeof error === 'string' ? (ERROR_MESSAGES[error] ?? ERROR_MESSAGES.LOGIN_FAILED) : null;
+  const theme = await getThemePreference();
 
   return (
-    <PageShell width="form">
+    <PageShell width="form" headerAction={<ThemeSwitcher initial={theme} compact />}>
+      {/* แสงทองจาง ๆ ด้านบนของหน้า (ตกแต่ง) */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70dvh] bg-[radial-gradient(ellipse_at_top,var(--color-accent-soft),transparent_70%)]"
+      />
       {/* มือถือ: ดันการ์ดลงครึ่งล่างของจอ (ใกล้นิ้วโป้ง) / จอใหญ่: กึ่งกลาง */}
       <div className="flex min-h-[calc(100dvh-8rem)] flex-col justify-end sm:justify-center">
-        <section className="mx-auto w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-sm sm:p-8">
-          <h1 className="text-2xl leading-snug font-semibold">เข้าสู่ระบบ</h1>
+        <section className="relative mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-8">
+          {/* เส้นทองบางด้านบนของการ์ด */}
+          <div aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-transparent via-gold to-transparent" />
+          <div className="flex size-12 items-center justify-center rounded-full bg-accent-soft ring-1 ring-gold/50">
+            <ShieldCheck className="size-6 text-gold" aria-hidden />
+          </div>
+          <h1 className="mt-5 font-display text-2xl leading-snug font-semibold">เข้าสู่ระบบ</h1>
           <p className="mt-2 leading-relaxed text-muted">
             นิสิตและบุคลากรใช้บัญชี @msu.ac.th ส่วนบุคลากรภายนอกใช้บัญชี Google ได้ทุกโดเมน (ต้องรอผู้ดูแลระบบอนุมัติ)
           </p>

@@ -57,15 +57,19 @@ export function NavLinks({ permissions, variant }: { permissions: string[]; vari
               aria-current={active ? 'page' : undefined}
               className={`${classes.item} transition ${
                 active
-                  ? 'font-semibold text-primary' + (variant === 'side' ? ' bg-primary-soft' : '')
-                  : 'text-muted hover:bg-slate-100 hover:text-fg'
+                  ? 'font-semibold text-accent-soft-fg' +
+                    // sidebar: พื้นทองอ่อน + แถบทองบางด้านซ้าย
+                    (variant === 'side'
+                      ? ' relative bg-accent-soft before:absolute before:inset-y-2.5 before:left-0 before:w-0.5 before:rounded-full before:bg-gold'
+                      : '')
+                  : 'text-muted hover:bg-surface-hover hover:text-fg'
               }`}
             >
               {/* bottom nav: รายการที่เลือกมีพื้นหลังรูปแคปซูลรอบไอคอน */}
               <span
                 className={
                   variant === 'bottom'
-                    ? `flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-primary-soft' : ''}`
+                    ? `flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-accent-soft' : ''}`
                     : 'flex'
                 }
               >

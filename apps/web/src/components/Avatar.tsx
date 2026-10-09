@@ -10,7 +10,7 @@ export function Avatar({ name, pictureUrl, size = 'md' }: { name: string; pictur
         src={pictureUrl}
         alt=""
         referrerPolicy="no-referrer"
-        className={`${sizeClass} shrink-0 rounded-full bg-slate-200 object-cover`}
+        className={`${sizeClass} shrink-0 rounded-full bg-skeleton object-cover`}
       />
     );
   }
@@ -18,7 +18,7 @@ export function Avatar({ name, pictureUrl, size = 'md' }: { name: string; pictur
   return (
     <span
       aria-hidden
-      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-full bg-primary-soft font-semibold text-primary`}
+      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent`}
     >
       {name.trim().charAt(0) || '?'}
     </span>

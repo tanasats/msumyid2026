@@ -85,7 +85,7 @@ export function ConfirmDialog({
       ref={dialogRef}
       onClose={onClose}
       aria-labelledby="confirm-dialog-title"
-      className="mx-auto mt-auto mb-0 w-full max-w-full rounded-t-2xl bg-surface p-0 text-fg shadow-xl backdrop:bg-slate-900/50 sm:my-auto sm:max-w-md sm:rounded-2xl"
+      className="mx-auto mt-auto mb-0 w-full max-w-full rounded-t-2xl bg-surface p-0 text-fg shadow-xl backdrop:bg-overlay sm:my-auto sm:max-w-md sm:rounded-2xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6">
         <h2 id="confirm-dialog-title" className="text-lg font-semibold">

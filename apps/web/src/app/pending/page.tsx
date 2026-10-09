@@ -4,7 +4,9 @@ import { Clock, ShieldX } from 'lucide-react';
 import { LogoutButton } from '@/components/LogoutButton';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
+import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { getCurrentUser } from '@/lib/auth';
+import { getThemePreference } from '@/lib/theme-server';
 
 export const metadata: Metadata = { title: 'รอการอนุมัติ' };
 
@@ -15,9 +17,10 @@ export default async function PendingPage() {
   if (user.approvalStatus === 'approved') redirect('/');
 
   const rejected = user.approvalStatus === 'rejected';
+  const theme = await getThemePreference();
 
   return (
-    <PageShell user={user} width="form">
+    <PageShell user={user} width="form" headerAction={<ThemeSwitcher initial={theme} compact />}>
       <StatusState
         icon={rejected ? ShieldX : Clock}
         tone={rejected ? 'danger' : 'warning'}

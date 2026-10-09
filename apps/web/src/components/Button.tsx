@@ -4,10 +4,10 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'md' | 'sm';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-white hover:bg-primary-hover active:bg-primary-hover',
-  secondary: 'border border-line-input bg-surface text-fg hover:bg-slate-100 active:bg-slate-100',
-  ghost: 'text-primary hover:bg-primary-soft active:bg-primary-soft',
-  danger: 'bg-danger text-white hover:bg-danger-hover active:bg-danger-hover',
+  primary: 'bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-hover',
+  secondary: 'border border-line-input bg-surface text-fg hover:bg-surface-hover active:bg-surface-hover',
+  ghost: 'text-accent hover:bg-accent-soft active:bg-accent-soft',
+  danger: 'bg-danger text-on-danger hover:bg-danger-hover active:bg-danger-hover',
 };
 
 // md = ปุ่มหลัก/ปุ่มในฟอร์ม (48px), sm = ปุ่มรอง (44px — ขั้นต่ำของพื้นที่แตะ)

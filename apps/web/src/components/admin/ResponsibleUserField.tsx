@@ -94,7 +94,7 @@ export function ResponsibleUserField({
               aria-invalid={error ? true : undefined}
               aria-describedby={errorId ?? hintId}
               className={`block h-12 w-full rounded-lg border bg-surface pr-3 pl-10 text-base text-fg placeholder:text-subtle ${
-                error ? 'border-red-700' : 'border-line-input'
+                error ? 'border-danger' : 'border-line-input'
               }`}
             />
           </div>
@@ -102,7 +102,7 @@ export function ResponsibleUserField({
           {trimmed.length >= MIN_QUERY_LENGTH && (
             <div aria-live="polite">
               {search.status === 'loading' && <p className="text-sm text-muted">กำลังค้นหา...</p>}
-              {search.status === 'error' && <p className="text-sm text-red-800">{search.message}</p>}
+              {search.status === 'error' && <p className="text-sm text-danger-fg">{search.message}</p>}
               {search.status === 'done' &&
                 (search.users.length === 0 ? (
                   <p className="text-sm text-muted">ไม่พบบุคลากรที่ตรงกับ &quot;{trimmed}&quot;</p>
@@ -113,7 +113,7 @@ export function ResponsibleUserField({
                         <button
                           type="button"
                           onClick={() => onChange({ id: user.id, displayName: user.displayName, email: user.email })}
-                          className="flex min-h-12 w-full flex-col items-start justify-center px-3 py-2 text-left hover:bg-slate-100"
+                          className="flex min-h-12 w-full flex-col items-start justify-center px-3 py-2 text-left hover:bg-surface-hover"
                         >
                           <span className="font-medium">{user.displayName}</span>
                           <span className="text-sm break-all text-muted">{user.email}</span>
@@ -128,7 +128,7 @@ export function ResponsibleUserField({
       )}
 
       {error ? (
-        <p id={errorId} className="text-sm text-red-800">
+        <p id={errorId} className="text-sm text-danger-fg">
           {error}
         </p>
       ) : (

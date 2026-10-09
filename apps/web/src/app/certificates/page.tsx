@@ -51,7 +51,7 @@ export default async function CertificatesPage() {
         {canRequest && !atLimit && certificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
 
         {certificates.length === 0 ? (
-          <div className="rounded-xl border border-line bg-surface">
+          <div className="rounded-xl border border-line bg-surface shadow-card">
             <StatusState
               icon={FileBadge}
               title="ยังไม่มีใบรับรอง"
@@ -63,7 +63,7 @@ export default async function CertificatesPage() {
         ) : (
           <ul className="space-y-3">
             {certificates.map((c) => (
-              <li key={c.id} className="rounded-xl border border-line bg-surface p-4 sm:p-5">
+              <li key={c.id} className="rounded-xl border border-line bg-surface shadow-card p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-semibold break-words">{c.subjectCn}</p>

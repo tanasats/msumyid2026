@@ -121,9 +121,9 @@ export function P12PasswordForm({
 
       {children}
 
-      <section className="space-y-5 rounded-xl border border-line bg-surface p-5 sm:p-6">
+      <section className="space-y-5 rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
         <div>
-          <h2 className="text-lg font-semibold">ตั้งรหัสผ่านของไฟล์ใบรับรอง</h2>
+          <h2 className="font-display text-lg font-semibold">ตั้งรหัสผ่านของไฟล์ใบรับรอง</h2>
           <p className="mt-1 text-sm text-muted">
             ใช้เปิดไฟล์ .p12 ตอนติดตั้งใบรับรอง ระบบไม่เก็บรหัสผ่านนี้ กรุณาจดจำไว้
           </p>

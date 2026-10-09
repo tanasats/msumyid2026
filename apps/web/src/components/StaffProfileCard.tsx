@@ -9,8 +9,8 @@ export function StaffProfileCard({ profile, description }: { profile: StaffProfi
   const fullNameEn = [profile.prefixEn, profile.firstNameEn, profile.lastNameEn].filter(Boolean).join(' ');
 
   return (
-    <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
-      <h2 className="text-lg font-semibold">ข้อมูลบุคลากร</h2>
+    <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+      <h2 className="font-display text-lg font-semibold">ข้อมูลบุคลากร</h2>
       {description && <p className="mt-1 text-sm text-muted">{description}</p>}
 
       <InfoList className="mt-4">

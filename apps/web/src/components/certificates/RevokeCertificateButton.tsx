@@ -66,7 +66,7 @@ export function RevokeCertificateButton({
           {reasons.map((r) => (
             <label
               key={r.value}
-              className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-line p-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft"
+              className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-line p-3 has-[:checked]:border-accent has-[:checked]:bg-accent-soft"
             >
               <input
                 type="radio"

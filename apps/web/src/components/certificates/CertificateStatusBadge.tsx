@@ -2,9 +2,9 @@ import { CircleCheck, CircleSlash, Clock, type LucideIcon } from 'lucide-react';
 import { CERTIFICATE_STATUS_LABELS, type CertificateStatus } from '@/lib/certificate';
 
 const STYLES: Record<CertificateStatus, { className: string; icon: LucideIcon }> = {
-  active: { className: 'bg-green-50 text-green-800', icon: CircleCheck },
-  expired: { className: 'bg-slate-100 text-slate-700', icon: Clock },
-  revoked: { className: 'bg-red-50 text-red-800', icon: CircleSlash },
+  active: { className: 'bg-success-soft text-success-fg', icon: CircleCheck },
+  expired: { className: 'bg-neutral-soft text-neutral-fg', icon: Clock },
+  revoked: { className: 'bg-danger-soft text-danger-fg', icon: CircleSlash },
 };
 
 /** ป้ายสถานะใบรับรอง: ไอคอน + ข้อความ + สี (ไม่สื่อด้วยสีอย่างเดียว) */

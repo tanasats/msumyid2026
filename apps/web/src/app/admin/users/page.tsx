@@ -82,7 +82,7 @@ export default async function AdminUsersPage({
         )}
 
         {/* ฟอร์มค้นหาแบบ GET — ทำงานได้โดยไม่ต้องใช้ JavaScript และแชร์ลิงก์ผลค้นหาได้ */}
-        <form method="get" className="space-y-3 rounded-xl border border-line bg-surface p-4 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
+        <form method="get" className="space-y-3 rounded-xl border border-line bg-surface shadow-card p-4 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
           <div className="flex-1 space-y-1.5">
             <label htmlFor="q" className="block text-sm font-medium">
               ค้นหา
@@ -107,7 +107,7 @@ export default async function AdminUsersPage({
         </form>
 
         {users.length === 0 ? (
-          <div className="rounded-xl border border-line bg-surface">
+          <div className="rounded-xl border border-line bg-surface shadow-card">
             <StatusState icon={SearchX} title="ไม่พบผู้ใช้ตามเงื่อนไข">
               ลองเปลี่ยนคำค้นหาหรือตัวกรอง
             </StatusState>
@@ -115,10 +115,10 @@ export default async function AdminUsersPage({
         ) : (
           <>
             {/* มือถือ/tablet: การ์ด — ทั้งแถวกดได้ */}
-            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface lg:hidden">
+            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface shadow-card lg:hidden">
               {users.map((u) => (
                 <li key={u.id}>
-                  <Link href={`/admin/users/${u.id}`} className="flex min-h-16 items-center gap-3 p-4 hover:bg-slate-50">
+                  <Link href={`/admin/users/${u.id}`} className="flex min-h-16 items-center gap-3 p-4 hover:bg-surface-hover">
                     <Avatar name={u.displayName} pictureUrl={u.pictureUrl} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{u.displayName}</p>
@@ -135,9 +135,9 @@ export default async function AdminUsersPage({
             </ul>
 
             {/* desktop: ตาราง */}
-            <div className="hidden overflow-hidden rounded-xl border border-line bg-surface lg:block">
+            <div className="hidden overflow-hidden rounded-xl border border-line bg-surface shadow-card lg:block">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-line bg-slate-50 text-muted">
+                <thead className="border-b border-line bg-surface-hover text-muted">
                   <tr>
                     <th scope="col" className="px-4 py-3 font-medium">ผู้ใช้</th>
                     <th scope="col" className="px-4 py-3 font-medium">ประเภท</th>
@@ -148,12 +148,12 @@ export default async function AdminUsersPage({
                 </thead>
                 <tbody className="divide-y divide-line">
                   {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50">
+                    <tr key={u.id} className="hover:bg-surface-hover">
                       <td className="px-4 py-3">
                         <Link href={`/admin/users/${u.id}`} className="flex items-center gap-3">
                           <Avatar name={u.displayName} pictureUrl={u.pictureUrl} />
                           <span className="min-w-0">
-                            <span className="block truncate font-medium text-primary">{u.displayName}</span>
+                            <span className="block truncate font-medium text-accent">{u.displayName}</span>
                             <span className="block truncate text-muted">{u.email}</span>
                           </span>
                         </Link>

@@ -48,9 +48,9 @@ export default async function DownloadCertificatePage({ params }: { params: Prom
           submitLabel="ดาวน์โหลดไฟล์"
           successTitle="สร้างไฟล์ใบรับรองใหม่แล้ว"
         >
-          <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
+          <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <h2 className="text-lg font-semibold">ใบรับรองเดิม</h2>
+              <h2 className="font-display text-lg font-semibold">ใบรับรองเดิม</h2>
               <CertificateStatusBadge status={certificate.status} />
             </div>
             <p className="mt-1 text-sm text-muted">

@@ -49,8 +49,8 @@ export function UserRoleManager({
   }
 
   return (
-    <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
-      <h2 className="text-lg font-semibold">บทบาท</h2>
+    <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+      <h2 className="font-display text-lg font-semibold">บทบาท</h2>
       <p className="mt-1 text-sm text-muted">
         บทบาทประเภทบัญชี (ผู้ใช้งานทั่วไป, นิสิต, บุคลากร, บุคลากรภายนอก) ระบบกำหนดให้อัตโนมัติ
       </p>
@@ -68,7 +68,7 @@ export function UserRoleManager({
                     onClick={() => setPending({ kind: 'revoke', role })}
                     aria-label={`ถอนบทบาท ${role.nameTh}`}
                     // พื้นที่แตะขยายด้วย padding/margin ติดลบ ให้ถึง 44px โดยป้ายไม่ใหญ่ขึ้น
-                    className="-my-3 -mr-2 ml-1 flex size-11 items-center justify-center rounded-full hover:bg-slate-200"
+                    className="-my-3 -mr-2 ml-1 flex size-11 items-center justify-center rounded-full hover:bg-surface-hover"
                   >
                     <X className="size-4" aria-hidden />
                   </button>

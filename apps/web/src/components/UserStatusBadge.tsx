@@ -3,10 +3,10 @@ import { CircleCheck, CircleSlash, Clock, ShieldX, type LucideIcon } from 'lucid
 type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral';
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  success: 'bg-green-50 text-green-800',
-  warning: 'bg-amber-50 text-amber-800',
-  danger: 'bg-red-50 text-red-800',
-  neutral: 'bg-slate-100 text-slate-700',
+  success: 'bg-success-soft text-success-fg',
+  warning: 'bg-warning-soft text-warning-fg',
+  danger: 'bg-danger-soft text-danger-fg',
+  neutral: 'bg-neutral-soft text-neutral-fg',
 };
 
 /** สถานะบัญชีที่ผู้ใช้เห็น: ปิดบัญชีมาก่อนสถานะอนุมัติ (บัญชีที่ถูกปิดใช้งานไม่ได้ไม่ว่าจะอนุมัติหรือไม่) */
@@ -37,7 +37,7 @@ export function Tag({ children, strong = false }: { children: React.ReactNode; s
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-        strong ? 'bg-primary-soft text-blue-800' : 'bg-slate-100 text-slate-700'
+        strong ? 'bg-accent-soft text-accent-soft-fg' : 'bg-neutral-soft text-neutral-fg'
       }`}
     >
       {children}

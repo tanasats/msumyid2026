@@ -15,15 +15,15 @@ export default async function HomePage() {
     <PageShell title="หน้าหลัก" user={user}>
       <div className="space-y-6">
         <section>
-          <h2 className="text-xl font-semibold lg:text-2xl">สวัสดี {user.name}</h2>
+          <h2 className="font-display text-xl font-semibold lg:text-2xl">สวัสดี {user.name}</h2>
           <p className="mt-1 text-muted">ยินดีต้อนรับสู่ MSU Digital ID</p>
         </section>
 
         <Link
           href="/certificates"
-          className="flex min-h-20 items-center gap-4 rounded-xl border border-line bg-surface p-4 transition hover:bg-slate-50 sm:p-5"
+          className="flex min-h-20 items-center gap-4 rounded-xl border border-line bg-surface shadow-card p-4 transition hover:bg-surface-hover sm:p-5"
         >
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg">
             <FileBadge className="size-6" aria-hidden />
           </span>
           <span className="min-w-0 flex-1">

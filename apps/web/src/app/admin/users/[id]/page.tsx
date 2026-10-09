@@ -80,11 +80,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
           </Alert>
         )}
 
-        <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
+        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
           <div className="flex items-center gap-4">
             <Avatar name={user.displayName} pictureUrl={user.pictureUrl} size="lg" />
             <div className="min-w-0">
-              <h2 className="truncate text-lg font-semibold">{user.displayName}</h2>
+              <h2 className="truncate font-display text-lg font-semibold">{user.displayName}</h2>
               <p className="text-sm break-all text-muted">{user.email}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <UserStatusBadge isActive={user.isActive} approvalStatus={user.approvalStatus} />
@@ -99,7 +99,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             {isService && (
               <InfoRow label="ผู้รับผิดชอบ">
                 {user.responsibleUser ? (
-                  <Link href={`/admin/users/${user.responsibleUser.id}`} className="text-primary underline">
+                  <Link href={`/admin/users/${user.responsibleUser.id}`} className="text-accent underline">
                     {user.responsibleUser.displayName}
                   </Link>
                 ) : (
@@ -112,7 +112,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
                 {user.accountExpiresAt ? (
                   <>
                     {dateOnly.format(new Date(user.accountExpiresAt))}
-                    {isPast(user.accountExpiresAt) && <span className="text-red-800"> (หมดอายุแล้ว)</span>}
+                    {isPast(user.accountExpiresAt) && <span className="text-danger-fg"> (หมดอายุแล้ว)</span>}
                   </>
                 ) : (
                   <span className="text-subtle">ไม่หมดอายุ</span>
@@ -158,9 +158,9 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
 
         {certificates && (
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold">ใบรับรอง</h2>
+            <h2 className="font-display text-lg font-semibold">ใบรับรอง</h2>
             {certificates.length === 0 ? (
-              <p className="rounded-xl border border-line bg-surface p-5 text-sm text-muted">ผู้ใช้นี้ยังไม่มีใบรับรอง</p>
+              <p className="rounded-xl border border-line bg-surface shadow-card p-5 text-sm text-muted">ผู้ใช้นี้ยังไม่มีใบรับรอง</p>
             ) : (
               <ul className="space-y-3">
                 {certificates.map((c) => (
@@ -192,8 +192,8 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
           />
         )}
 
-        <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
-          <h2 className="text-lg font-semibold">ประวัติการเปลี่ยนแปลง</h2>
+        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+          <h2 className="font-display text-lg font-semibold">ประวัติการเปลี่ยนแปลง</h2>
           {history.length === 0 ? (
             <StatusState icon={History} title="ยังไม่มีประวัติ" />
           ) : (

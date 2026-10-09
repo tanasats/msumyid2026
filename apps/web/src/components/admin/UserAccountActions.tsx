@@ -118,8 +118,8 @@ export function UserAccountActions({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-line bg-surface p-5 sm:p-6">
-      <h2 className="text-lg font-semibold">การจัดการบัญชี</h2>
+    <section className="space-y-3 rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+      <h2 className="font-display text-lg font-semibold">การจัดการบัญชี</h2>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
         {showApprove && (
           <Button
@@ -140,7 +140,7 @@ export function UserAccountActions({
         )}
         {canDeactivate &&
           (isActive ? (
-            <Button variant="secondary" fullWidth className="text-red-800" onClick={() => setAction('deactivate')}>
+            <Button variant="secondary" fullWidth className="text-danger-fg" onClick={() => setAction('deactivate')}>
               <CircleSlash className="size-5" aria-hidden />
               ปิดบัญชี
             </Button>

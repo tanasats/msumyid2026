@@ -33,8 +33,8 @@ export function TextField({ name, label, hint, error, optional = false, classNam
         required={!optional}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
-        className={`block h-12 w-full rounded-lg border bg-surface px-3 text-base text-fg placeholder:text-subtle disabled:bg-slate-100 ${
-          error ? 'border-red-700' : 'border-line-input'
+        className={`block h-12 w-full rounded-lg border bg-surface px-3 text-base text-fg placeholder:text-subtle disabled:bg-surface-hover ${
+          error ? 'border-danger' : 'border-line-input'
         }`}
         {...rest}
       />
@@ -44,7 +44,7 @@ export function TextField({ name, label, hint, error, optional = false, classNam
         </p>
       )}
       {error && (
-        <p id={errorId} className="flex items-start gap-1.5 text-sm text-red-800">
+        <p id={errorId} className="flex items-start gap-1.5 text-sm text-danger-fg">
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {error}
         </p>

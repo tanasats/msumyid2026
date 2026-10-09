@@ -10,8 +10,8 @@ import { P12PasswordForm } from './P12PasswordForm';
 export function RequestCertificateForm({ name, email }: { name: string; email: string }) {
   return (
     <P12PasswordForm endpoint="/me/certificates" submitLabel="ขอใบรับรอง" successTitle="ออกใบรับรองเรียบร้อยแล้ว">
-      <section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
-        <h2 className="text-lg font-semibold">ข้อมูลในใบรับรอง</h2>
+      <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+        <h2 className="font-display text-lg font-semibold">ข้อมูลในใบรับรอง</h2>
         <p className="mt-1 text-sm text-muted">มาจากบัญชีของคุณ หากไม่ถูกต้องกรุณาติดต่อผู้ดูแลระบบก่อนขอใบรับรอง</p>
         <InfoList className="mt-4">
           <InfoRow label="ชื่อ">{name}</InfoRow>

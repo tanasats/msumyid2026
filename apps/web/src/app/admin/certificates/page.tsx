@@ -54,7 +54,7 @@ export default async function AdminCertificatesPage({
     <PageShell title="ใบรับรองทั้งหมด" backHref={canViewOwner ? '/admin/users' : undefined} user={user}>
       <div className="space-y-4">
         {/* ฟอร์มค้นหาแบบ GET — ทำงานได้โดยไม่ต้องใช้ JavaScript และแชร์ลิงก์ผลค้นหาได้ */}
-        <form method="get" className="space-y-3 rounded-xl border border-line bg-surface p-4 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
+        <form method="get" className="space-y-3 rounded-xl border border-line bg-surface shadow-card p-4 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
           <div className="flex-1 space-y-1.5">
             <label htmlFor="q" className="block text-sm font-medium">
               ค้นหา
@@ -92,7 +92,7 @@ export default async function AdminCertificatesPage({
         </form>
 
         {certificates.length === 0 ? (
-          <div className="rounded-xl border border-line bg-surface">
+          <div className="rounded-xl border border-line bg-surface shadow-card">
             <StatusState icon={SearchX} title="ไม่พบใบรับรองตามเงื่อนไข">
               ลองเปลี่ยนคำค้นหาหรือสถานะ
             </StatusState>

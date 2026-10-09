@@ -26,7 +26,7 @@ type EditUserFormProps = {
   orgUnits: OrgUnit[];
 };
 
-const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-slate-100';
+const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-surface-hover';
 
 /**
  * ฟอร์มแก้ไขข้อมูลผู้ใช้ — ส่งเฉพาะช่องที่เปลี่ยนจริง (API ตอบ NO_CHANGES ถ้าไม่มีอะไรเปลี่ยน)
@@ -93,7 +93,7 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {error && <Alert tone="danger">{error}</Alert>}
 
-      <section className="space-y-5 rounded-xl border border-line bg-surface p-5 sm:p-6">
+      <section className="space-y-5 rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
         <TextField
           name="displayNameOverride"
           label="ชื่อแสดงในระบบ"
@@ -122,7 +122,7 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
             ))}
           </select>
           {accountType !== initial.accountType && (
-            <p className="text-sm text-amber-800">
+            <p className="text-sm text-warning-fg">
               บทบาท &quot;{ACCOUNT_TYPE_LABELS[initial.accountType]}&quot; จะถูกถอน และให้บทบาท &quot;
               {ACCOUNT_TYPE_LABELS[accountType]}&quot; แทน
             </p>
@@ -177,11 +177,11 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
             aria-invalid={reasonError ? true : undefined}
             aria-describedby={reasonError ? 'field-reason-error' : 'field-reason-hint'}
             className={`block w-full rounded-lg border bg-surface px-3 py-2 text-base ${
-              reasonError ? 'border-red-700' : 'border-line-input'
+              reasonError ? 'border-danger' : 'border-line-input'
             }`}
           />
           {reasonError ? (
-            <p id="field-reason-error" className="text-sm text-red-800">
+            <p id="field-reason-error" className="text-sm text-danger-fg">
               {reasonError}
             </p>
           ) : (

@@ -6,10 +6,10 @@ export default function Loading() {
       <div aria-hidden className="motion-safe:animate-pulse">
         <div className="h-14 border-b border-line bg-surface" />
         <div className="mx-auto max-w-6xl space-y-4 px-4 py-6 md:px-6 lg:px-8">
-          <div className="h-7 w-48 rounded-md bg-slate-200" />
-          <div className="h-32 rounded-xl bg-slate-200" />
-          <div className="h-20 rounded-xl bg-slate-200" />
-          <div className="h-20 rounded-xl bg-slate-200" />
+          <div className="h-7 w-48 rounded-md bg-skeleton" />
+          <div className="h-32 rounded-xl bg-skeleton" />
+          <div className="h-20 rounded-xl bg-skeleton" />
+          <div className="h-20 rounded-xl bg-skeleton" />
         </div>
       </div>
     </div>

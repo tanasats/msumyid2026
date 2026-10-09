@@ -12,7 +12,7 @@ import { ACCOUNT_TYPE_LABELS, expiryDateToIso, type ResponsibleUser } from '@/li
 import { AccountExpiryField } from './AccountExpiryField';
 import { ResponsibleUserField } from './ResponsibleUserField';
 
-const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-slate-100';
+const selectClass = 'block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base disabled:bg-surface-hover';
 
 type FieldErrors = Partial<Record<'email' | 'name' | 'orgUnitId' | 'responsible', string>>;
 
@@ -84,7 +84,7 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
       </Alert>
       {error && <Alert tone="danger">{error}</Alert>}
 
-      <section className="space-y-5 rounded-xl border border-line bg-surface p-5 sm:p-6">
+      <section className="space-y-5 rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
         <TextField
           name="email"
           label="อีเมล (บัญชี Google)"
@@ -141,7 +141,7 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
             disabled={orgUnitLocked}
             aria-invalid={fieldErrors.orgUnitId ? true : undefined}
             aria-describedby="field-orgUnitId-hint"
-            className={fieldErrors.orgUnitId ? selectClass.replace('border-line-input', 'border-red-700') : selectClass}
+            className={fieldErrors.orgUnitId ? selectClass.replace('border-line-input', 'border-danger') : selectClass}
           >
             <option value="">ไม่ระบุ</option>
             {orgUnits.map((unit) => (
@@ -151,7 +151,7 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
             ))}
           </select>
           {fieldErrors.orgUnitId ? (
-            <p id="field-orgUnitId-hint" className="text-sm text-red-800">
+            <p id="field-orgUnitId-hint" className="text-sm text-danger-fg">
               {fieldErrors.orgUnitId}
             </p>
           ) : (
