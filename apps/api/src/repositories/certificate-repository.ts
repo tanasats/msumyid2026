@@ -291,3 +291,125 @@ export async function claimUnownedCertificates(db: Queryable, userId: string, em
   );
   return result.rowCount ?? 0;
 }
+
+// ---- ผู้ดูแล ----
+
+export type CertificateSearchFilter = {
+  /** ชื่อในใบ / อีเมล (บางส่วน) */
+  q: string | null;
+  /** serial ที่แปลงเป็นรูปแบบในฐานข้อมูลแล้ว (เทียบตรงตัว) — null = ข้อความค้นหาไม่ใช่ serial */
+  serial: string | null;
+  status: CertificateStatus | null;
+  /** id ของแถวสุดท้ายในหน้าก่อน (keyset pagination) */
+  afterId: string | null;
+  limit: number;
+};
+
+export type AdminCertificateRow = CertificateRow & {
+  owner: { id: string; displayName: string } | null;
+};
+
+/** escape อักขระพิเศษของ LIKE (\ % _) เพื่อให้ค้นหาตามตัวอักษรจริง */
+function likePattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * ค้นหาใบรับรองทั้งระบบสำหรับผู้ดูแล — ตัวกรองแบบ "($n IS NULL OR เงื่อนไข)"
+ * - ข้อความ: subject_cn ILIKE / lower(email) LIKE ใช้ trigram index, serial เทียบตรงตัวด้วย unique index
+ * - สถานะ: เงื่อนไขเดียวกับ STATUS_SQL (เพิกถอนมาก่อนหมดอายุ)
+ * - เจ้าของ: LEFT JOIN เพราะใบที่นำเข้าอาจยังไม่มีเจ้าของ (ไม่แสดงเจ้าของที่ถูกลบบัญชีแล้ว)
+ * - keyset pagination ด้วย id (uuidv7 เรียงตามเวลาสร้าง) ดึงเกิน 1 แถวเพื่อรู้ว่ามีหน้าถัดไป
+ */
+export async function searchCertificates(
+  db: Queryable,
+  filter: CertificateSearchFilter,
+): Promise<{ rows: AdminCertificateRow[]; nextCursor: string | null }> {
+  const result = await db.query<CertificateRow & { ownerId: string | null; ownerName: string | null }>(
+    `SELECT c.id,
+            c.serial_number       AS "serialNumber",
+            c.subject_cn          AS "subjectCn",
+            c.email,
+            c.not_before          AS "notBefore",
+            c.not_after           AS "notAfter",
+            ${STATUS_SQL}         AS status,
+            c.revoked_at          AS "revokedAt",
+            c.revocation_reason   AS "revocationReason",
+            c.source,
+            c.fingerprint_sha256  AS "fingerprintSha256",
+            EXISTS (SELECT 1 FROM certificate_key_escrows e WHERE e.certificate_id = c.id) AS "hasKeyEscrow",
+            c.created_at          AS "createdAt",
+            u.id                  AS "ownerId",
+            u.display_name        AS "ownerName"
+     FROM certificates c
+     LEFT JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
+     WHERE ($1::text IS NULL OR c.subject_cn ILIKE $1 OR lower(c.email) LIKE lower($1) OR c.serial_number = $2)
+       AND ($3::text IS NULL
+            OR ($3 = 'revoked' AND c.revoked_at IS NOT NULL)
+            OR ($3 = 'expired' AND c.revoked_at IS NULL AND c.not_after <= now())
+            OR ($3 = 'active'  AND c.revoked_at IS NULL AND c.not_after > now()))
+       AND ($4::uuid IS NULL OR c.id < $4)
+     ORDER BY c.id DESC
+     LIMIT $5`,
+    [filter.q ? likePattern(filter.q) : null, filter.serial, filter.status, filter.afterId, filter.limit + 1],
+  );
+  const rows = result.rows.slice(0, filter.limit).map(({ ownerId, ownerName, ...row }) => ({
+    ...row,
+    owner: ownerId ? { id: ownerId, displayName: ownerName ?? '' } : null,
+  }));
+  const nextCursor = result.rows.length > filter.limit ? rows[rows.length - 1]!.id : null;
+  return { rows, nextCursor };
+}
+
+/**
+ * เพิกถอนใบที่ยังใช้งานอยู่ทั้งหมดของผู้ใช้ (ปิดบัญชี / ลบบัญชี / บัญชีหมดอายุ) — คืน id ของใบที่เพิกถอน
+ * ใบที่หมดอายุแล้วไม่ต้องเพิกถอน (ไม่ต้องอยู่ใน CRL)
+ */
+export async function revokeActiveCertificatesByUser(
+  db: Queryable,
+  input: { userId: string; reason: RevocationReason; revokedBy: string | null },
+): Promise<string[]> {
+  const result = await db.query<{ id: string }>(
+    `UPDATE certificates
+     SET revoked_at = now(), revocation_reason = $2, revoked_by = $3
+     WHERE user_id = $1
+       AND revoked_at IS NULL
+       AND not_after > now()
+     RETURNING id`,
+    [input.userId, input.reason, input.revokedBy],
+  );
+  return result.rows.map((r) => r.id);
+}
+
+/**
+ * ลบข้อมูลส่วนบุคคลในใบรับรองของผู้ใช้ที่ถูกลบบัญชี (PDPA)
+ * - ลบ key สำรอง (private key ของบุคคล — กู้ไม่ได้อีก)
+ * - ล้างชื่อ อีเมล และตัวใบรับรอง (มีชื่อ/อีเมลอยู่ใน subject)
+ * - คงแถวไว้พร้อม serial, วันหมดอายุ และการเพิกถอน เพราะ CRL ยังต้องใช้
+ */
+export async function erasePersonalDataFromCertificates(
+  db: Queryable,
+  userId: string,
+): Promise<{ certificates: number; keyEscrows: number }> {
+  const escrows = await db.query(
+    `DELETE FROM certificate_key_escrows
+     WHERE certificate_id IN (SELECT id FROM certificates WHERE user_id = $1)`,
+    [userId],
+  );
+  const certificates = await db.query(
+    `UPDATE certificates
+     SET subject_cn = '', email = '', certificate_pem = ''
+     WHERE user_id = $1`,
+    [userId],
+  );
+  return { certificates: certificates.rowCount ?? 0, keyEscrows: escrows.rowCount ?? 0 };
+}
+
+/** เจ้าของใบ (ไม่ล็อก) — ใช้หาว่าต้องล็อกผู้ใช้คนไหนก่อนล็อกใบ (ลำดับล็อก ผู้ใช้ → ใบ เหมือนการปิดบัญชี) */
+export async function findCertificateOwnerId(db: Queryable, id: string): Promise<{ userId: string | null } | null> {
+  const result = await db.query<{ userId: string | null }>(
+    `SELECT user_id AS "userId" FROM certificates WHERE id = $1`,
+    [id],
+  );
+  return result.rows[0] ?? null;
+}

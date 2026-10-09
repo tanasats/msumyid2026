@@ -412,7 +412,7 @@ describe('บัญชีหมดอายุ', () => {
       [expired.id],
     );
     expect(rows).toEqual([
-      { action: 'expire', actor_id: null, changes: { isActive: { from: true, to: false }, revokedSessions: 1 } },
+      { action: 'expire', actor_id: null, changes: { isActive: { from: true, to: false }, revokedSessions: 1, revokedCertificates: 0 } },
     ]);
 
     // รันซ้ำไม่ปิดซ้ำ

@@ -32,3 +32,26 @@ export const CERTIFICATE_STATUS_LABELS: Record<CertificateStatus, string> = {
   expired: 'หมดอายุ',
   revoked: 'เพิกถอนแล้ว',
 };
+
+export type RevocationReasonOption = { value: string; label: string; hint?: string };
+
+// เหตุผลที่ผู้ใช้เลือกได้เมื่อเพิกถอนใบของตัวเอง (ตรงกับ SELF_REVOCATION_REASONS ของ API)
+export const SELF_REVOCATION_REASONS: RevocationReasonOption[] = [
+  {
+    value: 'keyCompromise',
+    label: 'ไฟล์หรือรหัสผ่านอาจหลุดไปถึงผู้อื่น',
+    hint: 'เช่น ทำเครื่องหรือไฟล์ .p12 หาย ส่งไฟล์ผิดคน',
+  },
+  { value: 'superseded', label: 'ได้ใบรับรองใหม่มาแทนแล้ว' },
+  { value: 'affiliationChanged', label: 'ข้อมูลในใบรับรองไม่ถูกต้องแล้ว', hint: 'เช่น เปลี่ยนชื่อ ย้ายสังกัด' },
+  { value: 'cessationOfOperation', label: 'ไม่ใช้งานใบรับรองนี้แล้ว' },
+];
+
+// เหตุผลที่ผู้ดูแลเลือกได้ (ตรงกับ ADMIN_REVOCATION_REASONS ของ API)
+export const ADMIN_REVOCATION_REASONS: RevocationReasonOption[] = [
+  { value: 'keyCompromise', label: 'key อาจหลุดไปถึงผู้อื่น' },
+  { value: 'affiliationChanged', label: 'ข้อมูลในใบรับรองไม่ถูกต้อง / ย้ายสังกัด' },
+  { value: 'superseded', label: 'ออกใบใหม่แทนแล้ว' },
+  { value: 'cessationOfOperation', label: 'เลิกใช้งาน / พ้นสภาพ' },
+  { value: 'unspecified', label: 'ไม่ระบุ' },
+];

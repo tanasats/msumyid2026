@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { History, Pencil } from 'lucide-react';
 import { UserAccountActions } from '@/components/admin/UserAccountActions';
+import { AdminCertificateCard } from '@/components/certificates/AdminCertificateCard';
 import { UserRoleManager } from '@/components/admin/UserRoleManager';
 import { Alert } from '@/components/Alert';
 import { Avatar } from '@/components/Avatar';
@@ -12,6 +13,7 @@ import { PageShell } from '@/components/PageShell';
 import { StaffProfileCard } from '@/components/StaffProfileCard';
 import { StatusState } from '@/components/StatusState';
 import { Tag, UserStatusBadge } from '@/components/UserStatusBadge';
+import { getUserCertificates } from '@/lib/admin-certificates';
 import { getUserDetail, listAssignableRoles, type UserHistoryItem } from '@/lib/admin-users';
 import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
 
@@ -55,6 +57,8 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
 
   const { user, staffProfile, history, manageable, isSelf } = detail;
   const can = (permission: string) => currentUser.permissions.includes(permission);
+  // ใบรับรองแสดงเฉพาะผู้มี certificate:read (API ตรวจซ้ำ)
+  const certificates = can('certificate:read') ? await getUserCertificates(user.id) : null;
   const isService = user.accountType === 'service';
   // บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ (API ตรวจซ้ำ)
   const missingForApproval = isService
@@ -151,6 +155,26 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         />
 
         {staffProfile && <StaffProfileCard profile={staffProfile} description="ข้อมูลจากระบบบุคลากร (ERP)" />}
+
+        {certificates && (
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold">ใบรับรอง</h2>
+            {certificates.length === 0 ? (
+              <p className="rounded-xl border border-line bg-surface p-5 text-sm text-muted">ผู้ใช้นี้ยังไม่มีใบรับรอง</p>
+            ) : (
+              <ul className="space-y-3">
+                {certificates.map((c) => (
+                  <AdminCertificateCard
+                    key={c.id}
+                    certificate={c}
+                    canRevoke={!isSelf && can('certificate:revoke')}
+                    canViewOwner={false}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         {manageable && (
           <UserAccountActions

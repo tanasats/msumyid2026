@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, Search, SearchX, UserPlus } from 'lucide-react';
+import { ChevronRight, FileBadge, Search, SearchX, UserPlus } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
@@ -64,12 +64,20 @@ export default async function AdminUsersPage({
   return (
     <PageShell title="จัดการผู้ใช้" user={user}>
       <div className="space-y-4">
-        {user.permissions.includes('user:create') && (
-          <div className="flex justify-end">
-            <Link href="/admin/users/new" className={buttonClasses({ fullWidth: true })}>
-              <UserPlus className="size-5" aria-hidden />
-              ลงทะเบียนผู้ใช้
-            </Link>
+        {(user.permissions.includes('user:create') || user.permissions.includes('certificate:read')) && (
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            {user.permissions.includes('certificate:read') && (
+              <Link href="/admin/certificates" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+                <FileBadge className="size-5" aria-hidden />
+                ใบรับรองทั้งหมด
+              </Link>
+            )}
+            {user.permissions.includes('user:create') && (
+              <Link href="/admin/users/new" className={buttonClasses({ fullWidth: true })}>
+                <UserPlus className="size-5" aria-hidden />
+                ลงทะเบียนผู้ใช้
+              </Link>
+            )}
           </div>
         )}
 

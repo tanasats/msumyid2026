@@ -90,7 +90,8 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - ใช้ permission แทนการเปิดให้ "login เท่านั้น" เพราะยังไม่ชัดว่าทุกประเภทบัญชี (เช่น นิสิต) ได้ใบรับรอง — `super_admin` ผูกกับ role `staff`/`student`/... ได้เองภายหลัง ระหว่างนี้ใช้ได้เฉพาะ `super_admin` (ค่าเริ่มต้นคือปฏิเสธ)
 - การนำเข้าใบเดิมทำผ่านสคริปต์ (`pnpm --filter api cert:import`) ไม่มีหน้าเว็บ จึงไม่ต้องมี permission
 - ใบที่ใช้งานอยู่พร้อมกันได้ไม่เกิน 2 ใบต่อคน (ขอใบใหม่ได้ก่อนใบเดิมหมดอายุ)
-- ปิดบัญชี/ลบข้อมูลส่วนบุคคล/บัญชีหมดอายุ → เพิกถอนใบที่ใช้งานอยู่อัตโนมัติ (`cessationOfOperation`)
+- ปิดบัญชี/ลบข้อมูลส่วนบุคคล/บัญชีหมดอายุ → เพิกถอนใบที่ใช้งานอยู่อัตโนมัติ (`cessationOfOperation`, audit ผู้ทำ = ผู้ดูแล หรือ NULL เมื่อระบบทำ) แล้วออก CRL; เปิดบัญชีคืนไม่ย้อนการเพิกถอน
+- ลบข้อมูลส่วนบุคคล (PDPA): นอกจากเพิกถอนแล้ว ลบ key สำรอง และล้าง `subject_cn`, `email`, `certificate_pem` — คงแถวพร้อม serial/วันหมดอายุ/การเพิกถอนไว้ให้ CRL
 
 ## ตาราง
 
@@ -128,6 +129,9 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
 | POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า), ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
+| GET | `/admin/certificates` | `certificate:read` — ค้นหาทั้งระบบ (ชื่อ/อีเมลบางส่วนด้วย trigram, serial ตรงตัว รับ `:`/ตัวพิมพ์ใหญ่), กรองสถานะ, cursor หน้าละ 20, แสดงเจ้าของ |
+| GET | `/admin/users/:id/certificates` | `certificate:read` — ใบของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) |
+| POST | `/admin/certificates/:id/revoke` | `certificate:revoke` — เหตุผล (`unspecified`/`keyCompromise`/`affiliationChanged`/`superseded`/`cessationOfOperation`) + บันทึกประกอบ (บังคับ, เก็บใน audit) ใช้กฎ `canManageUser`: ใบของตัวเองไม่ได้ ใบของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin; ล็อก ผู้ใช้ → ใบ (ลำดับเดียวกับการปิดบัญชี) |
 
 บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ, `POST /certificates/legacy-key` นำ key เดิมเข้าเป็น key สำรอง (ถอดด้วยรหัสผ่าน + จับคู่ใบด้วย public key), `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
 
@@ -141,5 +145,5 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | 2 | เพิกถอนเอง + ออก CRL + `GET /crl/msu-ca.crl` | เสร็จ |
 | 3 | กู้ key / ดาวน์โหลดใหม่ | เสร็จ |
 | 4 | สคริปต์นำเข้าใบเดิม + key เดิม | เสร็จ |
-| 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | |
+| 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | เสร็จ |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

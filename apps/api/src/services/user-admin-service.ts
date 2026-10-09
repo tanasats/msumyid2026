@@ -34,7 +34,10 @@ import { findActiveOrgUnit, listActiveOrgUnits, type OrgUnitRow } from '../repos
 import { deleteSessionsByUser, type AccountType } from '../repositories/session-repository.js';
 import { findUsersByEmail } from '../repositories/user-repository.js';
 import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
+import { erasePersonalDataFromCertificates } from '../repositories/certificate-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
+import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
+import { issueCrlSafely } from './crl-service.js';
 import { SUPER_ADMIN_ROLE } from './permissions.js';
 
 // business logic ของหน้าจัดการบัญชีผู้ใช้ — permission ของแต่ละ endpoint ตรวจที่ route (requirePermission)
@@ -149,9 +152,12 @@ function assertServiceAccountComplete(orgUnitId: string | null, responsibleUserI
   }
 }
 
-/** ปิดบัญชี: ใช้งานไม่ได้ทันที และเพิกถอน session ทั้งหมดใน transaction เดียวกัน */
+/**
+ * ปิดบัญชี: ใช้งานไม่ได้ทันที เพิกถอน session ทั้งหมด และเพิกถอนใบรับรองที่ใช้งานอยู่ (ถาวร — เปิดบัญชีคืนแล้วต้องขอใบใหม่)
+ * ทั้งหมดใน transaction เดียวกัน แล้วออก CRL หลัง commit
+ */
 export async function deactivateUser(actor: AuthUser, userId: string, reason: string): Promise<void> {
-  await withTransaction(async (client) => {
+  const revokedCertificates = await withTransaction(async (client) => {
     const superAdminIds = await lockActiveSuperAdmins(client);
     const target = await lockTarget(client, actor, userId);
     if (!target.isActive) throw new AppError(409, 'ALREADY_INACTIVE', 'บัญชีนี้ถูกปิดอยู่แล้ว');
@@ -159,14 +165,17 @@ export async function deactivateUser(actor: AuthUser, userId: string, reason: st
 
     await setUserActive(client, { userId, active: false, actorId: actor.id });
     const revokedSessions = await deleteSessionsByUser(client, userId);
+    const revoked = await revokeCertificatesOfClosedAccount(client, { userId, actorId: actor.id, note: `ปิดบัญชี: ${reason}` });
     await insertUserAuditLog(client, {
       actorId: actor.id,
       targetUserId: userId,
       action: 'deactivate',
-      changes: { isActive: { from: true, to: false }, revokedSessions },
+      changes: { isActive: { from: true, to: false }, revokedSessions, revokedCertificates: revoked },
       reason,
     });
+    return revoked;
   });
+  if (revokedCertificates > 0) await issueCrlSafely();
 }
 
 export async function activateUser(actor: AuthUser, userId: string, reason: string): Promise<void> {
@@ -423,7 +432,7 @@ export async function deleteUser(
   confirmEmail: string,
   reason: string,
 ): Promise<void> {
-  await withTransaction(async (client) => {
+  const revokedCertificates = await withTransaction(async (client) => {
     const superAdminIds = await lockActiveSuperAdmins(client);
     const target = await lockTarget(client, actor, userId);
     if (target.email.toLowerCase() !== confirmEmail.trim().toLowerCase()) {
@@ -438,15 +447,27 @@ export async function deleteUser(
       actorId: actor.id,
       reason: `ลบบัญชี: ${reason}`,
     });
+    // ใบรับรอง: เพิกถอนใบที่ใช้งานอยู่ก่อน แล้วลบชื่อ/อีเมล/key สำรอง (คง serial และการเพิกถอนไว้ให้ CRL)
+    const revoked = await revokeCertificatesOfClosedAccount(client, { userId, actorId: actor.id, note: 'ลบบัญชี' });
+    const erased = await erasePersonalDataFromCertificates(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,
       targetUserId: userId,
       action: 'delete',
-      changes: { personalData: 'deleted', revokedSessions, revokedRoles },
+      changes: {
+        personalData: 'deleted',
+        revokedSessions,
+        revokedRoles,
+        revokedCertificates: revoked,
+        erasedCertificates: erased.certificates,
+        deletedKeyEscrows: erased.keyEscrows,
+      },
       reason,
     });
+    return revoked;
   });
+  if (revokedCertificates > 0) await issueCrlSafely();
 }
 
 export type PreRegisterInput = {

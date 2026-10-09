@@ -1,22 +1,29 @@
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
+import type { Queryable } from '../db/types.js';
+import { lockManagedUser } from '../repositories/admin-user-repository.js';
 import { AppError } from '../errors.js';
 import { logger } from '../middlewares/logger.js';
 import {
   countActiveCertificatesByUser,
   findCertificateForUpdate,
+  findCertificateOwnerId,
   findCertificateWithEscrow,
   insertCertificate,
   insertCertificateAuditLog,
   insertKeyEscrow,
   listCertificatesByUser,
   lockUserForCertificate,
+  revokeActiveCertificatesByUser,
   revokeCertificate,
+  searchCertificates,
+  type AdminCertificateRow,
   type CertificateRow,
+  type CertificateStatus,
   type RevocationReason,
 } from '../repositories/certificate-repository.js';
-import type { AuthUser } from './authorization-service.js';
-import { issueCrl } from './crl-service.js';
+import { canManageUser, type AuthUser } from './authorization-service.js';
+import { issueCrlSafely } from './crl-service.js';
 import { SignerError, signer } from './signer-client.js';
 
 // ใบรับรอง S/MIME แบบบริการตนเอง (docs/design/certificates.md)
@@ -158,13 +165,7 @@ export async function revokeMyCertificate(
     await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: user.id, action: 'revoke', reason });
   });
 
-  try {
-    await issueCrl();
-    return { crlUpdated: true };
-  } catch (err) {
-    logger.error({ err }, 'เพิกถอนแล้วแต่ออก CRL ไม่สำเร็จ — job จะลองใหม่');
-    return { crlUpdated: false };
-  }
+  return { crlUpdated: await issueCrlSafely() };
 }
 
 /**
@@ -207,4 +208,106 @@ export async function downloadMyCertificateP12(
   await insertCertificateAuditLog(pool, { certificateId: certificate.id, actorId: user.id, action: 'recover', reason: null });
   // ต่อท้ายด้วย serial 8 ตัวแรก ให้แยกไฟล์ของแต่ละใบได้ (ผู้ใช้มีได้หลายใบที่อีเมลเดียวกัน)
   return { p12, fileName: `${certificate.email}-${certificate.serialNumber.slice(0, 8)}.p12` };
+}
+
+// ---- ผู้ดูแล (certificate:read / certificate:revoke ตรวจที่ route) ----
+
+/**
+ * เพิกถอนใบที่ใช้งานอยู่ทั้งหมดของผู้ใช้ เมื่อปิดบัญชี / ลบบัญชี / บัญชีหมดอายุ (ตัดสินใจ 2026-10-08)
+ * ต้องเรียกใน transaction เดียวกับการปิดบัญชี และหลังล็อกแถวผู้ใช้แล้ว — ผู้เรียกออก CRL หลัง commit (issueCrlSafely)
+ * actorId = null คือระบบทำเอง (บัญชีหมดอายุ)
+ */
+export async function revokeCertificatesOfClosedAccount(
+  db: Queryable,
+  input: { userId: string; actorId: string | null; note: string },
+): Promise<number> {
+  const ids = await revokeActiveCertificatesByUser(db, {
+    userId: input.userId,
+    reason: 'cessationOfOperation',
+    revokedBy: input.actorId,
+  });
+  for (const certificateId of ids) {
+    await insertCertificateAuditLog(db, { certificateId, actorId: input.actorId, action: 'revoke', reason: input.note });
+  }
+  return ids.length;
+}
+
+const ADMIN_PAGE_SIZE = 20;
+
+/** serial ที่ผู้ดูแลพิมพ์ (อาจมี : หรือช่องว่าง และตัวพิมพ์ใหญ่) → รูปแบบในฐานข้อมูล, ไม่ใช่ serial = null */
+function serialFromQuery(q: string): string | null {
+  const hex = q.replace(/[\s:]/g, '');
+  return /^[0-9a-fA-F]{2,40}$/.test(hex) ? hex.toLowerCase().replace(/^0+(?=.)/, '') : null;
+}
+
+export async function searchCertificatesForAdmin(filter: {
+  q: string | null;
+  status: CertificateStatus | null;
+  cursor: string | null;
+}): Promise<{ certificates: AdminCertificateRow[]; nextCursor: string | null }> {
+  const { rows, nextCursor } = await searchCertificates(pool, {
+    q: filter.q,
+    serial: filter.q ? serialFromQuery(filter.q) : null,
+    status: filter.status,
+    afterId: filter.cursor,
+    limit: ADMIN_PAGE_SIZE,
+  });
+  return { certificates: rows, nextCursor };
+}
+
+/** ใบรับรองของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) */
+export async function listUserCertificatesForAdmin(userId: string): Promise<Certificate[]> {
+  return listCertificatesByUser(pool, userId, LIST_LIMIT);
+}
+
+/** เหตุผลที่ผู้ดูแลเลือกได้ (CACompromise สงวนไว้สำหรับเหตุการณ์ระดับ CA ซึ่งต้องจัดการนอกระบบ) */
+export const ADMIN_REVOCATION_REASONS = [
+  'unspecified',
+  'keyCompromise',
+  'affiliationChanged',
+  'superseded',
+  'cessationOfOperation',
+] as const;
+export type AdminRevocationReason = (typeof ADMIN_REVOCATION_REASONS)[number];
+
+/**
+ * ผู้ดูแลเพิกถอนใบรับรองของผู้อื่น (เช่น บุคลากรแจ้งว่า key หลุด) — บันทึกผู้ทำและบันทึกประกอบใน audit log
+ * ใช้กฎเดียวกับการจัดการบัญชี (canManageUser): ใบของตัวเองให้เพิกถอนทางหน้าของฉัน, ใบของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin
+ * ลำดับล็อก ผู้ใช้ → ใบ (เหมือนการปิดบัญชีที่เพิกถอนใบทั้งหมด) กัน deadlock
+ */
+export async function adminRevokeCertificate(
+  actor: AuthUser,
+  certificateId: string,
+  reason: AdminRevocationReason,
+  note: string,
+): Promise<{ crlUpdated: boolean }> {
+  await withTransaction(async (client) => {
+    const owner = await findCertificateOwnerId(client, certificateId);
+    if (!owner) throw new AppError(404, 'CERTIFICATE_NOT_FOUND', 'ไม่พบใบรับรองนี้');
+    if (owner.userId) {
+      const target = await lockManagedUser(client, owner.userId);
+      // เจ้าของถูกลบบัญชีไปแล้ว = ไม่มีกฎของเจ้าของให้ตรวจ
+      const denial = target ? canManageUser(actor, target) : null;
+      if (denial === 'SELF') {
+        throw new AppError(403, 'CANNOT_MANAGE_SELF', 'ใบรับรองของตัวเองให้เพิกถอนที่หน้า "ใบรับรองของฉัน"');
+      }
+      if (denial === 'PRIVILEGED_TARGET') {
+        throw new AppError(403, 'PRIVILEGED_TARGET', 'ใบรับรองของผู้ดูแลระบบจัดการได้เฉพาะผู้ดูแลระบบสูงสุด');
+      }
+    }
+
+    const certificate = await findCertificateForUpdate(client, certificateId);
+    if (!certificate || certificate.userId !== owner.userId) {
+      throw new AppError(409, 'CERTIFICATE_CHANGED', 'ใบรับรองถูกเปลี่ยนระหว่างดำเนินการ กรุณาลองใหม่');
+    }
+    if (certificate.revokedAt) {
+      throw new AppError(409, 'CERTIFICATE_ALREADY_REVOKED', 'ใบรับรองนี้ถูกเพิกถอนไปแล้ว');
+    }
+    if (certificate.notAfter <= new Date()) {
+      throw new AppError(409, 'CERTIFICATE_EXPIRED', 'ใบรับรองนี้หมดอายุแล้ว ไม่ต้องเพิกถอน');
+    }
+    await revokeCertificate(client, { id: certificate.id, reason, revokedBy: actor.id });
+    await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: actor.id, action: 'revoke', reason: note });
+  });
+  return { crlUpdated: await issueCrlSafely() };
 }

@@ -91,7 +91,7 @@ export default async function CertificatesPage() {
                 {canRequest && (c.hasKeyEscrow || c.status === 'active') && (
                   <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
                     {c.status === 'active' && (
-                      <RevokeCertificateButton certificateId={c.id} serialNumber={c.serialNumber} />
+                      <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
                     )}
                     {c.hasKeyEscrow && (
                       <Link

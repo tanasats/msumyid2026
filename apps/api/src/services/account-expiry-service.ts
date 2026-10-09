@@ -2,35 +2,46 @@ import { withTransaction } from '../db/transaction.js';
 import { logger } from '../middlewares/logger.js';
 import { insertUserAuditLog, lockExpiredActiveUsers, setUserActive } from '../repositories/admin-user-repository.js';
 import { deleteSessionsByUser } from '../repositories/session-repository.js';
+import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
+import { issueCrlSafely } from './crl-service.js';
 
 // ปิดบัญชีที่ถึงวันหมดอายุ (บัญชีหน่วยงาน เช่น บัญชีกิจกรรม)
 // การตัดสิทธิ์มีผลทันทีที่ถึงเวลาอยู่แล้ว (findSessionUser / upsertGoogleUser ตรวจ account_expires_at)
-// job นี้ทำให้สถานะในฐานข้อมูลตรงกัน: is_active = false, เพิกถอน session และเขียน audit log ว่าระบบปิดเพราะหมดอายุ
+// job นี้ทำให้สถานะในฐานข้อมูลตรงกัน: is_active = false, เพิกถอน session และใบรับรอง แล้วเขียน audit log ว่าระบบปิดเพราะหมดอายุ
 
 const BATCH_SIZE = 100;
 
 /** ปิดบัญชีที่หมดอายุทั้งหมดทีละชุด (ชุดละ 1 transaction) คืนจำนวนบัญชีที่ปิด */
 export async function expireAccounts(): Promise<number> {
   let total = 0;
+  let revokedCertificates = 0;
   for (;;) {
     const closed = await withTransaction(async (client) => {
       const users = await lockExpiredActiveUsers(client, BATCH_SIZE);
       for (const { id } of users) {
         await setUserActive(client, { userId: id, active: false, actorId: null });
         const revokedSessions = await deleteSessionsByUser(client, id);
+        const revoked = await revokeCertificatesOfClosedAccount(client, {
+          userId: id,
+          actorId: null,
+          note: 'บัญชีหมดอายุ ระบบปิดอัตโนมัติ',
+        });
+        revokedCertificates += revoked;
         await insertUserAuditLog(client, {
           actorId: null,
           targetUserId: id,
           action: 'expire',
-          changes: { isActive: { from: true, to: false }, revokedSessions },
+          changes: { isActive: { from: true, to: false }, revokedSessions, revokedCertificates: revoked },
           reason: 'บัญชีหมดอายุ ระบบปิดอัตโนมัติ',
         });
       }
       return users.length;
     });
     total += closed;
-    if (closed < BATCH_SIZE) return total;
+    if (closed < BATCH_SIZE) break;
   }
+  if (revokedCertificates > 0) await issueCrlSafely();
+  return total;
 }
 
 /**

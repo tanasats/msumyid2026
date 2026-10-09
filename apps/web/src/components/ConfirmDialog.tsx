@@ -15,6 +15,8 @@ type ConfirmDialogProps = {
   tone?: 'primary' | 'danger';
   /** ช่องกรอกเหตุผล: required = บังคับกรอก, optional = ไม่บังคับ, ไม่ระบุ = ไม่มีช่อง */
   reason?: 'required' | 'optional';
+  /** ข้อความใต้ช่องเหตุผล (ค่าเริ่มต้น: บันทึกในประวัติของบัญชี) */
+  reasonHint?: string;
   /** งานที่ย้อนกลับไม่ได้: ต้องพิมพ์ข้อความนี้ให้ตรง (ไม่สนตัวพิมพ์) จึงกดยืนยันได้ เช่น อีเมลของบัญชี */
   confirmText?: { label: string; expected: string };
   /** ช่องกรอกเพิ่มเติมของงานนั้น (เช่น ตัวเลือกเหตุผลการเพิกถอน) — ผู้เรียกดูแล state เอง */
@@ -36,6 +38,7 @@ export function ConfirmDialog({
   confirmLabel,
   tone = 'primary',
   reason,
+  reasonHint = 'บันทึกไว้ในประวัติของบัญชีนี้',
   confirmText,
   children,
   onConfirm,
@@ -106,7 +109,7 @@ export function ConfirmDialog({
               maxLength={500}
               className="block w-full rounded-lg border border-line-input bg-surface px-3 py-2 text-base"
             />
-            <p className="text-sm text-muted">บันทึกไว้ในประวัติของบัญชีนี้</p>
+            <p className="text-sm text-muted">{reasonHint}</p>
           </div>
         )}
 

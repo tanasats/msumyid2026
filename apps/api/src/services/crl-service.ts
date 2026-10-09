@@ -52,6 +52,20 @@ export async function issueCrl(): Promise<{ crlNumber: bigint; revokedCount: num
   });
 }
 
+/**
+ * ออก CRL หลังเพิกถอน (หลัง commit) — signer ล่มต้องไม่ทำให้การเพิกถอนล้ม: log ไว้แล้วให้ job ออกให้ภายหลัง
+ * (job เห็นว่าจำนวนใบที่เพิกถอนมากกว่าใน CRL ฉบับล่าสุด) คืน true ถ้าออกสำเร็จ
+ */
+export async function issueCrlSafely(): Promise<boolean> {
+  try {
+    await issueCrl();
+    return true;
+  } catch (err) {
+    logger.error({ err }, 'เพิกถอนแล้วแต่ออก CRL ไม่สำเร็จ — job จะลองใหม่');
+    return false;
+  }
+}
+
 /** ต้องออก CRL ใหม่หรือไม่: ยังไม่เคยออก / ฉบับล่าสุดเก่าเกินกำหนด / มีการเพิกถอนที่ยังไม่อยู่ใน CRL */
 export async function isCrlOutdated(now = new Date()): Promise<boolean> {
   const { latest, revokedNow } = await getCrlState(pool);

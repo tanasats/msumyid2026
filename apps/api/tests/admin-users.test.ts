@@ -205,7 +205,7 @@ describe('ปิด/เปิดบัญชี', () => {
         action: 'deactivate',
         actor_id: admin.id,
         reason: 'ลาออกแล้ว',
-        changes: { isActive: { from: true, to: false }, revokedSessions: 1 },
+        changes: { isActive: { from: true, to: false }, revokedSessions: 1, revokedCertificates: 0 },
       },
     ]);
   });

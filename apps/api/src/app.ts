@@ -10,6 +10,7 @@ import { loadSession } from './middlewares/auth.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { meRouter } from './routes/me.js';
+import { adminCertificatesRouter } from './routes/admin-certificates.js';
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
 
@@ -36,6 +37,7 @@ export function createApp() {
   app.use(authRouter);
   app.use(meRouter);
   app.use(adminUsersRouter);
+  app.use(adminCertificatesRouter);
   app.use(certificatesRouter);
 
   app.use(notFoundHandler);
