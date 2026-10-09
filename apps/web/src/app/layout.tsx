@@ -1,18 +1,13 @@
 import type { Metadata, Viewport } from 'next';
-import { Noto_Sans_Thai, Noto_Serif_Thai } from 'next/font/google';
+import { Sarabun } from 'next/font/google';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
 import './globals.css';
 
-const notoSansThai = Noto_Sans_Thai({
+// ฟอนต์เดียวทั้งระบบ (เนื้อหาและหัวข้อ) — Sarabun ไม่ใช่ variable font จึงต้องระบุน้ำหนักที่ใช้ (400 ปกติ, 500 medium, 600 semibold, 700 ตัวหนาเริ่มต้นเช่น <th>)
+const sarabun = Sarabun({
+  weight: ['400', '500', '600', '700'],
   subsets: ['thai', 'latin'],
-  variable: '--font-noto-sans-thai',
-  display: 'swap',
-});
-
-// ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) ให้ความรู้สึกเรียบหรู — เนื้อหายังใช้ Noto Sans Thai เพื่ออ่านง่าย
-const notoSerifThai = Noto_Serif_Thai({
-  subsets: ['thai', 'latin'],
-  variable: '--font-noto-serif-thai',
+  variable: '--font-sarabun',
   display: 'swap',
 });
 
@@ -41,7 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html
       lang="th"
-      className={`${notoSansThai.variable} ${notoSerifThai.variable}`}
+      className={sarabun.variable}
       data-theme={theme === 'system' ? undefined : theme}
       data-text-size={textSize === 'normal' ? undefined : textSize}
     >
