@@ -5,6 +5,7 @@ import { logger } from '../middlewares/logger.js';
 import {
   countActiveCertificatesByUser,
   findCertificateForUpdate,
+  findCertificateWithEscrow,
   insertCertificate,
   insertCertificateAuditLog,
   insertKeyEscrow,
@@ -113,6 +114,7 @@ export async function requestCertificate(
           revocationReason: null,
           source: 'issued',
           fingerprintSha256: issued.fingerprintSha256,
+          hasKeyEscrow: true,
           createdAt: new Date(),
         },
         p12: issued.p12,
@@ -163,4 +165,46 @@ export async function revokeMyCertificate(
     logger.error({ err }, 'เพิกถอนแล้วแต่ออก CRL ไม่สำเร็จ — job จะลองใหม่');
     return { crlUpdated: false };
   }
+}
+
+/**
+ * ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ลืมรหัสผ่าน / ทำไฟล์หาย / ติดตั้งเครื่องใหม่)
+ * ได้ทุกสถานะ รวมใบที่หมดอายุหรือถูกเพิกถอน — key เดิมยังจำเป็นสำหรับเปิดอีเมลเก่าที่เข้ารหัสไว้
+ * ใบของคนอื่นตอบ "ไม่พบ" เหมือนใบที่ไม่มีอยู่ และเขียน audit log ก่อนคืนไฟล์ทุกครั้ง
+ */
+export async function downloadMyCertificateP12(
+  user: AuthUser,
+  certificateId: string,
+  input: RequestCertificateInput,
+): Promise<{ p12: Buffer; fileName: string }> {
+  const certificate = await findCertificateWithEscrow(pool, certificateId);
+  if (!certificate || certificate.userId !== user.id) {
+    throw new AppError(404, 'CERTIFICATE_NOT_FOUND', 'ไม่พบใบรับรองนี้');
+  }
+  if (!certificate.escrow) {
+    throw new AppError(
+      409,
+      'KEY_NOT_ESCROWED',
+      'ใบรับรองนี้ไม่มี key สำรองในระบบ จึงดาวน์โหลดใหม่ไม่ได้ ถ้าไม่มีไฟล์เดิมแล้ว ให้ขอใบรับรองใหม่',
+    );
+  }
+
+  let p12: Buffer;
+  try {
+    p12 = await signer.rebuildP12({
+      serialNumber: certificate.serialNumber,
+      certificatePem: certificate.certificatePem,
+      escrow: certificate.escrow,
+      p12Password: input.p12Password,
+      legacyP12: input.legacyP12,
+    });
+  } catch (err) {
+    if (!(err instanceof SignerError)) throw err;
+    logger.error({ err, certificateId }, 'สร้าง .p12 ใหม่จาก key สำรองไม่สำเร็จ');
+    throw new AppError(503, 'SIGNER_UNAVAILABLE', 'ระบบออกใบรับรองไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง');
+  }
+
+  await insertCertificateAuditLog(pool, { certificateId: certificate.id, actorId: user.id, action: 'recover', reason: null });
+  // ต่อท้ายด้วย serial 8 ตัวแรก ให้แยกไฟล์ของแต่ละใบได้ (ผู้ใช้มีได้หลายใบที่อีเมลเดียวกัน)
+  return { p12, fileName: `${certificate.email}-${certificate.serialNumber.slice(0, 8)}.p12` };
 }

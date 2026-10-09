@@ -113,9 +113,10 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า) + `maxActive` |
 | POST | `/me/certificates` | `certificate:request` — ออกใบใหม่ คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store` |
 | POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
+| POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า), ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
 
-บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ, `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
+บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ, `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
 
 ตั้งค่าบน `cdp.msu.ac.th` (ผู้พัฒนาดูแล): cron ทุก 5–15 นาที ดึง `https://<API>/crl/msu-ca.crl` ลงไฟล์ชั่วคราว ตรวจด้วย `openssl crl -noout` แล้วจึงย้ายทับ `msu-ca.crl` (กันไฟล์เสียเมื่อดึงไม่สำเร็จ)
 
@@ -125,7 +126,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 |---|---|---|
 | 1 | signer + ตาราง + ออกใบรับรองให้ตัวเอง (ดาวน์โหลด `.p12`) + รายการใบของฉัน | เสร็จ |
 | 2 | เพิกถอนเอง + ออก CRL + `GET /crl/msu-ca.crl` | เสร็จ |
-| 3 | กู้ key / ดาวน์โหลดใหม่ | |
+| 3 | กู้ key / ดาวน์โหลดใหม่ | เสร็จ |
 | 4 | สคริปต์นำเข้าใบเดิม + key เดิม | |
 | 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

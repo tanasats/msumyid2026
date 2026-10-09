@@ -73,6 +73,7 @@ export type CrlRevokedEntry = {
 };
 
 const crlResponseSchema = z.object({ crlDer: base64 });
+const p12ResponseSchema = z.object({ p12: base64 });
 
 export const signer = {
   /** ออกใบรับรองใหม่ (สร้าง key → CA เซ็น → .p12 + key สำรองที่เข้ารหัสแล้ว) */
@@ -82,6 +83,29 @@ export const signer = {
       throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
     }
     return parsed.data;
+  },
+
+  /** กู้ key จากที่สำรองไว้แล้วสร้าง .p12 ใหม่ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม) */
+  async rebuildP12(input: {
+    serialNumber: string;
+    certificatePem: string;
+    escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer };
+    p12Password: string;
+    legacyP12: boolean;
+  }): Promise<Buffer> {
+    const body = {
+      ...input,
+      escrow: {
+        kekId: input.escrow.kekId,
+        encryptedKey: input.escrow.encryptedKey.toString('base64'),
+        wrappedDataKey: input.escrow.wrappedDataKey.toString('base64'),
+      },
+    };
+    const parsed = p12ResponseSchema.safeParse(await post('/certificates/p12', body));
+    if (!parsed.success) {
+      throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
+    }
+    return parsed.data.p12;
   },
 
   /** ออกและเซ็น CRL จากรายการใบที่เพิกถอนทั้งหมด — คืนแบบ DER */

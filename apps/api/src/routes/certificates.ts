@@ -6,6 +6,7 @@ import { requireAuth, requirePermission } from '../middlewares/auth.js';
 import {
   MAX_ACTIVE_CERTIFICATES,
   SELF_REVOCATION_REASONS,
+  downloadMyCertificateP12,
   listMyCertificates,
   requestCertificate,
   revokeMyCertificate,
@@ -53,6 +54,20 @@ certificatesRouter.post(
     const { reason } = revokeBody.parse(req.body);
     const result = await revokeMyCertificate(req.user!, id, reason);
     res.json(result);
+  },
+);
+
+// สิทธิ์: certificate:request — ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม)
+certificatesRouter.post(
+  '/me/certificates/:id/p12',
+  requirePermission(PERMISSIONS.CERTIFICATE_REQUEST),
+  async (req, res) => {
+    const { id } = certificateIdParams.parse(req.params);
+    const input = requestBody.parse(req.body);
+    const { p12, fileName } = await downloadMyCertificateP12(req.user!, id, input);
+    // ไฟล์ที่มี private key ห้ามถูกเก็บใน cache ใด ๆ
+    res.set('Cache-Control', 'no-store');
+    res.json({ p12: p12.toString('base64'), fileName });
   },
 );
 

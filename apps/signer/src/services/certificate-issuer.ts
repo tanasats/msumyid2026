@@ -1,11 +1,12 @@
-import { X509Certificate, generateKeyPair, randomBytes, type KeyObject } from 'node:crypto';
+import { X509Certificate, createPrivateKey, generateKeyPair, randomBytes, type KeyObject } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { config } from '../config/index.js';
 import { loadCa, type CaInfo } from './ca.js';
-import { sealPrivateKey, type SealedKey } from './escrow.js';
+import { AppError } from '../errors.js';
+import { openPrivateKey, sealPrivateKey, type SealedKey } from './escrow.js';
 import { runOpenssl } from './openssl.js';
 
 // ออกใบรับรอง S/MIME ให้ผู้ใช้ด้วย OpenSSL CLI — extensions เหมือน [ smime ] ใน intermediate.cnf ของระบบเดิมทุกตัว
@@ -187,6 +188,55 @@ export async function issueCertificate(input: IssueInput): Promise<IssuedCertifi
       p12,
       escrow: sealPrivateKey(pkcs8Der, serialNumber),
     };
+  } finally {
+    pkcs8Der.fill(0);
+  }
+}
+
+/**
+ * กู้ key จากที่สำรองไว้ แล้วสร้าง .p12 ใหม่ด้วยรหัสผ่านใหม่ของผู้ใช้ (ใบรับรองเดิม ไม่ออกใบใหม่)
+ * ตรวจก่อนเสมอ: ใบออกโดย CA นี้, serial ตรงกับที่ผูกไว้กับก้อนสำรอง และ key คู่กับใบรับรอง
+ * — API ส่งข้อมูลผิดใบมาก็จะไม่ได้ไฟล์ที่รวม key กับใบของคนอื่น
+ */
+export async function rebuildP12(input: {
+  serialNumber: string;
+  certificatePem: string;
+  escrow: SealedKey;
+  p12Password: string;
+  legacyP12: boolean;
+}): Promise<Buffer> {
+  const ca = await loadCa();
+  let cert: X509Certificate;
+  try {
+    cert = new X509Certificate(input.certificatePem);
+  } catch {
+    throw new AppError(422, 'CERTIFICATE_INVALID', 'ใบรับรองไม่ถูกต้อง');
+  }
+  if (!cert.checkIssued(ca.cert) || !cert.verify(ca.cert.publicKey)) {
+    throw new AppError(422, 'CERTIFICATE_NOT_ISSUED_BY_CA', 'ใบรับรองนี้ไม่ได้ออกโดย CA ของระบบ');
+  }
+  if (normalizeSerial(cert.serialNumber) !== input.serialNumber) {
+    throw new AppError(422, 'SERIAL_MISMATCH', 'serial ไม่ตรงกับใบรับรอง');
+  }
+
+  let pkcs8Der: Buffer;
+  try {
+    pkcs8Der = openPrivateKey(input.escrow, input.serialNumber);
+  } catch {
+    // ก้อนสำรองถูกแก้ / ผิดใบ / KEK ไม่ตรง — ไม่บอกรายละเอียด
+    throw new AppError(422, 'ESCROW_INVALID', 'ถอด key สำรองไม่ได้');
+  }
+  try {
+    const privateKey = createPrivateKey({ key: pkcs8Der, format: 'der', type: 'pkcs8' });
+    if (!cert.checkPrivateKey(privateKey)) {
+      throw new AppError(422, 'KEY_MISMATCH', 'key สำรองไม่คู่กับใบรับรอง');
+    }
+    return await buildP12({
+      privateKey,
+      certificatePem: input.certificatePem,
+      password: input.p12Password,
+      legacy: input.legacyP12,
+    });
   } finally {
     pkcs8Der.fill(0);
   }

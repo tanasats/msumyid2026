@@ -22,6 +22,8 @@ export type CertificateRow = {
   revocationReason: RevocationReason | null;
   source: 'issued' | 'imported';
   fingerprintSha256: string;
+  /** มี key สำรอง = กู้ key / ดาวน์โหลด .p12 ใหม่ได้ (ใบที่นำเข้าโดยไม่มี key เดิมจะไม่มี) */
+  hasKeyEscrow: boolean;
   createdAt: Date;
 };
 
@@ -50,6 +52,7 @@ export async function listCertificatesByUser(db: Queryable, userId: string, limi
             c.revocation_reason   AS "revocationReason",
             c.source,
             c.fingerprint_sha256  AS "fingerprintSha256",
+            EXISTS (SELECT 1 FROM certificate_key_escrows e WHERE e.certificate_id = c.id) AS "hasKeyEscrow",
             c.created_at          AS "createdAt"
      FROM certificates c
      WHERE c.user_id = $1
@@ -193,4 +196,51 @@ export async function revokeCertificate(
     [input.id, input.reason, input.revokedBy],
   );
   return result.rowCount === 1;
+}
+
+export type CertificateWithEscrow = {
+  id: string;
+  userId: string | null;
+  serialNumber: string;
+  email: string;
+  certificatePem: string;
+  /** null = ไม่มี key สำรอง */
+  escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer } | null;
+};
+
+/**
+ * ใบรับรองพร้อม key สำรอง (ที่ยังเข้ารหัสอยู่) สำหรับส่งให้ signer สร้าง .p12 ใหม่
+ * LEFT JOIN: ใบที่ไม่มี key สำรองยังได้แถวกลับมา (escrow = null) เพื่อแยกตอบ "ไม่พบใบ" กับ "ไม่มี key สำรอง"
+ */
+export async function findCertificateWithEscrow(db: Queryable, id: string): Promise<CertificateWithEscrow | null> {
+  const result = await db.query<{
+    id: string;
+    user_id: string | null;
+    serial_number: string;
+    email: string;
+    certificate_pem: string;
+    kek_id: string | null;
+    encrypted_key: Buffer | null;
+    wrapped_data_key: Buffer | null;
+  }>(
+    `SELECT c.id, c.user_id, c.serial_number, c.email, c.certificate_pem,
+            e.kek_id, e.encrypted_key, e.wrapped_data_key
+     FROM certificates c
+     LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id
+     WHERE c.id = $1`,
+    [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    serialNumber: row.serial_number,
+    email: row.email,
+    certificatePem: row.certificate_pem,
+    escrow:
+      row.kek_id && row.encrypted_key && row.wrapped_data_key
+        ? { kekId: row.kek_id, encryptedKey: row.encrypted_key, wrappedDataKey: row.wrapped_data_key }
+        : null,
+  };
 }

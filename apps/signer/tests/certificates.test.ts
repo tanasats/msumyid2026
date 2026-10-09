@@ -223,3 +223,84 @@ describe('ตรวจข้อมูลที่ส่งมา', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 });
+
+describe('กู้ key: POST /certificates/p12', () => {
+  function rebuild(body: IssueResponse, overrides: object = {}) {
+    return request(app)
+      .post('/certificates/p12')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        serialNumber: body.serialNumber,
+        certificatePem: body.certificatePem,
+        escrow: body.escrow,
+        p12Password: 'new-password-1',
+        ...overrides,
+      });
+  }
+
+  it('ไม่มี token → 401', async () => {
+    const res = await request(app).post('/certificates/p12').send({});
+    expect(res.status).toBe(401);
+  });
+
+  it('ได้ .p12 ใหม่ที่เปิดด้วยรหัสผ่านใหม่ มีใบรับรองเดิม และ key ตัวเดิม', async () => {
+    const issued = await issueOk();
+    const res = await rebuild(issued);
+    expect(res.status).toBe(200);
+
+    const p12 = await openP12(res.body.p12, 'new-password-1');
+    expect(p12.ok).toBe(true);
+    expect((await openP12(res.body.p12, PASSWORD)).ok).toBe(false);
+    // ใบรับรองของผู้ใช้ (ใบแรกใน .p12) คือใบเดิม
+    const userCert = new X509Certificate(p12.certificates.slice(p12.certificates.indexOf('-----BEGIN CERTIFICATE-----')));
+    expect(userCert.fingerprint256.replaceAll(':', '').toLowerCase()).toBe(issued.fingerprintSha256);
+    expect(p12.info).toContain('AES-256-CBC');
+  });
+
+  it('legacyP12 = true → 3DES', async () => {
+    const res = await rebuild(await issueOk(), { legacyP12: true });
+    expect(res.status).toBe(200);
+    expect((await openP12(res.body.p12, 'new-password-1')).info).toContain('pbeWithSHA1And3-KeyTripleDES-CBC');
+  });
+
+  it('serial ไม่ตรงกับใบรับรอง → 422 SERIAL_MISMATCH', async () => {
+    const [a, b] = await Promise.all([issueOk(), issueOk()]);
+    const res = await rebuild(a, { serialNumber: b.serialNumber, escrow: b.escrow });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('SERIAL_MISMATCH');
+  });
+
+  it('ใช้ key สำรองของอีกใบกับใบนี้ → 422 ESCROW_INVALID (ถอดไม่ได้เพราะผูกกับ serial)', async () => {
+    const [a, b] = await Promise.all([issueOk(), issueOk()]);
+    const res = await rebuild(a, { escrow: b.escrow });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ESCROW_INVALID');
+  });
+
+  it('key สำรองถูกแก้ → 422 ESCROW_INVALID', async () => {
+    const issued = await issueOk();
+    const key = Buffer.from(issued.escrow.encryptedKey, 'base64');
+    key[key.length - 1]! ^= 0xff;
+    const res = await rebuild(issued, { escrow: { ...issued.escrow, encryptedKey: key.toString('base64') } });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ESCROW_INVALID');
+  });
+
+  it('ใบรับรองที่ไม่ได้ออกโดย CA ของระบบ → 422', async () => {
+    const issued = await issueOk();
+    const keyFile = path.join(workDir, `${crypto.randomUUID()}.key`);
+    const certFile = path.join(workDir, `${crypto.randomUUID()}.pem`);
+    await runOpenssl('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-keyout', keyFile, '-out', certFile,
+      '-subj', '/C=TH/O=Mahasarakham University/CN=Fake', '-days', '1',
+    ]);
+    const res = await rebuild(issued, { certificatePem: await readFile(certFile, 'utf8') });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CERTIFICATE_NOT_ISSUED_BY_CA');
+  });
+
+  it('รหัสผ่านใหม่สั้นกว่า 8 ตัว → 400', async () => {
+    const res = await rebuild(await issueOk(), { p12Password: 'short' });
+    expect(res.status).toBe(400);
+  });
+});

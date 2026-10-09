@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { FileBadge, FilePlus } from 'lucide-react';
+import { Download, FileBadge, FilePlus } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
@@ -88,9 +88,20 @@ export default async function CertificatesPage() {
                   <dt className="text-muted">หมายเลขใบรับรอง</dt>
                   <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
                 </dl>
-                {canRequest && c.status === 'active' && (
-                  <div className="mt-4 flex justify-end border-t border-line pt-4">
-                    <RevokeCertificateButton certificateId={c.id} serialNumber={c.serialNumber} />
+                {canRequest && (c.hasKeyEscrow || c.status === 'active') && (
+                  <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
+                    {c.status === 'active' && (
+                      <RevokeCertificateButton certificateId={c.id} serialNumber={c.serialNumber} />
+                    )}
+                    {c.hasKeyEscrow && (
+                      <Link
+                        href={`/certificates/${c.id}/download`}
+                        className={buttonClasses({ variant: 'secondary', size: 'sm', fullWidth: true })}
+                      >
+                        <Download className="size-4" aria-hidden />
+                        ดาวน์โหลดไฟล์ใหม่
+                      </Link>
+                    )}
                   </div>
                 )}
               </li>

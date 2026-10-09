@@ -16,12 +16,13 @@ export type Certificate = {
   /** imported = ใบที่ออกด้วยสคริปต์ของระบบเดิมแล้วนำเข้ามา */
   source: 'issued' | 'imported';
   fingerprintSha256: string;
+  /** มี key สำรอง = ดาวน์โหลดไฟล์ .p12 ใหม่ได้ */
+  hasKeyEscrow: boolean;
   createdAt: string;
 };
 
-/** ผลจาก POST /me/certificates — p12 เป็น base64 ได้ครั้งเดียว ระบบไม่เก็บไฟล์ */
-export type IssuedCertificateResponse = {
-  certificate: Certificate;
+/** ไฟล์ .p12 จาก API (ขอใบใหม่ / ดาวน์โหลดใหม่จาก key สำรอง) — base64 ได้ครั้งเดียว ระบบไม่เก็บไฟล์ */
+export type P12Response = {
   p12: string;
   fileName: string;
 };
