@@ -16,6 +16,7 @@ export default defineConfig({
       CA_CERT_PATH: path.join(TEST_CA_DIR, 'intermediate.cert.pem'),
       CA_KEY_PATH: path.join(TEST_CA_DIR, 'intermediate.key.pem'),
       CA_KEY_PASSPHRASE: TEST_CA_PASSPHRASE,
+      CA_CHAIN_PATH: path.join(TEST_CA_DIR, 'root.cert.pem'),
       ESCROW_KEK: Buffer.alloc(32, 7).toString('base64'),
       ESCROW_KEK_ID: 'test-1',
       CRL_DISTRIBUTION_URL: 'https://cdp.msu.ac.th/msu-ca.crl',

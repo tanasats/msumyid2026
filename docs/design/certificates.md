@@ -51,6 +51,9 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 
 - **บริการเซ็นแยก (`apps/signer`)** (อนุมัติแล้ว): แยกเป็น container ของตัวเอง ถือ CA key และ KEK ไว้คนเดียว API หลักและฐานข้อมูลไม่เคยเห็น key ดิบ เรียกจาก API ผ่านเครือข่ายภายในพร้อม token ร่วม ถ้า API ถูกเจาะ CA key และ key ของผู้ใช้ไม่หลุด
 - passphrase ของ CA และ KEK ส่งผ่าน Docker secret / env ของ signer เท่านั้น ห้ามส่งเป็น argument บรรทัดคำสั่ง (เห็นใน `ps`)
+- **CA ที่ใช้ออกใบ:** Intermediate ของมหาวิทยาลัย `Mahasarakham University Certification Authority` (`apps/signer/ca/univ-ca.cert.pem`, หมดอายุ 2033-04-25, pathlen:0) ออกโดย root `Thai University Consortium Certification Authority` (`apps/signer/ca/root.cert.pem`, หมดอายุ **2030-03-25**) — repo เก็บเฉพาะใบรับรองสาธารณะ key `univ-ca.key.pem` อยู่บนเครื่อง production ของ signer เท่านั้น
+- **สายใบรับรองใน `.p12`:** ใบผู้ใช้ + Intermediate + ใบใน `CA_CHAIN_PATH` (root) — signer ตรวจตอนเริ่มระบบว่าทุกใบเป็น CA และเซ็นใบที่อยู่ถัดลงมาจริง ไม่ผ่าน = ไม่เริ่มทำงาน
+- **อายุใบไม่เกินอายุ CA:** อายุใบ = `CERT_VALIDITY_DAYS` แต่ไม่เกินวันหมดอายุที่เร็วที่สุดของ Intermediate/root (ใบที่ออกหลัง 2029-03-25 จะสั้นกว่า 365 วัน) เหลือไม่ถึง 1 วัน = signer ปฏิเสธ (`CA_EXPIRING`) — ต้องติดตามการต่ออายุ root ของ TUC ก่อน 2030-03-25 แล้วเปลี่ยนไฟล์ `CA_CHAIN_PATH`
 - **การนำ CRL ขึ้น cdp:** ระบบเปิด `GET /crl/msu-ca.crl` (public) แล้วเครื่อง `cdp.msu.ac.th` ใช้ cron ดึงทุก 5–15 นาที — ผู้พัฒนาดูแล cdp เอง จึงไม่ต้องให้ระบบมีสิทธิ์เขียนเข้า cdp
 
 ## ขั้นตอนหลัก
