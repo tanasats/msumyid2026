@@ -61,7 +61,7 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 3. signer สร้าง RSA 4096 → เซ็นด้วย extensions `smime` → เข้ารหัส key ด้วย KEK (escrow) → สร้าง `.p12` ด้วยรหัสผ่านของผู้ใช้
 4. API บันทึกใบรับรอง + escrow + audit log ใน transaction เดียว แล้วส่ง `.p12` ให้ดาวน์โหลดครั้งเดียว (ไม่เก็บไฟล์ `.p12` ไว้)
 
-**ดาวน์โหลดใหม่ / กู้ key** — ผู้ใช้ตั้งรหัสผ่านใหม่ signer ถอด escrow แล้วสร้าง `.p12` ใหม่ (ใบรับรองเดิม ไม่ออกใบใหม่) เขียน audit log ทุกครั้ง
+**ดาวน์โหลดใหม่ / กู้ key** — ผู้ใช้ตั้งรหัสผ่านใหม่ signer ถอด escrow แล้วสร้าง `.p12` ใหม่ (ใบรับรองเดิม ไม่ออกใบใหม่) เขียน audit log ทุกครั้ง — ใบที่หมดอายุ/เพิกถอนแล้วยังดาวน์โหลดได้เพื่อเปิดอีเมลเก่า (หน้าเว็บแสดงเป็นปุ่มรอง "ดาวน์โหลดไว้เปิดอีเมลเก่า") ยกเว้นเพิกถอนเพราะ key อาจหลุด (`keyCompromise`)
 
 **เพิกถอน** — ผู้ใช้เลือกใบของตัวเอง + เหตุผล → บันทึก `revoked_at` → signer ออก CRL ใหม่ทันที (`crl_number` = เวลา Unix เพิ่มขึ้นเสมอ)
 
@@ -127,7 +127,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า) + `maxActive` |
 | POST | `/me/certificates` | `certificate:request` — ออกใบใหม่ คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store` |
 | POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
-| POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า), ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
+| POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า) ยกเว้นเพิกถอนด้วย `keyCompromise` = 409 `KEY_COMPROMISED`, ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
 | GET | `/admin/certificates` | `certificate:read` — ค้นหาทั้งระบบ (ชื่อ/อีเมลบางส่วนด้วย trigram, serial ตรงตัว รับ `:`/ตัวพิมพ์ใหญ่), กรองสถานะ, cursor หน้าละ 20, แสดงเจ้าของ |
 | GET | `/admin/users/:id/certificates` | `certificate:read` — ใบของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) |
