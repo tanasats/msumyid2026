@@ -15,6 +15,7 @@
 |---|---|
 | Frontend | Next.js (App Router) + Tailwind CSS |
 | Backend (API) | Node.js + Express 5 (แยกเป็นบริการของตัวเอง) |
+| บริการเซ็น (Signer) | Node.js + Express 5 + OpenSSL CLI — ถือ key ของ Intermediate CA และ KEK ของ key สำรอง ให้ API เรียกเท่านั้น |
 | Database | PostgreSQL |
 | DB Driver | `pg` (node-postgres) เขียน SQL ตรง ๆ **ไม่ใช้ ORM** |
 | Migration | `node-pg-migrate` |
@@ -25,12 +26,13 @@
 | Package manager | pnpm (workspaces) |
 
 ## 3. สภาพแวดล้อมพัฒนา (Dev)
-Web และ API รันบนเครื่อง dev โดยตรง ส่วน Postgres และ Garage รันด้วย Docker
+Web, API และ Signer รันบนเครื่อง dev โดยตรง ส่วน Postgres และ Garage รันด้วย Docker
 
 | บริการ | รันที่ | URL / Port |
 |---|---|---|
 | Web (Next.js) | เครื่อง dev | http://localhost:3010 |
 | API (Express) | เครื่อง dev | http://localhost:4010 |
+| Signer (Express) | เครื่อง dev | http://localhost:4020 (API เรียกเท่านั้น ห้ามเปิดสู่ภายนอก) |
 | PostgreSQL | Docker | localhost:5442 |
 | Garage S3 API | Docker | http://localhost:3910 |
 | Garage Admin API | Docker | http://localhost:3913 (ใช้จัดการ bucket/key ไม่มี console ในตัว) |
@@ -83,6 +85,24 @@ ACCOUNT_EXPIRY_CHECK_INTERVAL_MS=3600000
 # อีเมลแจ้งเตือน (ยังไม่ได้สร้าง — ทำภายหลัง) — dev/test: log, production: gmail + GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN
 MAIL_TRANSPORT=log
 
+# บริการเซ็น (ค่า SIGNER_TOKEN เดียวกับ apps/signer/.env)
+SIGNER_URL=http://localhost:4020
+SIGNER_TOKEN=...
+SIGNER_TIMEOUT_MS=30000
+# CRL: ออกใหม่ทันทีเมื่อเพิกถอน + ทุก CRL_REISSUE_HOURS, เผยแพร่ที่ GET /crl/msu-ca.crl (cdp.msu.ac.th ใช้ cron ดึง)
+CRL_VALIDITY_DAYS=7
+CRL_REISSUE_HOURS=24
+CRL_CHECK_INTERVAL_MS=300000
+CRL_PUBLISH_FORMAT=pem                    # pem = แบบ openssl ca -gencrl เดิม, der = ตาม RFC 5280
+
+# apps/signer/.env (ดู apps/signer/.env.example)
+SIGNER_PORT=4020
+SIGNER_TOKEN=...                          # อย่างน้อย 32 ตัว (openssl rand -hex 32)
+CA_CERT_PATH=... CA_KEY_PATH=... CA_KEY_PASSPHRASE=...   # dev = CA ปลอมจาก dev-ca ห้ามใช้ CA key จริงบนเครื่อง dev
+ESCROW_KEK=...                            # base64 32 ไบต์ (openssl rand -base64 32) หายแล้วกู้ key สำรองไม่ได้
+ESCROW_KEK_ID=dev-1
+CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl
+
 # apps/web/.env.local
 API_URL=http://localhost:4010              # ใช้ฝั่ง server (Server Component)
 NEXT_PUBLIC_API_URL=http://localhost:4010  # ใช้ฝั่ง browser
@@ -109,6 +129,10 @@ NEXT_PUBLIC_API_URL=http://localhost:4010  # ใช้ฝั่ง browser
     /migrations         # ไฟล์ node-pg-migrate
     /scripts            # seed ผู้ดูแลระบบสูงสุด ฯลฯ
     /tests
+  /signer               # บริการเซ็น: ออกใบรับรอง (OpenSSL CLI), key สำรอง (escrow) — ไม่มีฐานข้อมูล
+    /src/services       # certificate-issuer, escrow, ca, openssl
+    /scripts            # create-dev-ca (CA ปลอมสำหรับ dev/test)
+    /tests              # ทดสอบกับ OpenSSL จริงและ CA ปลอม
 /docker
   /garage/garage.toml   # config ของ Garage สำหรับ dev
 /deploy                 # production: compose, nginx, env ตัวอย่าง, สคริปต์ deploy/backup (ดู docs/deployment.md)
@@ -123,6 +147,8 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - เปิด Postgres + Garage: `docker compose up -d`
 - รัน web: `pnpm --filter web dev`
 - รัน api: `pnpm --filter api dev` (ใช้ `tsx watch`)
+- รัน signer: `pnpm --filter signer dev` (ต้องมี OpenSSL CLI — บน Windows มากับ Git Bash)
+- สร้าง CA ปลอมสำหรับ dev: `pnpm --filter signer dev-ca` (รันซ้ำได้ ไม่สร้างทับ — แสดงค่า env ที่ต้องใส่ใน `apps/signer/.env`)
 - ทดสอบ: `pnpm test`
 - Lint / Type check: `pnpm lint` / `pnpm typecheck`
 - สร้าง migration: `pnpm --filter api migrate create ชื่อ-migration`
@@ -204,8 +230,13 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `user:update` | แก้ไขข้อมูลผู้ใช้ |
 | `user:deactivate` | ปิด/เปิดบัญชีผู้ใช้ |
 | `user:delete` | ลบบัญชีและข้อมูลส่วนบุคคลของผู้ใช้ |
+| `certificate:request` | ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง |
+| `certificate:read` | ดูใบรับรองของผู้อื่น |
+| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
 
 ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`
+ระบบใบรับรอง (บริการเซ็น `apps/signer`, key สำรอง, CRL, นำเข้าใบเดิม, ระยะการพัฒนา): ดู `docs/design/certificates.md` — ลงนามเอกสารบนเว็บ: `docs/design/document-signing.md`
 
 บัญชีบุคลากรภายนอก (ตัดสินใจ 2026-10-07):
 - เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น

@@ -11,6 +11,7 @@ import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { meRouter } from './routes/me.js';
 import { adminUsersRouter } from './routes/admin-users.js';
+import { certificatesRouter } from './routes/certificates.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -35,6 +36,7 @@ export function createApp() {
   app.use(authRouter);
   app.use(meRouter);
   app.use(adminUsersRouter);
+  app.use(certificatesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

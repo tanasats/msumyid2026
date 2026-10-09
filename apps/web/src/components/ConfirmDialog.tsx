@@ -17,6 +17,8 @@ type ConfirmDialogProps = {
   reason?: 'required' | 'optional';
   /** งานที่ย้อนกลับไม่ได้: ต้องพิมพ์ข้อความนี้ให้ตรง (ไม่สนตัวพิมพ์) จึงกดยืนยันได้ เช่น อีเมลของบัญชี */
   confirmText?: { label: string; expected: string };
+  /** ช่องกรอกเพิ่มเติมของงานนั้น (เช่น ตัวเลือกเหตุผลการเพิกถอน) — ผู้เรียกดูแล state เอง */
+  children?: React.ReactNode;
   /** throw Error พร้อมข้อความภาษาไทยเพื่อแสดงในกล่อง (กล่องไม่ปิด ข้อมูลที่กรอกไม่หาย) */
   onConfirm: (reason: string, confirmText: string) => Promise<void>;
 };
@@ -35,6 +37,7 @@ export function ConfirmDialog({
   tone = 'primary',
   reason,
   confirmText,
+  children,
   onConfirm,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -86,6 +89,8 @@ export function ConfirmDialog({
           {title}
         </h2>
         {description && <div className="leading-relaxed text-muted">{description}</div>}
+
+        {children}
 
         {reason && (
           <div className="space-y-1.5">

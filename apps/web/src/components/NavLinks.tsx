@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { House, UserRound, Users, type LucideIcon } from 'lucide-react';
+import { FileBadge, House, UserRound, Users, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   href: string;
@@ -19,6 +19,7 @@ type NavItem = {
  */
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'หน้าหลัก', icon: House },
+  { href: '/certificates', label: 'ใบรับรอง', icon: FileBadge },
   { href: '/admin/users', label: 'ผู้ใช้ระบบ', icon: Users, permission: 'user:read' },
   { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];

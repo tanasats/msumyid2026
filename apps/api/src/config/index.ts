@@ -39,6 +39,19 @@ const envSchema = z.object({
   ERP_HR_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
   // รอบตรวจปิดบัญชีที่ถึงวันหมดอายุ (การตัดสิทธิ์มีผลทันทีอยู่แล้ว job นี้ปิดบัญชีและเขียน audit log)
   ACCOUNT_EXPIRY_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(3_600_000),
+  // บริการเซ็น (apps/signer) ออกใบรับรองและถือ key สำรอง — เรียกผ่านเครือข่ายภายในด้วย token ร่วม
+  SIGNER_URL: z.url(),
+  SIGNER_TOKEN: z.string().min(32),
+  // สร้าง RSA 4096 อาจใช้เวลาหลายวินาที
+  SIGNER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  // CRL: อายุแต่ละฉบับ (next_update) — ผู้ตรวจใบรับรองอาจเก็บ CRL ไว้ใช้จนถึงวันนี้ จึงไม่ควรยาวเกินไป
+  CRL_VALIDITY_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  // ออกฉบับใหม่ทุกกี่ชั่วโมงแม้ไม่มีการเพิกถอน (ต้องน้อยกว่าอายุ CRL มาก เผื่อ signer ล่ม)
+  CRL_REISSUE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  // รอบตรวจว่าต้องออก CRL ใหม่หรือไม่ (ออกใหม่ทันทีเมื่อเพิกถอนอยู่แล้ว รอบนี้ใช้ลองใหม่เมื่อ signer ล่ม)
+  CRL_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
+  // รูปแบบไฟล์ที่เผยแพร่: pem = แบบเดียวกับที่ openssl ca -gencrl ของระบบเดิมสร้าง, der = ตาม RFC 5280
+  CRL_PUBLISH_FORMAT: z.enum(['pem', 'der']).default('pem'),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
@@ -83,5 +96,16 @@ export const config = {
     timeoutMs: env.ERP_HR_TIMEOUT_MS,
   },
   accountExpiryCheckIntervalMs: env.ACCOUNT_EXPIRY_CHECK_INTERVAL_MS,
+  signer: {
+    url: env.SIGNER_URL,
+    token: env.SIGNER_TOKEN,
+    timeoutMs: env.SIGNER_TIMEOUT_MS,
+  },
+  crl: {
+    validityMs: env.CRL_VALIDITY_DAYS * 24 * 60 * 60 * 1000,
+    reissueHours: env.CRL_REISSUE_HOURS,
+    checkIntervalMs: env.CRL_CHECK_INTERVAL_MS,
+    publishFormat: env.CRL_PUBLISH_FORMAT,
+  },
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

@@ -11,6 +11,9 @@ export default defineConfig({
       ALLOWED_EMAIL_DOMAINS: 'msu.ac.th',
       // โดเมน .invalid ไม่มีจริง — test ต้อง mock erpHr เสมอ ถ้าหลุดไปเรียกจริงจะล้มทันที
       ERP_HR_STAFFINFO_URL: 'https://erp.test.invalid/service/api/staffinfo',
+      // บริการเซ็น: test ของ API mock signer เสมอ (signer มี test ของตัวเองกับ OpenSSL จริง)
+      SIGNER_URL: 'http://signer.test.invalid',
+      SIGNER_TOKEN: 'test-signer-token-0123456789abcdef0123456789',
     },
     // migrate ฐาน app_test อัตโนมัติก่อนเริ่ม test
     globalSetup: ['./tests/global-setup.ts'],

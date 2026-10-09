@@ -1,0 +1,196 @@
+import type { Queryable } from '../db/types.js';
+
+export type CertificateStatus = 'active' | 'expired' | 'revoked';
+
+export type RevocationReason =
+  | 'unspecified'
+  | 'keyCompromise'
+  | 'CACompromise'
+  | 'affiliationChanged'
+  | 'superseded'
+  | 'cessationOfOperation';
+
+export type CertificateRow = {
+  id: string;
+  serialNumber: string;
+  subjectCn: string;
+  email: string;
+  notBefore: Date;
+  notAfter: Date;
+  status: CertificateStatus;
+  revokedAt: Date | null;
+  revocationReason: RevocationReason | null;
+  source: 'issued' | 'imported';
+  fingerprintSha256: string;
+  createdAt: Date;
+};
+
+// สถานะคำนวณจากเวลาปัจจุบันทุกครั้ง (ไม่เก็บเป็นคอลัมน์ เพราะ "หมดอายุ" เปลี่ยนเองตามเวลา)
+// เพิกถอนแล้วมาก่อนหมดอายุ: ใบที่ถูกเพิกถอนต้องแสดงว่าเพิกถอน แม้จะหมดอายุแล้ว
+const STATUS_SQL = `CASE
+    WHEN c.revoked_at IS NOT NULL THEN 'revoked'
+    WHEN c.not_after <= now()     THEN 'expired'
+    ELSE 'active'
+  END`;
+
+/**
+ * ใบรับรองของผู้ใช้ ล่าสุดก่อน (ใช้ index certificates_user_id_idx)
+ * ไม่ส่ง certificate_pem / ข้อมูล escrow — หน้ารายการไม่ต้องใช้
+ */
+export async function listCertificatesByUser(db: Queryable, userId: string, limit: number): Promise<CertificateRow[]> {
+  const result = await db.query<CertificateRow>(
+    `SELECT c.id,
+            c.serial_number       AS "serialNumber",
+            c.subject_cn          AS "subjectCn",
+            c.email,
+            c.not_before          AS "notBefore",
+            c.not_after           AS "notAfter",
+            ${STATUS_SQL}         AS status,
+            c.revoked_at          AS "revokedAt",
+            c.revocation_reason   AS "revocationReason",
+            c.source,
+            c.fingerprint_sha256  AS "fingerprintSha256",
+            c.created_at          AS "createdAt"
+     FROM certificates c
+     WHERE c.user_id = $1
+     ORDER BY c.created_at DESC
+     LIMIT $2`,
+    [userId, limit],
+  );
+  return result.rows;
+}
+
+/**
+ * นับใบที่ใช้งานอยู่ (ยังไม่เพิกถอนและยังไม่หมดอายุ) ของผู้ใช้ — ใช้บังคับจำนวนใบสูงสุดต่อคน
+ * ต้องเรียกหลัง lockUserForCertificate ใน transaction เดียวกัน จึงจะนับได้ถูกต้องเมื่อขอพร้อมกันหลายคำขอ
+ */
+export async function countActiveCertificatesByUser(db: Queryable, userId: string): Promise<number> {
+  const result = await db.query<{ count: number }>(
+    `SELECT count(*)::int AS count
+     FROM certificates
+     WHERE user_id = $1
+       AND revoked_at IS NULL
+       AND not_after > now()`,
+    [userId],
+  );
+  return result.rows[0]!.count;
+}
+
+/**
+ * ล็อกแถวผู้ใช้ไว้ตลอดการออกใบรับรอง (FOR UPDATE) — คำขอพร้อมกันของผู้ใช้คนเดียวกันต้องรอคิว
+ * กันกดขอ 2 แท็บพร้อมกันแล้วได้ใบเกินจำนวนสูงสุด
+ * คืน false ถ้าไม่พบผู้ใช้ (ถูกลบไปแล้ว)
+ */
+export async function lockUserForCertificate(db: Queryable, userId: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT id FROM users
+     WHERE id = $1
+       AND deleted_at IS NULL
+     FOR UPDATE`,
+    [userId],
+  );
+  return result.rowCount === 1;
+}
+
+export type InsertCertificateInput = {
+  userId: string | null;
+  serialNumber: string;
+  subjectCn: string;
+  email: string;
+  notBefore: Date;
+  notAfter: Date;
+  source: 'issued' | 'imported';
+  certificatePem: string;
+  fingerprintSha256: string;
+};
+
+export async function insertCertificate(db: Queryable, input: InsertCertificateInput): Promise<{ id: string }> {
+  const result = await db.query<{ id: string }>(
+    `INSERT INTO certificates (user_id, serial_number, subject_cn, email, not_before, not_after,
+                               source, certificate_pem, fingerprint_sha256)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id`,
+    [
+      input.userId,
+      input.serialNumber,
+      input.subjectCn,
+      input.email,
+      input.notBefore,
+      input.notAfter,
+      input.source,
+      input.certificatePem,
+      input.fingerprintSha256,
+    ],
+  );
+  return result.rows[0]!;
+}
+
+/** เก็บ key สำรองที่ signer เข้ารหัสมาแล้ว (ฐานข้อมูลถอดเองไม่ได้) */
+export async function insertKeyEscrow(
+  db: Queryable,
+  input: { certificateId: string; kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO certificate_key_escrows (certificate_id, encrypted_key, wrapped_data_key, kek_id)
+     VALUES ($1, $2, $3, $4)`,
+    [input.certificateId, input.encryptedKey, input.wrappedDataKey, input.kekId],
+  );
+}
+
+export type CertificateAuditAction = 'issue' | 'recover' | 'revoke' | 'import' | 'sign';
+
+export async function insertCertificateAuditLog(
+  db: Queryable,
+  input: { certificateId: string; actorId: string | null; action: CertificateAuditAction; reason: string | null },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO certificate_audit_logs (certificate_id, actor_id, action, reason)
+     VALUES ($1, $2, $3, $4)`,
+    [input.certificateId, input.actorId, input.action, input.reason],
+  );
+}
+
+export type CertificateForRevocation = {
+  id: string;
+  userId: string | null;
+  serialNumber: string;
+  revokedAt: Date | null;
+  notAfter: Date;
+};
+
+/**
+ * อ่านใบรับรองพร้อมล็อกแถว (FOR UPDATE) ก่อนเพิกถอน — กันการเพิกถอนซ้อนกัน 2 คำขอ
+ * ไม่กรองเจ้าของใน SQL: service ตรวจและตอบ "ไม่พบ" เหมือนกันทั้งใบที่ไม่มีอยู่และใบของคนอื่น
+ */
+export async function findCertificateForUpdate(db: Queryable, id: string): Promise<CertificateForRevocation | null> {
+  const result = await db.query<CertificateForRevocation>(
+    `SELECT id,
+            user_id        AS "userId",
+            serial_number  AS "serialNumber",
+            revoked_at     AS "revokedAt",
+            not_after      AS "notAfter"
+     FROM certificates
+     WHERE id = $1
+     FOR UPDATE`,
+    [id],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * เพิกถอนใบรับรอง — เงื่อนไข revoked_at IS NULL กันเขียนทับเวลาเพิกถอนเดิม (ย้อนกลับไม่ได้)
+ * คืน false ถ้าใบถูกเพิกถอนไปแล้ว
+ */
+export async function revokeCertificate(
+  db: Queryable,
+  input: { id: string; reason: RevocationReason; revokedBy: string | null },
+): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE certificates
+     SET revoked_at = now(), revocation_reason = $2, revoked_by = $3
+     WHERE id = $1
+       AND revoked_at IS NULL`,
+    [input.id, input.reason, input.revokedBy],
+  );
+  return result.rowCount === 1;
+}

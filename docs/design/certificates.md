@@ -31,6 +31,10 @@
 | ที่สร้าง private key | บริการเซ็น (ฝั่ง server) เพราะต้องเก็บสำรองอยู่แล้ว — สร้างใน browser ไม่ได้ประโยชน์เพิ่ม |
 | รหัสผ่าน `.p12` | ผู้ใช้ตั้งเองทุกครั้งที่ดาวน์โหลด **ระบบไม่เก็บรหัสผ่าน** (ไม่มี CSV แบบเดิม) |
 | CRL | URL เดิม `https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมฝังไว้แล้ว เปลี่ยนไม่ได้) ระบบออก CRL ใหม่ทุกครั้งที่เพิกถอน และทุกวัน |
+| อายุ CRL | 7 วัน (`CRL_VALIDITY_DAYS`, ระบบเดิม 30) — ผู้ตรวจอาจใช้ CRL ที่เก็บไว้จนถึง next update จึงสั้นลงให้การเพิกถอนมีผลเร็วขึ้น; ถ้า cron ของ cdp หยุดเกิน 7 วัน CRL จะหมดอายุ |
+| เลข CRL | เวลา Unix (วินาที) และเพิ่มขึ้นเสมอ — มากกว่าเลขจาก `crlnumber` ของระบบเดิมแน่นอน จึงไม่ต้องนำเข้า `crlnumber` |
+| รูปแบบไฟล์ CRL | PEM (`CRL_PUBLISH_FORMAT=pem`) เหมือนไฟล์ที่ `openssl ca -gencrl` สร้างแล้วเปลี่ยนชื่อขึ้น cdp — เปลี่ยนเป็น DER ได้ |
+| เหตุผลการเพิกถอน (ผู้ใช้เลือก) | `keyCompromise`, `superseded`, `affiliationChanged`, `cessationOfOperation` — `unspecified`/`CACompromise` สงวนไว้ให้ระบบ/ผู้ดูแล |
 | ใบรับรองเดิม | นำเข้าจาก `index.txt` + `newcerts/` (ใบรับรองและสถานะเพิกถอน) |
 | หลังเปิดระบบ | **เลิกใช้ `openssl ca` บน Ubuntu ออกใบ/เพิกถอน** — ถ้าออกสองที่ serial, `index.txt` และ CRL จะไม่ตรงกัน |
 
@@ -59,7 +63,7 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 
 **ดาวน์โหลดใหม่ / กู้ key** — ผู้ใช้ตั้งรหัสผ่านใหม่ signer ถอด escrow แล้วสร้าง `.p12` ใหม่ (ใบรับรองเดิม ไม่ออกใบใหม่) เขียน audit log ทุกครั้ง
 
-**เพิกถอน** — ผู้ใช้เลือกใบของตัวเอง + เหตุผล → บันทึก `revoked_at` → signer ออก CRL ใหม่ทันที (`crl_number` เพิ่มขึ้นต่อเนื่องจาก `crlnumber` เดิม)
+**เพิกถอน** — ผู้ใช้เลือกใบของตัวเอง + เหตุผล → บันทึก `revoked_at` → signer ออก CRL ใหม่ทันที (`crl_number` = เวลา Unix เพิ่มขึ้นเสมอ)
 
 ## ความเข้ากันได้ของ `.p12`
 
@@ -88,27 +92,40 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - ใบที่ใช้งานอยู่พร้อมกันได้ไม่เกิน 2 ใบต่อคน (ขอใบใหม่ได้ก่อนใบเดิมหมดอายุ)
 - ปิดบัญชี/ลบข้อมูลส่วนบุคคล/บัญชีหมดอายุ → เพิกถอนใบที่ใช้งานอยู่อัตโนมัติ (`cessationOfOperation`)
 
-## ตาราง (ร่าง)
+## ตาราง
 
 - `certificates`: `id`, `user_id` (NULL ได้ถ้านำเข้าแล้วยังไม่พบผู้ใช้), `serial_number` (hex, UNIQUE), `subject_cn`, `email`, `not_before`, `not_after`, `revoked_at`, `revocation_reason`, `revoked_by`, `source` (`issued`/`imported`), `certificate_pem`, `fingerprint_sha256`, `created_at`, `updated_at` — ไม่มี soft delete (ใบรับรองลบไม่ได้ ต้องอยู่ใน CRL)
 - `certificate_key_escrows`: `certificate_id` (PK), `encrypted_key`, `wrapped_data_key`, `kek_id`, `created_at`, `updated_at` — แยกตารางเพื่อให้ query รายการใบรับรองไม่แตะ blob
-- `crls`: `crl_number` (UNIQUE), `this_update`, `next_update`, `crl_der`, `created_at`, `updated_at`
-- `certificate_audit_logs`: `certificate_id`, `actor_id`, `action` (`issue`/`download`/`recover`/`revoke`/`import`), `reason`, `created_at` — แก้/ลบไม่ได้
+- `crls`: `crl_number` (bigint UNIQUE), `this_update`, `next_update`, `revoked_count` (จำนวนใบที่เพิกถอนตอนออก — จำนวนปัจจุบันมากกว่า = ต้องออกใหม่), `crl_der`, `created_at`, `updated_at` — เก็บทุกฉบับ
+- `certificate_audit_logs`: `certificate_id`, `actor_id`, `action` (`issue`/`recover`/`revoke`/`import`/`sign`), `reason`, `created_at` — แก้/ลบไม่ได้
 
 ## นำเข้าใบเดิม
 
 - อ่าน `index.txt` (สถานะ `V`/`R`/`E`, วันหมดอายุ, วัน+เหตุผลเพิกถอน, serial, subject) คู่กับ `newcerts/<serial>.pem`
 - ผูกกับผู้ใช้ด้วยอีเมลใน subject; ไม่พบ = เก็บไว้โดย `user_id` NULL แล้วผูกอัตโนมัติเมื่อผู้ใช้ login ครั้งแรก
-- นำเข้า `crlnumber` ล่าสุด เพื่อให้ CRL ใหม่มีเลขต่อจากเดิม
+- ไม่ต้องนำเข้า `crlnumber` (เลข CRL ของระบบใหม่ใช้เวลา Unix ซึ่งมากกว่าเสมอ)
 - รันซ้ำได้ (ข้าม serial ที่มีแล้ว) และแสดงรายงานจำนวนที่นำเข้า/ข้าม/ไม่พบผู้ใช้
 
-## ระยะการพัฒนา (เสนอ)
+## API
 
-| ระยะ | งาน |
-|---|---|
-| 1 | signer + ตาราง + ออกใบรับรองให้ตัวเอง (ดาวน์โหลด `.p12`) + รายการใบของฉัน |
-| 2 | เพิกถอนเอง + ออก CRL + `GET /crl/msu-ca.crl` |
-| 3 | กู้ key / ดาวน์โหลดใหม่ |
-| 4 | สคริปต์นำเข้าใบเดิม (+ key เดิมถ้าอนุมัติ) |
-| 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี |
-| แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP |
+| Method | Path | สิทธิ์ |
+|---|---|---|
+| GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า) + `maxActive` |
+| POST | `/me/certificates` | `certificate:request` — ออกใบใหม่ คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store` |
+| POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
+| GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
+
+บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ, `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
+
+ตั้งค่าบน `cdp.msu.ac.th` (ผู้พัฒนาดูแล): cron ทุก 5–15 นาที ดึง `https://<API>/crl/msu-ca.crl` ลงไฟล์ชั่วคราว ตรวจด้วย `openssl crl -noout` แล้วจึงย้ายทับ `msu-ca.crl` (กันไฟล์เสียเมื่อดึงไม่สำเร็จ)
+
+## ระยะการพัฒนา
+
+| ระยะ | งาน | สถานะ |
+|---|---|---|
+| 1 | signer + ตาราง + ออกใบรับรองให้ตัวเอง (ดาวน์โหลด `.p12`) + รายการใบของฉัน | เสร็จ |
+| 2 | เพิกถอนเอง + ออก CRL + `GET /crl/msu-ca.crl` | เสร็จ |
+| 3 | กู้ key / ดาวน์โหลดใหม่ | |
+| 4 | สคริปต์นำเข้าใบเดิม + key เดิม | |
+| 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | |
+| แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

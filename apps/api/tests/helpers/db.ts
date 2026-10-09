@@ -6,15 +6,18 @@ import { createSession } from '../../src/services/session-service.js';
 
 /**
  * ล้างข้อมูลผู้ใช้ทั้งหมดและ role ที่ test สร้าง
- * role_change_logs และ user_audit_logs กัน TRUNCATE ไว้ จึงปิด trigger ชั่วคราวใน transaction เดียวกัน (ใช้ใน test เท่านั้น)
+ * role_change_logs, user_audit_logs และ certificate_audit_logs กัน TRUNCATE ไว้ จึงปิด trigger ชั่วคราวใน transaction เดียวกัน (ใช้ใน test เท่านั้น)
  */
 export async function resetDatabase(): Promise<void> {
   await withTransaction(async (client) => {
     await client.query('ALTER TABLE role_change_logs DISABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query('ALTER TABLE user_audit_logs DISABLE TRIGGER trg_user_audit_logs_no_truncate');
+    await client.query('ALTER TABLE certificate_audit_logs DISABLE TRIGGER trg_certificate_audit_logs_no_truncate');
     await client.query(
-      'TRUNCATE users, sessions, user_roles, role_change_logs, user_audit_logs, erp_org_units CASCADE',
+      `TRUNCATE users, sessions, user_roles, role_change_logs, user_audit_logs, erp_org_units,
+                certificates, certificate_key_escrows, certificate_audit_logs, crls CASCADE`,
     );
+    await client.query('ALTER TABLE certificate_audit_logs ENABLE TRIGGER trg_certificate_audit_logs_no_truncate');
     await client.query('ALTER TABLE user_audit_logs ENABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query(`DELETE FROM role_permissions`);

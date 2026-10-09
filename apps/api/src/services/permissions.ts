@@ -15,6 +15,14 @@ export const PERMISSIONS = {
   USER_DEACTIVATE: 'user:deactivate',
   /** ลบบัญชีและข้อมูลส่วนบุคคลของผู้ใช้ */
   USER_DELETE: 'user:delete',
+  /** ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง */
+  CERTIFICATE_REQUEST: 'certificate:request',
+  /** ดูใบรับรองของผู้อื่น */
+  CERTIFICATE_READ: 'certificate:read',
+  /** เพิกถอนใบรับรองของผู้อื่น */
+  CERTIFICATE_REVOKE: 'certificate:revoke',
+  /** ลงนามเอกสารด้วยใบรับรองของตัวเอง */
+  DOCUMENT_SIGN: 'document:sign',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
