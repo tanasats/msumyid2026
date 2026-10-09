@@ -109,7 +109,21 @@ async function writeEncryptedKey(file: string, privateKey: KeyObject): Promise<s
   return passphrase;
 }
 
-/** รวม private key + ใบรับรอง + ใบของ Intermediate CA เป็น .p12 ที่ล็อกด้วยรหัสผ่านของผู้ใช้ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * อายุใบ (วัน) = CERT_VALIDITY_DAYS แต่ไม่เกินวันหมดอายุที่เร็วที่สุดในสายของ CA
+ * (ใบที่หมดอายุช้ากว่า CA/root จะตรวจสายไม่ผ่านตั้งแต่วันที่ CA หมดอายุ) — เหลือไม่ถึง 1 วัน = ออกใบไม่ได้
+ */
+export function validityDays(caNotAfter: Date, now: Date, configuredDays: number): number {
+  const days = Math.min(configuredDays, Math.floor((caNotAfter.getTime() - now.getTime()) / DAY_MS));
+  if (days < 1) {
+    throw new AppError(503, 'CA_EXPIRING', 'ใบรับรองของ CA หมดอายุหรือใกล้หมดอายุ ออกใบรับรองใหม่ไม่ได้');
+  }
+  return days;
+}
+
+/** รวม private key + ใบรับรอง + ใบของ Intermediate CA (และ root ถ้าตั้ง CA_CHAIN_PATH) เป็น .p12 ที่ล็อกด้วยรหัสผ่านของผู้ใช้ */
 export async function buildP12(input: {
   privateKey: KeyObject;
   certificatePem: string;
@@ -120,12 +134,14 @@ export async function buildP12(input: {
   return withTempDir(async (dir) => {
     const keyFile = path.join(dir, 'key.pem');
     const certFile = path.join(dir, 'cert.pem');
+    const chainFile = path.join(dir, 'chain.pem');
     const p12File = path.join(dir, 'out.p12');
     const keyPass = await writeEncryptedKey(keyFile, input.privateKey);
     await writeFile(certFile, input.certificatePem);
+    await writeFile(chainFile, ca.bundlePem);
 
     const args = ['pkcs12', '-export', '-inkey', keyFile, '-passin', 'env:KEY_PASS'];
-    args.push('-in', certFile, '-certfile', ca.certPath, '-passout', 'env:P12_PASS', '-out', p12File);
+    args.push('-in', certFile, '-certfile', chainFile, '-passout', 'env:P12_PASS', '-out', p12File);
     if (input.legacy) {
       args.push('-certpbe', 'PBE-SHA1-3DES', '-keypbe', 'PBE-SHA1-3DES', '-macalg', 'sha1');
     }
@@ -137,6 +153,7 @@ export async function buildP12(input: {
 /** สร้าง key ใหม่ → CSR → CA เซ็น → .p12 + key สำรองที่เข้ารหัสแล้ว */
 export async function issueCertificate(input: IssueInput): Promise<IssuedCertificate> {
   const ca = await loadCa();
+  const days = validityDays(ca.notAfter, new Date(), config.certValidityDays);
   const { privateKey } = await generateKeyPairAsync('rsa', { modulusLength: config.userKeyBits });
   const serial = randomSerial();
 
@@ -162,7 +179,7 @@ export async function issueCertificate(input: IssueInput): Promise<IssuedCertifi
       [
         'x509', '-req', '-in', csrFile,
         '-CA', ca.certPath, '-CAkey', ca.keyPath, '-passin', 'env:CA_KEY_PASS',
-        '-set_serial', `0x${serial}`, '-days', String(config.certValidityDays), '-sha256',
+        '-set_serial', `0x${serial}`, '-days', String(days), '-sha256',
         '-extfile', extFile, '-extensions', 'smime', '-out', certFile,
       ],
       { secrets: { CA_KEY_PASS: config.ca.keyPassphrase } },

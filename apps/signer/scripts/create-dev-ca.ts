@@ -12,7 +12,7 @@ import { runOpenssl } from '../src/services/openssl.js';
 
 const SUBJECT_BASE = ['C = TH', 'O = Mahasarakham University'];
 
-export type DevCa = { certPath: string; keyPath: string; passphrase: string; created: boolean };
+export type DevCa = { certPath: string; keyPath: string; chainPath: string; passphrase: string; created: boolean };
 
 function reqConfig(commonName: string, extensions: string[]): string {
   return [
@@ -52,11 +52,12 @@ export async function createDevCa(dir: string, options: { passphrase?: string; o
   const abs = path.resolve(dir);
   const certPath = path.join(abs, 'intermediate.cert.pem');
   const keyPath = path.join(abs, 'intermediate.key.pem');
+  const chainPath = path.join(abs, 'root.cert.pem');
   const passphraseFile = path.join(abs, 'passphrase.txt');
 
   if (existsSync(certPath)) {
     const passphrase = (await readFile(passphraseFile, 'utf8')).trim();
-    return { certPath, keyPath, passphrase, created: false };
+    return { certPath, keyPath, chainPath, passphrase, created: false };
   }
 
   await mkdir(abs, { recursive: true });
@@ -67,7 +68,7 @@ export async function createDevCa(dir: string, options: { passphrase?: string; o
   await writeFile(file('root.cnf'), reqConfig('MSU Digital ID DEV Root CA', ROOT_EXTENSIONS));
   await runOpenssl(bin, [
     'req', '-x509', '-new', '-newkey', 'rsa:2048', '-noenc', '-config', file('root.cnf'),
-    '-keyout', file('root.key.pem'), '-out', file('root.cert.pem'), '-days', '3650', '-sha256',
+    '-keyout', file('root.key.pem'), '-out', chainPath, '-days', '3650', '-sha256',
   ]);
 
   // Intermediate CA: key เข้ารหัสด้วย passphrase เหมือนของจริง แล้วให้ Root เซ็น
@@ -81,13 +82,13 @@ export async function createDevCa(dir: string, options: { passphrase?: string; o
     { secrets: { CA_PASS: passphrase } },
   );
   await runOpenssl(bin, [
-    'x509', '-req', '-in', file('intermediate.csr'), '-CA', file('root.cert.pem'), '-CAkey', file('root.key.pem'),
+    'x509', '-req', '-in', file('intermediate.csr'), '-CA', chainPath, '-CAkey', file('root.key.pem'),
     '-set_serial', '0x1000', '-days', '1825', '-sha256',
     '-extfile', file('intermediate.cnf'), '-extensions', 'v3_ca', '-out', certPath,
   ]);
   await writeFile(passphraseFile, passphrase, { mode: 0o600 });
 
-  return { certPath, keyPath, passphrase, created: true };
+  return { certPath, keyPath, chainPath, passphrase, created: true };
 }
 
 // รันเป็นสคริปต์ (ไม่ใช่ถูก import จาก test)
@@ -100,6 +101,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`CA_CERT_PATH=${ca.certPath}`);
     console.log(`CA_KEY_PATH=${ca.keyPath}`);
     console.log(`CA_KEY_PASSPHRASE=${ca.passphrase}`);
+    console.log(`CA_CHAIN_PATH=${ca.chainPath}`);
     if (ca.created) console.log(`ESCROW_KEK=${randomBytes(32).toString('base64')}`);
   } catch (err) {
     console.error('สร้าง CA สำหรับ dev ไม่สำเร็จ:', err);

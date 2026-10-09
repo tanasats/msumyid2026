@@ -155,12 +155,13 @@ describe('ออกใบรับรอง', () => {
 });
 
 describe('ไฟล์ .p12', () => {
-  it('เปิดได้ด้วยรหัสผ่านที่ตั้ง มีใบของผู้ใช้ + Intermediate CA และเข้ารหัสแบบ AES-256 (ค่าเริ่มต้น)', async () => {
+  it('เปิดได้ด้วยรหัสผ่านที่ตั้ง มีใบของผู้ใช้ + Intermediate CA + root (CA_CHAIN_PATH) และเข้ารหัสแบบ AES-256 (ค่าเริ่มต้น)', async () => {
     const body = await issueOk();
     const p12 = await openP12(body.p12, PASSWORD);
     expect(p12.ok).toBe(true);
-    expect(p12.certificates.match(/BEGIN CERTIFICATE/g)).toHaveLength(2);
+    expect(p12.certificates.match(/BEGIN CERTIFICATE/g)).toHaveLength(3);
     expect(p12.certificates).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Intermediate CA');
+    expect(p12.certificates).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Root CA');
     expect(p12.info).toContain('AES-256-CBC');
     expect(p12.info).not.toContain('TripleDES');
   });

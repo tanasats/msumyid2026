@@ -15,6 +15,12 @@ const envSchema = z.object({
   CA_CERT_PATH: z.string().min(1),
   CA_KEY_PATH: z.string().min(1),
   CA_KEY_PASSPHRASE: z.string().min(1),
+  // ใบรับรอง CA ที่อยู่เหนือ Intermediate (production = root ของ Thai University Consortium) ใส่ลง .p12 ให้ต่อสายถึง root ได้
+  // ไม่ใส่หรือว่าง = .p12 มีแค่ Intermediate
+  CA_CHAIN_PATH: z
+    .string()
+    .optional()
+    .transform((v) => v || undefined),
   // KEK ของ key สำรอง: AES-256 (32 ไบต์) เข้ารหัสแบบ base64 — สร้างด้วย openssl rand -base64 32
   ESCROW_KEK: z
     .string()
@@ -50,6 +56,7 @@ export const config = {
     certPath: env.CA_CERT_PATH,
     keyPath: env.CA_KEY_PATH,
     keyPassphrase: env.CA_KEY_PASSPHRASE,
+    chainPath: env.CA_CHAIN_PATH,
   },
   escrow: {
     kek: env.ESCROW_KEK,
