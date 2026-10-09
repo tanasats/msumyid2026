@@ -105,13 +105,16 @@ export type InsertCertificateInput = {
   source: 'issued' | 'imported';
   certificatePem: string;
   fingerprintSha256: string;
+  /** ใบที่นำเข้าซึ่งถูกเพิกถอนในระบบเดิมแล้ว (ระบบออกใบใหม่ไม่ใช้) */
+  revokedAt?: Date | null;
+  revocationReason?: RevocationReason | null;
 };
 
 export async function insertCertificate(db: Queryable, input: InsertCertificateInput): Promise<{ id: string }> {
   const result = await db.query<{ id: string }>(
     `INSERT INTO certificates (user_id, serial_number, subject_cn, email, not_before, not_after,
-                               source, certificate_pem, fingerprint_sha256)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                               source, certificate_pem, fingerprint_sha256, revoked_at, revocation_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [
       input.userId,
@@ -123,6 +126,8 @@ export async function insertCertificate(db: Queryable, input: InsertCertificateI
       input.source,
       input.certificatePem,
       input.fingerprintSha256,
+      input.revokedAt ?? null,
+      input.revocationReason ?? null,
     ],
   );
   return result.rows[0]!;
@@ -186,14 +191,15 @@ export async function findCertificateForUpdate(db: Queryable, id: string): Promi
  */
 export async function revokeCertificate(
   db: Queryable,
-  input: { id: string; reason: RevocationReason; revokedBy: string | null },
+  input: { id: string; reason: RevocationReason; revokedBy: string | null; revokedAt?: Date },
 ): Promise<boolean> {
+  // revokedAt ไม่ส่ง = เวลาปัจจุบัน (ส่งเฉพาะตอนนำเข้าการเพิกถอนจากระบบเดิม เพื่อคงวันเพิกถอนเดิมไว้ใน CRL)
   const result = await db.query(
     `UPDATE certificates
-     SET revoked_at = now(), revocation_reason = $2, revoked_by = $3
+     SET revoked_at = COALESCE($4, now()), revocation_reason = $2, revoked_by = $3
      WHERE id = $1
        AND revoked_at IS NULL`,
-    [input.id, input.reason, input.revokedBy],
+    [input.id, input.reason, input.revokedBy, input.revokedAt ?? null],
   );
   return result.rowCount === 1;
 }
@@ -243,4 +249,45 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
         ? { kekId: row.kek_id, encryptedKey: row.encrypted_key, wrappedDataKey: row.wrapped_data_key }
         : null,
   };
+}
+
+export type ExistingCertificate = {
+  id: string;
+  serialNumber: string;
+  source: 'issued' | 'imported';
+  revokedAt: Date | null;
+  hasKeyEscrow: boolean;
+};
+
+/**
+ * ใบที่มีอยู่แล้วตาม serial (สคริปต์นำเข้าใช้ข้ามใบที่เคยนำเข้า) — ใช้ unique index ของ serial_number
+ * จำนวนแถวไม่เกินจำนวน serial ที่ส่งมา (ผู้เรียกแบ่งเป็นชุดเอง)
+ */
+export async function findCertificatesBySerials(db: Queryable, serials: string[]): Promise<ExistingCertificate[]> {
+  const result = await db.query<ExistingCertificate>(
+    `SELECT c.id,
+            c.serial_number  AS "serialNumber",
+            c.source,
+            c.revoked_at     AS "revokedAt",
+            EXISTS (SELECT 1 FROM certificate_key_escrows e WHERE e.certificate_id = c.id) AS "hasKeyEscrow"
+     FROM certificates c
+     WHERE c.serial_number = ANY($1::text[])`,
+    [serials],
+  );
+  return result.rows;
+}
+
+/**
+ * ผูกใบที่นำเข้าแล้วยังไม่มีเจ้าของ (user_id IS NULL) กับผู้ใช้ที่ login ด้วยอีเมลเดียวกัน
+ * ใช้ partial index certificates_unowned_email_idx — คืนจำนวนใบที่ผูก
+ */
+export async function claimUnownedCertificates(db: Queryable, userId: string, email: string): Promise<number> {
+  const result = await db.query(
+    `UPDATE certificates
+     SET user_id = $1
+     WHERE user_id IS NULL
+       AND lower(email) = lower($2)`,
+    [userId, email],
+  );
+  return result.rowCount ?? 0;
 }

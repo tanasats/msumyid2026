@@ -148,6 +148,7 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - รัน web: `pnpm --filter web dev`
 - รัน api: `pnpm --filter api dev` (ใช้ `tsx watch`)
 - รัน signer: `pnpm --filter signer dev` (ต้องมี OpenSSL CLI — บน Windows มากับ Git Bash)
+- นำเข้าใบรับรองเดิมจาก openssl ca: `pnpm --filter api cert:import -- --dir <โฟลเดอร์ CA> [--dry-run]` (ต้องเปิด signer — ลำดับการย้ายระบบดู `docs/design/certificates.md`)
 - สร้าง CA ปลอมสำหรับ dev: `pnpm --filter signer dev-ca` (รันซ้ำได้ ไม่สร้างทับ — แสดงค่า env ที่ต้องใส่ใน `apps/signer/.env`)
 - ทดสอบ: `pnpm test`
 - Lint / Type check: `pnpm lint` / `pnpm typecheck`
@@ -186,6 +187,7 @@ Flow (Authorization Code + PKCE):
 5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบ: ผูกกับบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้าด้วยอีเมลนั้นก่อน (`google_sub` ยังเป็น NULL, อีเมลโดเมน มมส. ต้องมี `hd` ตรง) ถ้าไม่มีจึงสร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
 5.1 แยกประเภทบัญชีจากส่วนหน้า @: ตัวเลข 11 หลักพอดี = นิสิต (ให้ role `student`, คณะ = หลักที่ 5-6 อ้างอิง `org_units.code`, ไม่พบ = NULL) นอกนั้น = บุคลากร (ให้ role `staff` และดึงข้อมูลจาก ERP-HR ด้วย Google access token) ตรวจและให้ role ทุกครั้งที่ login พร้อม log
 5.2 บัญชีใหม่ที่ ERP ตอบว่า **ไม่พบบุคลากร** = บัญชีหน่วยงาน (`service`) สถานะรออนุมัติ (ERP เรียกไม่สำเร็จ = ยังเป็นบุคลากร, บัญชีเดิมไม่เปลี่ยนประเภทอัตโนมัติ)
+5.3 ใบรับรองที่นำเข้าจากระบบเดิมแต่ยังไม่มีเจ้าของ (`certificates.user_id` NULL) ผูกกับผู้ใช้ที่ login ด้วยอีเมลเดียวกัน (เงื่อนไขเดียวกับข้อ 5)
 6. สร้าง session แล้ว redirect กลับ `WEB_URL`
 7. web ถามผู้ใช้ปัจจุบันจาก `GET /auth/me`, ออกจากระบบด้วย `POST /auth/logout`
 

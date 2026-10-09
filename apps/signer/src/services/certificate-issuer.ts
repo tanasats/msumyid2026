@@ -241,3 +241,49 @@ export async function rebuildP12(input: {
     pkcs8Der.fill(0);
   }
 }
+
+/**
+ * นำ key เดิมจากระบบสคริปต์ (private/<อีเมล>.key.pem เข้ารหัสด้วยรหัสผ่านจาก pkcs12-files.csv) มาเก็บเป็น key สำรอง
+ * - ลองรหัสผ่านทีละตัว (อีเมลเดียวอาจมีหลายบรรทัดใน CSV เมื่อเคยออกใบซ้ำ)
+ * - จับคู่กับใบรับรองด้วย public key (สคริปต์เดิมเขียนทับ key ทุกครั้งที่ออกใบใหม่ จึงไม่รู้ล่วงหน้าว่าเป็นของใบไหน)
+ * - ใบต้องออกโดย CA นี้ — คืน serial ของใบที่คู่กันพร้อม key สำรองที่ผูกกับ serial นั้น
+ */
+export async function escrowLegacyKey(input: {
+  privateKeyPem: string;
+  passphrases: string[];
+  certificates: { serialNumber: string; certificatePem: string }[];
+}): Promise<{ serialNumber: string; escrow: SealedKey }> {
+  const ca = await loadCa();
+  let privateKey: KeyObject | null = null;
+  for (const passphrase of input.passphrases) {
+    try {
+      privateKey = createPrivateKey({ key: input.privateKeyPem, passphrase });
+      break;
+    } catch {
+      // รหัสผ่านไม่ถูก ลองตัวถัดไป
+    }
+  }
+  if (!privateKey) {
+    throw new AppError(422, 'KEY_DECRYPT_FAILED', 'ถอดรหัส key ด้วยรหัสผ่านที่ให้มาไม่ได้');
+  }
+
+  for (const candidate of input.certificates) {
+    let cert: X509Certificate;
+    try {
+      cert = new X509Certificate(candidate.certificatePem);
+    } catch {
+      continue;
+    }
+    if (normalizeSerial(cert.serialNumber) !== candidate.serialNumber) continue;
+    if (!cert.checkIssued(ca.cert) || !cert.verify(ca.cert.publicKey)) continue;
+    if (!cert.checkPrivateKey(privateKey)) continue;
+
+    const pkcs8Der = privateKey.export({ type: 'pkcs8', format: 'der' });
+    try {
+      return { serialNumber: candidate.serialNumber, escrow: sealPrivateKey(pkcs8Der, candidate.serialNumber) };
+    } finally {
+      pkcs8Der.fill(0);
+    }
+  }
+  throw new AppError(422, 'KEY_NO_MATCHING_CERTIFICATE', 'key นี้ไม่คู่กับใบรับรองใดที่ส่งมา');
+}

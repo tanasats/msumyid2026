@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
-import { issueCertificate, rebuildP12 } from '../services/certificate-issuer.js';
+import { escrowLegacyKey, issueCertificate, rebuildP12 } from '../services/certificate-issuer.js';
 
 export const certificatesRouter = Router();
 
@@ -55,4 +55,33 @@ certificatesRouter.post('/certificates/p12', express.json({ limit: '64kb' }), as
   const input = rebuildBody.parse(req.body);
   const p12 = await rebuildP12(input);
   res.json({ p12: p12.toString('base64') });
+});
+
+const legacyKeyBody = z.object({
+  privateKeyPem: z.string().includes('PRIVATE KEY').max(20_000),
+  passphrases: z.array(z.string().min(1).max(128)).min(1).max(20),
+  certificates: z
+    .array(
+      z.object({
+        serialNumber: z.string().regex(/^(0|[1-9a-f][0-9a-f]*)$/),
+        certificatePem: z.string().startsWith('-----BEGIN CERTIFICATE-----').max(16_000),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+// สิทธิ์: เฉพาะ API ของระบบ (ใช้โดยสคริปต์นำเข้าใบเดิม cert:import)
+// นำ key เดิมที่เข้ารหัสด้วยรหัสผ่านมาเก็บเป็น key สำรองของใบที่คู่กัน
+certificatesRouter.post('/certificates/legacy-key', express.json({ limit: '1mb' }), async (req, res) => {
+  const input = legacyKeyBody.parse(req.body);
+  const { serialNumber, escrow } = await escrowLegacyKey(input);
+  res.json({
+    serialNumber,
+    escrow: {
+      kekId: escrow.kekId,
+      encryptedKey: escrow.encryptedKey.toString('base64'),
+      wrappedDataKey: escrow.wrappedDataKey.toString('base64'),
+    },
+  });
 });

@@ -45,6 +45,16 @@ export class SignerError extends Error {
   }
 }
 
+const signerErrorSchema = z.object({ error: z.object({ code: z.string() }) });
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 async function post(path: string, body: object): Promise<unknown> {
   let res: Response;
   try {
@@ -60,6 +70,10 @@ async function post(path: string, body: object): Promise<unknown> {
   if (!res.ok) {
     // body ของ error มีแค่ code/message — ไม่มีข้อมูลอ่อนไหว จึงใส่ใน log ได้
     const detail = await res.text().catch(() => '');
+    if (res.status >= 400 && res.status < 500) {
+      const code = signerErrorSchema.safeParse(parseJson(detail));
+      if (code.success) throw new SignerRejectedError(res.status, code.data.error.code);
+    }
     throw new SignerError(`บริการเซ็นตอบ HTTP ${res.status}: ${detail.slice(0, 300)}`);
   }
   return res.json();
@@ -74,6 +88,21 @@ export type CrlRevokedEntry = {
 
 const crlResponseSchema = z.object({ crlDer: base64 });
 const p12ResponseSchema = z.object({ p12: base64 });
+const legacyKeyResponseSchema = z.object({
+  serialNumber: z.string().regex(/^(0|[1-9a-f][0-9a-f]*)$/),
+  escrow: z.object({ kekId: z.string().min(1), encryptedKey: base64, wrappedDataKey: base64 }),
+});
+
+/** signer ปฏิเสธคำขอ (HTTP 4xx) พร้อมรหัส error ของ signer — เช่น key ไม่คู่กับใบรับรอง */
+export class SignerRejectedError extends SignerError {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+  ) {
+    super(`บริการเซ็นปฏิเสธคำขอ: ${code}`);
+    this.name = 'SignerRejectedError';
+  }
+}
 
 export const signer = {
   /** ออกใบรับรองใหม่ (สร้าง key → CA เซ็น → .p12 + key สำรองที่เข้ารหัสแล้ว) */
@@ -106,6 +135,22 @@ export const signer = {
       throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
     }
     return parsed.data.p12;
+  },
+
+  /**
+   * นำ key เดิม (เข้ารหัสด้วยรหัสผ่านจากระบบสคริปต์) มาเก็บเป็น key สำรองของใบที่คู่กัน
+   * key ไม่ถูกถอดที่ API — signer ถอด จับคู่ด้วย public key แล้วคืนเฉพาะ key สำรองที่เข้ารหัสด้วย KEK
+   */
+  async escrowLegacyKey(input: {
+    privateKeyPem: string;
+    passphrases: string[];
+    certificates: { serialNumber: string; certificatePem: string }[];
+  }): Promise<{ serialNumber: string; escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer } }> {
+    const parsed = legacyKeyResponseSchema.safeParse(await post('/certificates/legacy-key', input));
+    if (!parsed.success) {
+      throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
+    }
+    return parsed.data;
   },
 
   /** ออกและเซ็น CRL จากรายการใบที่เพิกถอนทั้งหมด — คืนแบบ DER */

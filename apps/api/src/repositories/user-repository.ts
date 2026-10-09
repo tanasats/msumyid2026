@@ -156,3 +156,20 @@ export async function linkPreRegisteredUser(
   );
   return result.rows[0]?.id ?? null;
 }
+
+/**
+ * หาผู้ใช้จากอีเมล (ไม่สนตัวพิมพ์) ทีละหลายอีเมล — ใช้ผูกใบรับรองที่นำเข้ากับเจ้าของ
+ * DISTINCT ON: ถ้าอีเมลเดียวกันมีหลายบัญชี ใช้บัญชีที่สร้างก่อน (ใช้ index users_email_lower_idx)
+ * คืน Map ของอีเมลตัวพิมพ์เล็ก → user id (จำนวนแถวไม่เกินจำนวนอีเมลที่ส่งมา)
+ */
+export async function findUserIdsByEmails(db: Queryable, emails: string[]): Promise<Map<string, string>> {
+  const result = await db.query<{ email: string; id: string }>(
+    `SELECT DISTINCT ON (lower(email)) lower(email) AS email, id
+     FROM users
+     WHERE lower(email) = ANY($1::text[])
+       AND deleted_at IS NULL
+     ORDER BY lower(email), created_at`,
+    [emails.map((e) => e.toLowerCase())],
+  );
+  return new Map(result.rows.map((r) => [r.email, r.id]));
+}

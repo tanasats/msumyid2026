@@ -7,6 +7,7 @@ import type { AccountType } from '../repositories/session-repository.js';
 import { upsertErpOrgUnit } from '../repositories/erp-org-unit-repository.js';
 import { upsertStaffProfile } from '../repositories/staff-profile-repository.js';
 import { insertUserAuditLog } from '../repositories/admin-user-repository.js';
+import { claimUnownedCertificates } from '../repositories/certificate-repository.js';
 import { linkPreRegisteredUser, syncStaffOrgUnit, upsertGoogleUser } from '../repositories/user-repository.js';
 import { erpHr, type ErpStaffInfo } from './erp-hr.js';
 import { googleOAuth, type GoogleAuthRequest } from './google-oauth.js';
@@ -228,8 +229,14 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       if (granted) grantedRoles.push(roleCode);
     }
 
+    // ใบรับรองที่นำเข้าจากระบบเดิมแต่ยังไม่มีเจ้าของ → ผูกกับผู้ใช้ที่ login ด้วยอีเมลเดียวกัน
+    // ใช้เงื่อนไขเดียวกับการผูกบัญชีลงทะเบียนล่วงหน้า (อีเมลยืนยันแล้ว + โดเมน มมส. ต้องมี hd ตรง)
+    const claimedCertificates = canLinkPreRegistered
+      ? await claimUnownedCertificates(client, user.id, identity.email)
+      : 0;
+
     const session = await createSession(client, user.id);
-    return { user, grantedRoles, session, linked: linkedUserId !== null };
+    return { user, grantedRoles, session, linked: linkedUserId !== null, claimedCertificates };
   });
 
   if (!result) {
@@ -238,7 +245,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
     return { ok: false, reason: 'ACCOUNT_DISABLED' };
   }
 
-  const { user, grantedRoles, session, linked } = result;
+  const { user, grantedRoles, session, linked, claimedCertificates } = result;
   // บัญชีหน่วยงานใช้อีเมล มมส. ที่ไม่ใช่นิสิต จึงตรวจพบเป็น staff เสมอ — ไม่ถือว่าไม่ตรง
   const matchesDetected =
     user.accountType === classification.accountType ||
@@ -260,6 +267,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       grantedRoles,
       erpSynced: staffInfo !== null,
       linkedPreRegistered: linked,
+      claimedCertificates,
     },
     'เข้าสู่ระบบด้วย Google สำเร็จ',
   );
