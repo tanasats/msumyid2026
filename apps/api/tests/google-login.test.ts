@@ -2,9 +2,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
-import { googleOAuth, type GoogleIdentity } from '../src/services/google-oauth.js';
+import { googleOAuth } from '../src/services/google-oauth.js';
 import { classifyAccount } from '../src/services/google-login-service.js';
 import { resetDatabase } from './helpers/db.js';
+import * as google from './helpers/google.js';
 
 // mock เฉพาะการเรียก Google (แลก code + ตรวจ ID token) ฐานข้อมูลใช้ app_test จริง (CLAUDE.md หัวข้อ 15)
 
@@ -24,51 +25,6 @@ afterAll(async () => {
   await resetDatabase();
   await pool.end();
 });
-
-/** เริ่ม login จริงผ่าน GET /auth/google แล้วคืน cookie และ state/nonce ที่ระบบสร้าง */
-async function startLogin() {
-  const res = await request(app).get('/auth/google');
-  const location = new URL(res.headers.location!);
-  const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
-  return {
-    res,
-    location,
-    state: location.searchParams.get('state')!,
-    nonce: location.searchParams.get('nonce')!,
-    cookie: cookies.map((c) => c.split(';')[0]).join('; '),
-  };
-}
-
-function identity(overrides: Partial<GoogleIdentity> = {}): GoogleIdentity {
-  return {
-    sub: `google-${crypto.randomUUID()}`,
-    email: 'somchai.s@msu.ac.th',
-    emailVerified: true,
-    name: 'สมชาย ใจดี',
-    picture: 'https://lh3.googleusercontent.com/a/photo',
-    hd: 'msu.ac.th',
-    nonce: null,
-    ...overrides,
-  };
-}
-
-/** login ครบ flow: เริ่ม → Google ตอบ identity ที่กำหนด (ใส่ nonce ให้ตรงอัตโนมัติ) → callback */
-async function loginWith(overrides: Partial<GoogleIdentity> = {}) {
-  const start = await startLogin();
-  const exchange = vi
-    .spyOn(googleOAuth, 'exchangeCode')
-    .mockResolvedValue(identity({ nonce: start.nonce, ...overrides }));
-  const res = await request(app)
-    .get('/auth/google/callback')
-    .query({ code: 'auth-code', state: start.state })
-    .set('Cookie', start.cookie);
-  return { res, exchange, start };
-}
-
-function sessionCookieFrom(res: request.Response): string | undefined {
-  const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
-  return cookies.find((c) => c.startsWith(`${SESSION_COOKIE}=`) && !c.startsWith(`${SESSION_COOKIE}=;`));
-}
 
 async function userRoles(email: string): Promise<string[]> {
   const { rows } = await pool.query<{ code: string }>(
@@ -115,7 +71,7 @@ describe('classifyAccount', () => {
 
 describe('GET /auth/google', () => {
   it('redirect ไป Google พร้อม PKCE S256, state, nonce และ scope ที่ถูกต้อง', async () => {
-    const { res, location, state, nonce } = await startLogin();
+    const { res, location, state, nonce } = await google.startLogin(app);
 
     expect(res.status).toBe(302);
     expect(location.origin + location.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
@@ -130,7 +86,7 @@ describe('GET /auth/google', () => {
   });
 
   it('เก็บ state/nonce/verifier ใน cookie httpOnly อายุสั้นที่ path /auth/google', async () => {
-    const { res } = await startLogin();
+    const { res } = await google.startLogin(app);
     const cookie = String(res.headers['set-cookie']);
     expect(cookie).toMatch(new RegExp(`${SESSION_COOKIE}_oauth=`));
     expect(cookie).toMatch(/Max-Age=600/);
@@ -140,8 +96,8 @@ describe('GET /auth/google', () => {
   });
 
   it('สร้าง state ใหม่ทุกครั้ง', async () => {
-    const a = await startLogin();
-    const b = await startLogin();
+    const a = await google.startLogin(app);
+    const b = await google.startLogin(app);
     expect(a.state).not.toBe(b.state);
     expect(a.nonce).not.toBe(b.nonce);
   });
@@ -149,7 +105,7 @@ describe('GET /auth/google', () => {
 
 describe('GET /auth/google/callback — ตรวจความถูกต้อง', () => {
   it('ส่ง code verifier จาก cookie ไปแลก code', async () => {
-    const { exchange } = await loginWith();
+    const { exchange } = await google.loginWith(app);
     expect(exchange).toHaveBeenCalledOnce();
     const [code, verifier] = exchange.mock.calls[0]!;
     expect(code).toBe('auth-code');
@@ -157,7 +113,7 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('ผู้ใช้กดยกเลิกที่ Google → กลับหน้า login พร้อม GOOGLE_DENIED', async () => {
-    const start = await startLogin();
+    const start = await google.startLogin(app);
     const exchange = vi.spyOn(googleOAuth, 'exchangeCode');
     const res = await request(app)
       .get('/auth/google/callback')
@@ -169,7 +125,7 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('ไม่มี cookie (เช่น cookie หมดอายุ / ถูกโจมตี CSRF) → INVALID_STATE', async () => {
-    const start = await startLogin();
+    const start = await google.startLogin(app);
     const exchange = vi.spyOn(googleOAuth, 'exchangeCode');
     const res = await request(app).get('/auth/google/callback').query({ code: 'x', state: start.state });
     expect(res.headers.location).toBe(`${WEB_URL}/login?error=INVALID_STATE`);
@@ -177,7 +133,7 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('state ไม่ตรงกับ cookie → INVALID_STATE', async () => {
-    const start = await startLogin();
+    const start = await google.startLogin(app);
     const exchange = vi.spyOn(googleOAuth, 'exchangeCode');
     const res = await request(app)
       .get('/auth/google/callback')
@@ -188,7 +144,7 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('ไม่มี code → INVALID_STATE', async () => {
-    const start = await startLogin();
+    const start = await google.startLogin(app);
     const res = await request(app)
       .get('/auth/google/callback')
       .query({ state: start.state })
@@ -197,12 +153,12 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('ลบ cookie oauth ทิ้งหลัง callback เสมอ (ใช้ state ซ้ำไม่ได้)', async () => {
-    const { res } = await loginWith();
+    const { res } = await google.loginWith(app);
     expect(String(res.headers['set-cookie'])).toMatch(new RegExp(`${SESSION_COOKIE}_oauth=;.*Path=/auth/google`));
   });
 
   it('แลก code หรือตรวจ ID token ไม่ผ่าน → LOGIN_FAILED', async () => {
-    const start = await startLogin();
+    const start = await google.startLogin(app);
     vi.spyOn(googleOAuth, 'exchangeCode').mockRejectedValue(new Error('invalid_grant'));
     const res = await request(app)
       .get('/auth/google/callback')
@@ -212,15 +168,15 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('nonce ใน ID token ไม่ตรง → LOGIN_FAILED และไม่สร้างผู้ใช้', async () => {
-    const { res } = await loginWith({ nonce: 'y'.repeat(43) });
+    const { res } = await google.loginWith(app, { nonce: 'y'.repeat(43) });
     expect(res.headers.location).toBe(`${WEB_URL}/login?error=LOGIN_FAILED`);
     const { rows } = await pool.query('SELECT 1 FROM users');
     expect(rows).toHaveLength(0);
   });
 
   it('ID token ไม่มี nonce → LOGIN_FAILED', async () => {
-    const start = await startLogin();
-    vi.spyOn(googleOAuth, 'exchangeCode').mockResolvedValue(identity({ nonce: null }));
+    const start = await google.startLogin(app);
+    vi.spyOn(googleOAuth, 'exchangeCode').mockResolvedValue(google.identity({ nonce: null }));
     const res = await request(app)
       .get('/auth/google/callback')
       .query({ code: 'x', state: start.state })
@@ -229,9 +185,9 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
   });
 
   it('email_verified = false → EMAIL_NOT_VERIFIED และไม่สร้างผู้ใช้', async () => {
-    const { res } = await loginWith({ emailVerified: false });
+    const { res } = await google.loginWith(app, { emailVerified: false });
     expect(res.headers.location).toBe(`${WEB_URL}/login?error=EMAIL_NOT_VERIFIED`);
-    expect(sessionCookieFrom(res)).toBeUndefined();
+    expect(google.sessionCookieFrom(res)).toBeUndefined();
     const { rows } = await pool.query('SELECT 1 FROM users');
     expect(rows).toHaveLength(0);
   });
@@ -239,11 +195,11 @@ describe('GET /auth/google/callback — ตรวจความถูกต้�
 
 describe('GET /auth/google/callback — สร้างผู้ใช้และให้ role', () => {
   it('นิสิต: สร้างผู้ใช้ ผูกคณะจากหลักที่ 5-6 ได้ role user + student และเขียน log', async () => {
-    const { res } = await loginWith({ email: '64011212345@msu.ac.th', name: 'นิสิต ทดสอบ' });
+    const { res } = await google.loginWith(app, { email: '64011212345@msu.ac.th', name: 'นิสิต ทดสอบ' });
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe(WEB_URL);
-    expect(sessionCookieFrom(res)).toMatch(/HttpOnly/);
+    expect(google.sessionCookieFrom(res)).toMatch(/HttpOnly/);
 
     const { rows } = await pool.query(
       `SELECT u.account_type, u.approval_status, u.name, u.last_login_at IS NOT NULL AS logged_in, o.code AS org_code
@@ -269,28 +225,28 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
   });
 
   it('นิสิตที่รหัสคณะไม่มีใน org_units → org_unit_id = NULL แต่ยัง login ได้', async () => {
-    const { res } = await loginWith({ email: '64019912345@msu.ac.th' });
+    const { res } = await google.loginWith(app, { email: '64019912345@msu.ac.th' });
     expect(res.headers.location).toBe(WEB_URL);
     const { rows } = await pool.query(`SELECT org_unit_id FROM users WHERE email = '64019912345@msu.ac.th'`);
     expect(rows[0]!.org_unit_id).toBeNull();
   });
 
   it('บุคลากร: ได้ role user + staff และ approved ทันที', async () => {
-    const { res } = await loginWith({ email: 'somchai.s@msu.ac.th' });
+    const { res } = await google.loginWith(app, { email: 'somchai.s@msu.ac.th' });
     expect(res.headers.location).toBe(WEB_URL);
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['staff', 'user']);
 
-    const me = await request(app).get('/auth/me').set('Cookie', sessionCookieFrom(res)!.split(';')[0]!);
+    const me = await request(app).get('/auth/me').set('Cookie', google.sessionCookieFrom(res)!.split(';')[0]!);
     expect(me.status).toBe(200);
     expect(me.body.user).toMatchObject({ accountType: 'staff', approvalStatus: 'approved', roles: ['staff', 'user'] });
   });
 
   it('บุคลากรภายนอก (Gmail): สร้างบัญชีรออนุมัติ ได้แค่ role user และ /auth/me แสดงสถานะรออนุมัติ', async () => {
-    const { res } = await loginWith({ email: 'someone@gmail.com', hd: null });
+    const { res } = await google.loginWith(app, { email: 'someone@gmail.com', hd: null });
     expect(res.headers.location).toBe(WEB_URL);
     expect(await userRoles('someone@gmail.com')).toEqual(['user']);
 
-    const me = await request(app).get('/auth/me').set('Cookie', sessionCookieFrom(res)!.split(';')[0]!);
+    const me = await request(app).get('/auth/me').set('Cookie', google.sessionCookieFrom(res)!.split(';')[0]!);
     expect(me.body.user).toMatchObject({
       accountType: 'external',
       approvalStatus: 'pending',
@@ -300,7 +256,7 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
   });
 
   it('email @msu.ac.th แต่ไม่มี hd → ถือเป็นบุคลากรภายนอก รออนุมัติ', async () => {
-    await loginWith({ email: 'somchai.s@msu.ac.th', hd: null });
+    await google.loginWith(app, { email: 'somchai.s@msu.ac.th', hd: null });
     const { rows } = await pool.query(`SELECT account_type, approval_status FROM users`);
     expect(rows[0]).toEqual({ account_type: 'external', approval_status: 'pending' });
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['user']);
@@ -308,9 +264,9 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('login ซ้ำ: ค้นด้วย google_sub อัปเดตโปรไฟล์ ไม่สร้างผู้ใช้/role/log ซ้ำ', async () => {
     const sub = 'google-same-sub';
-    await loginWith({ sub, email: 'somchai.s@msu.ac.th', name: 'ชื่อเดิม' });
+    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th', name: 'ชื่อเดิม' });
     // email เปลี่ยนได้ แต่ยังเป็นผู้ใช้คนเดิมเพราะใช้ google_sub
-    const { res } = await loginWith({ sub, email: 'somchai.new@msu.ac.th', name: 'ชื่อใหม่' });
+    const { res } = await google.loginWith(app, { sub, email: 'somchai.new@msu.ac.th', name: 'ชื่อใหม่' });
     expect(res.headers.location).toBe(WEB_URL);
 
     const users = await pool.query(`SELECT email, name FROM users`);
@@ -323,18 +279,18 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('ให้ role ประเภทบัญชีที่หายไปคืนตอน login (ตรวจทุกครั้งที่ login)', async () => {
     const sub = 'google-regrant';
-    await loginWith({ sub, email: 'somchai.s@msu.ac.th' });
+    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th' });
     await pool.query(
       `DELETE FROM user_roles WHERE role_id = (SELECT id FROM roles WHERE code = 'staff')`,
     );
-    await loginWith({ sub, email: 'somchai.s@msu.ac.th' });
+    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th' });
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['staff', 'user']);
   });
 
   it('ไม่เปลี่ยนประเภทบัญชีหรือสถานะอนุมัติของผู้ใช้เดิม แม้ email จะเปลี่ยนประเภท', async () => {
     const sub = 'google-type-change';
-    await loginWith({ sub, email: 'someone@gmail.com', hd: null });
-    await loginWith({ sub, email: 'somchai.s@msu.ac.th', hd: 'msu.ac.th' });
+    await google.loginWith(app, { sub, email: 'someone@gmail.com', hd: null });
+    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th', hd: 'msu.ac.th' });
     const { rows } = await pool.query(`SELECT account_type, approval_status FROM users`);
     expect(rows[0]).toEqual({ account_type: 'external', approval_status: 'pending' });
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['user']);
@@ -342,13 +298,13 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('ผู้ใช้ที่ถูกระงับ → ACCOUNT_DISABLED และไม่สร้าง session', async () => {
     const sub = 'google-disabled';
-    await loginWith({ sub });
+    await google.loginWith(app, { sub });
     await pool.query(`UPDATE users SET is_active = false`);
     await pool.query(`DELETE FROM sessions`);
 
-    const { res } = await loginWith({ sub, name: 'ชื่อใหม่' });
+    const { res } = await google.loginWith(app, { sub, name: 'ชื่อใหม่' });
     expect(res.headers.location).toBe(`${WEB_URL}/login?error=ACCOUNT_DISABLED`);
-    expect(sessionCookieFrom(res)).toBeUndefined();
+    expect(google.sessionCookieFrom(res)).toBeUndefined();
     const sessions = await pool.query(`SELECT 1 FROM sessions`);
     expect(sessions.rows).toHaveLength(0);
     // ไม่ถูกอัปเดตข้อมูล
@@ -358,14 +314,14 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('ผู้ใช้ที่ถูกลบ (soft delete) → ACCOUNT_DISABLED', async () => {
     const sub = 'google-deleted';
-    await loginWith({ sub });
+    await google.loginWith(app, { sub });
     await pool.query(`UPDATE users SET deleted_at = now()`);
-    const { res } = await loginWith({ sub });
+    const { res } = await google.loginWith(app, { sub });
     expect(res.headers.location).toBe(`${WEB_URL}/login?error=ACCOUNT_DISABLED`);
   });
 
   it('Google ไม่ส่งชื่อมา → ใช้ email เป็นชื่อ', async () => {
-    await loginWith({ email: 'noname@msu.ac.th', name: null });
+    await google.loginWith(app, { email: 'noname@msu.ac.th', name: null });
     const { rows } = await pool.query(`SELECT name FROM users`);
     expect(rows[0]!.name).toBe('noname@msu.ac.th');
   });

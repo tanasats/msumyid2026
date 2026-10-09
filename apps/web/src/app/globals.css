@@ -1,30 +1,191 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens — ดูที่มาและค่า contrast ใน docs/design/ui-guidelines.md
- * หน้าเว็บใช้ชื่อ semantic เหล่านี้ (bg-canvas, text-muted, bg-primary ...) แทนชื่อสีตรง ๆ
- * เพื่อให้เปลี่ยนสีทั้งระบบ (หรือเพิ่ม dark mode) ได้ที่เดียว
+ * Design tokens — ดูที่มาและค่า contrast ใน docs/design/ui-guidelines.md หัวข้อ 3
+ * โทน "Ivory & Espresso" (สว่าง) / "Obsidian & Champagne" (มืด) — เรียบ สุขุม ทองใช้เป็นสีเน้นเท่านั้น
+ * หน้าเว็บใช้ชื่อ semantic (bg-canvas, text-muted, bg-primary ...) ห้ามใช้ชื่อสี palette ตรง ๆ (ESLint ตรวจ)
+ *
+ * โหมด: ค่าเริ่มต้นตามระบบของเครื่อง (prefers-color-scheme)
+ * ผู้ใช้บังคับได้ด้วย cookie msumyid_theme → layout ใส่ data-theme="light|dark" ที่ <html> ตั้งแต่ฝั่ง server (ไม่กระพริบ)
  */
-@theme {
-  --font-sans: var(--font-noto-sans-thai), ui-sans-serif, system-ui, sans-serif;
 
-  --color-canvas: var(--color-slate-50);
-  --color-surface: var(--color-white);
-  --color-fg: var(--color-slate-900);
-  --color-muted: var(--color-slate-600);
-  --color-subtle: var(--color-slate-500);
-  --color-line: var(--color-slate-200);
-  /* ขอบช่องกรอก/ปุ่ม ต้อง contrast ≥ 3:1 จึงใช้ slate-500 (slate-400 ได้แค่ 2.56) */
-  --color-line-input: var(--color-slate-500);
-  --color-primary: var(--color-blue-700);
-  --color-primary-hover: var(--color-blue-800);
-  --color-primary-soft: var(--color-blue-50);
-  --color-focus: var(--color-blue-600);
-  --color-danger: var(--color-red-700);
-  --color-danger-hover: var(--color-red-800);
+/* ---- โหมดสว่าง (ค่าเริ่มต้น) ---- */
+:root {
+  color-scheme: light;
+
+  --c-canvas: #f7f4ee;
+  --c-surface: #fffdf9;
+  --c-surface-hover: #f1ece4;
+  --c-skeleton: #e9e2d7;
+  --c-fg: #1c1611;
+  --c-muted: #5e5248;
+  --c-subtle: #7a6c60;
+  --c-line: #e6ded2;
+  /* ขอบช่องกรอก/checkbox ต้อง contrast ≥ 3:1 กับพื้น (3.81) */
+  --c-line-input: #8e7f71;
+
+  --c-primary: #3a2a20;
+  --c-primary-hover: #2a1e17;
+  --c-on-primary: #fbf7f0;
+  /* ทองเข้ม (antique gold) สำหรับข้อความ/ลิงก์ — ทอง champagne บนพื้นสว่างมี contrast แค่ 2.2 ใช้ตกแต่งเท่านั้น */
+  --c-accent: #7e5f26;
+  --c-accent-soft: #f3ead8;
+  --c-accent-soft-fg: #5c4318;
+  --c-gold: #c9a96e;
+  --c-focus: #9a7432;
+
+  --c-success-soft: #eef4ec;
+  --c-success-fg: #2f5d3a;
+  --c-success-line: #c9dcc9;
+  --c-warning-soft: #fbf2e2;
+  --c-warning-fg: #7a4b12;
+  --c-warning-line: #eed9b2;
+  --c-danger: #9b2c2c;
+  --c-danger-hover: #7f2222;
+  --c-on-danger: #ffffff;
+  --c-danger-soft: #fbedec;
+  --c-danger-fg: #8e2a2a;
+  --c-danger-line: #efc9c6;
+  --c-info-soft: #ecf1f5;
+  --c-info-fg: #2d4a63;
+  --c-info-line: #c8d6e2;
+  --c-neutral-soft: #f1ece4;
+  --c-neutral-fg: #4a4038;
+  --c-neutral-line: #e0d7ca;
+
+  --c-overlay: rgb(11 11 13 / 0.55);
+  /* เงาอุ่นนุ่มมาก (ใช้กับการ์ด/กล่องที่ลอยเหนือพื้น) — โหมดมืดไม่ใช้เงา */
+  --c-shadow: 0 1px 2px rgb(28 22 17 / 0.04), 0 8px 24px -12px rgb(28 22 17 / 0.08);
+}
+
+/*
+ * variant "dark" = บังคับมืด (data-theme="dark") หรือ ตามระบบที่ตั้งเป็นมืด และไม่ได้บังคับสว่าง
+ * ใช้ได้ทั้งใน CSS (@variant dark) และ utility (dark:...) — ค่าโหมดมืดจึงเขียนที่เดียว
+ */
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+}
+
+/* ---- โหมดมืด ---- */
+:root {
+  @variant dark {
+    color-scheme: dark;
+
+    --c-canvas: #0b0b0d;
+    --c-surface: #16130f;
+    --c-surface-hover: #221d18;
+    --c-skeleton: #2a231d;
+    --c-fg: #f1eadf;
+    --c-muted: #bdb0a0;
+    --c-subtle: #968a7c;
+    --c-line: #2c251f;
+    --c-line-input: #74685b;
+
+    --c-primary: #d4b77c;
+    --c-primary-hover: #e3ca96;
+    --c-on-primary: #0b0b0d;
+    --c-accent: #d9bf8a;
+    --c-accent-soft: #2a2217;
+    --c-accent-soft-fg: #e6cf9e;
+    --c-gold: #d4b77c;
+    --c-focus: #d4b77c;
+
+    --c-success-soft: #14231a;
+    --c-success-fg: #9ccba4;
+    --c-success-line: #2a4a33;
+    --c-warning-soft: #2a2010;
+    --c-warning-fg: #e5be7a;
+    --c-warning-line: #5a4420;
+    --c-danger: #a83a35;
+    --c-danger-hover: #bd4a44;
+    --c-on-danger: #ffffff;
+    --c-danger-soft: #2e1514;
+    --c-danger-fg: #f0a5a0;
+    --c-danger-line: #5e2a27;
+    --c-info-soft: #141e28;
+    --c-info-fg: #a9c3da;
+    --c-info-line: #2b3e52;
+    --c-neutral-soft: #221d18;
+    --c-neutral-fg: #cfc4b6;
+    --c-neutral-line: #3a322a;
+
+    --c-overlay: rgb(0 0 0 / 0.7);
+    --c-shadow: none;
+  }
+}
+
+/* utility อ้างค่าตอนใช้งาน (inline) จึงเปลี่ยนตามโหมดโดยไม่ต้องสร้างคลาสใหม่ */
+@theme inline {
+  --font-sans: var(--font-noto-sans-thai), ui-sans-serif, system-ui, sans-serif;
+  /* ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) — เนื้อหาใช้ font-sans เพื่ออ่านง่าย */
+  --font-display: var(--font-noto-serif-thai), ui-serif, Georgia, serif;
+
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-skeleton: var(--c-skeleton);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-subtle: var(--c-subtle);
+  --color-line: var(--c-line);
+  --color-line-input: var(--c-line-input);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-on-primary: var(--c-on-primary);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-accent-soft-fg: var(--c-accent-soft-fg);
+  --color-gold: var(--c-gold);
+  --color-focus: var(--c-focus);
+  --color-success-soft: var(--c-success-soft);
+  --color-success-fg: var(--c-success-fg);
+  --color-success-line: var(--c-success-line);
+  --color-warning-soft: var(--c-warning-soft);
+  --color-warning-fg: var(--c-warning-fg);
+  --color-warning-line: var(--c-warning-line);
+  --color-danger: var(--c-danger);
+  --color-danger-hover: var(--c-danger-hover);
+  --color-on-danger: var(--c-on-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-danger-fg: var(--c-danger-fg);
+  --color-danger-line: var(--c-danger-line);
+  --color-info-soft: var(--c-info-soft);
+  --color-info-fg: var(--c-info-fg);
+  --color-info-line: var(--c-info-line);
+  --color-neutral-soft: var(--c-neutral-soft);
+  --color-neutral-fg: var(--c-neutral-fg);
+  --color-neutral-line: var(--c-neutral-line);
+  --color-overlay: var(--c-overlay);
+
+  --shadow-card: var(--c-shadow);
 }
 
 @layer base {
+  /*
+   * ขนาดตัวอักษร 4 ระดับ (cookie msumyid_text_size → data-text-size ที่ <html>)
+   * ใช้ % จึงคูณกับขนาดที่ผู้ใช้ตั้งใน browser — ทั้งเว็บใช้ rem จึงขยายทั้งตัวอักษร ระยะ และพื้นที่แตะ
+   */
+  html[data-text-size='small'] {
+    font-size: 87.5%;
+  }
+  html[data-text-size='large'] {
+    font-size: 112.5%;
+  }
+  html[data-text-size='xlarge'] {
+    font-size: 125%;
+  }
+  /* ขนาดเล็ก: ช่องกรอกยังต้อง ≥ 16px ไม่เช่นนั้น iOS ซูมเข้าเองเมื่อแตะช่อง */
+  html[data-text-size='small'] :where(input, select, textarea) {
+    font-size: max(1rem, 16px);
+  }
+
   /* วงแสดง focus เมื่อใช้คีย์บอร์ด — ใช้ร่วมกันทุกองค์ประกอบที่กดได้ */
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
     outline: 2px solid var(--color-focus);

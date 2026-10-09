@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { House, UserRound, type LucideIcon } from 'lucide-react';
+import { FileBadge, House, UserRound, Users, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   href: string;
@@ -15,10 +15,13 @@ type NavItem = {
 /**
  * เมนูหลักชุดเดียวใช้ทุกขนาดจอ: bottom nav (มือถือ) → rail (tablet) → sidebar (desktop)
  * เพิ่มเมนูเมื่อมีหน้าของฟังก์ชันนั้นจริง (ไม่เกิน 5 รายการเพราะ bottom nav แสดงได้เท่านั้น)
+ * ป้ายต้องกว้างไม่เกิน 56px ที่ text-xs ตัวหนา (พื้นที่ข้อความของ rail บน tablet) ไม่เช่นนั้นจะตัดบรรทัดกลางคำ
  */
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'หน้าหลัก', icon: House },
-  { href: '/account', label: 'บัญชี', icon: UserRound },
+  { href: '/certificates', label: 'ใบรับรอง', icon: FileBadge },
+  { href: '/admin/users', label: 'ผู้ใช้ระบบ', icon: Users, permission: 'user:read' },
+  { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -54,15 +57,19 @@ export function NavLinks({ permissions, variant }: { permissions: string[]; vari
               aria-current={active ? 'page' : undefined}
               className={`${classes.item} transition ${
                 active
-                  ? 'font-semibold text-primary' + (variant === 'side' ? ' bg-primary-soft' : '')
-                  : 'text-muted hover:bg-slate-100 hover:text-fg'
+                  ? 'font-semibold text-accent-soft-fg' +
+                    // sidebar: พื้นทองอ่อน + แถบทองบางด้านซ้าย
+                    (variant === 'side'
+                      ? ' relative bg-accent-soft before:absolute before:inset-y-2.5 before:left-0 before:w-0.5 before:rounded-full before:bg-gold'
+                      : '')
+                  : 'text-muted hover:bg-surface-hover hover:text-fg'
               }`}
             >
               {/* bottom nav: รายการที่เลือกมีพื้นหลังรูปแคปซูลรอบไอคอน */}
               <span
                 className={
                   variant === 'bottom'
-                    ? `flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-primary-soft' : ''}`
+                    ? `flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-accent-soft' : ''}`
                     : 'flex'
                 }
               >

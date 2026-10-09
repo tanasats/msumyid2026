@@ -3,10 +3,10 @@ import type { LucideIcon } from 'lucide-react';
 type StatusTone = 'neutral' | 'info' | 'warning' | 'danger';
 
 const ICON_TONES: Record<StatusTone, string> = {
-  neutral: 'bg-slate-100 text-slate-700',
-  info: 'bg-blue-50 text-blue-800',
-  warning: 'bg-amber-50 text-amber-800',
-  danger: 'bg-red-50 text-red-800',
+  neutral: 'bg-neutral-soft text-neutral-fg',
+  info: 'bg-info-soft text-info-fg',
+  warning: 'bg-warning-soft text-warning-fg',
+  danger: 'bg-danger-soft text-danger-fg',
 };
 
 /**
@@ -35,7 +35,7 @@ export function StatusState({
       <div className={`flex size-16 items-center justify-center rounded-full ${ICON_TONES[tone]}`}>
         <Icon className="size-8" aria-hidden />
       </div>
-      <Heading className="mt-4 text-xl font-semibold text-fg">{title}</Heading>
+      <Heading className="mt-4 font-display text-xl font-semibold text-fg">{title}</Heading>
       {children && <div className="mt-2 leading-relaxed text-muted">{children}</div>}
       {action && <div className="mt-6 flex w-full flex-col-reverse gap-3 sm:w-auto sm:flex-row">{action}</div>}
     </section>

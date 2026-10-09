@@ -3,7 +3,7 @@
 ไฟล์นี้ให้บริบทและกฎการทำงานแก่ Claude Code ในโปรเจกต์นี้ อ่านให้ครบก่อนเริ่มงานทุกครั้ง
 
 ## 1. ภาพรวมโปรเจกต์
-- **ชื่อระบบ:** ระบบบริหารจัดการใบรับรองดิจิทัล มหาวิทยาลัยมหาสารคาม
+- **ชื่อระบบ:** MSU Digital ID (ระบบบริหารจัดการใบรับรองดิจิทัล มหาวิทยาลัยมหาสารคาม)
 - **วัตถุประสงค์:** เป็นระบบยกระดับการบริหารจัดการใบรับรองดิจิทัลสู่ระบบบริการอัตโนมัติแบบครบวงจรที่มีความมั่นคงปลอดภัยสูง 
 
 - **ผู้ใช้หลัก:**  นิสิต,บุคลากร,บุคลากรภายนอก,ผู้ดูแลระบบ และผู้ดูแลระบบสูงสุด
@@ -15,6 +15,7 @@
 |---|---|
 | Frontend | Next.js (App Router) + Tailwind CSS |
 | Backend (API) | Node.js + Express 5 (แยกเป็นบริการของตัวเอง) |
+| บริการเซ็น (Signer) | Node.js + Express 5 + OpenSSL CLI — ถือ key ของ Intermediate CA และ KEK ของ key สำรอง ให้ API เรียกเท่านั้น |
 | Database | PostgreSQL |
 | DB Driver | `pg` (node-postgres) เขียน SQL ตรง ๆ **ไม่ใช้ ORM** |
 | Migration | `node-pg-migrate` |
@@ -25,12 +26,13 @@
 | Package manager | pnpm (workspaces) |
 
 ## 3. สภาพแวดล้อมพัฒนา (Dev)
-Web และ API รันบนเครื่อง dev โดยตรง ส่วน Postgres และ Garage รันด้วย Docker
+Web, API และ Signer รันบนเครื่อง dev โดยตรง ส่วน Postgres และ Garage รันด้วย Docker
 
 | บริการ | รันที่ | URL / Port |
 |---|---|---|
 | Web (Next.js) | เครื่อง dev | http://localhost:3010 |
 | API (Express) | เครื่อง dev | http://localhost:4010 |
+| Signer (Express) | เครื่อง dev | http://localhost:4020 (API เรียกเท่านั้น ห้ามเปิดสู่ภายนอก) |
 | PostgreSQL | Docker | localhost:5442 |
 | Garage S3 API | Docker | http://localhost:3910 |
 | Garage Admin API | Docker | http://localhost:3913 (ใช้จัดการ bucket/key ไม่มี console ในตัว) |
@@ -73,8 +75,33 @@ S3_SECRET_KEY=...
 S3_BUCKET=app-files
 S3_FORCE_PATH_STYLE=true
 
+# ERP-HR มมส. — ดึงข้อมูลบุคลากรด้วย Google access token ตอน login
+ERP_HR_STAFFINFO_URL=https://erp.msu.ac.th/service/api/staffinfo
+ERP_HR_TIMEOUT_MS=5000                    # เกินเวลานี้ข้ามไป login ยังผ่าน
+
+# รอบตรวจปิดบัญชีที่ถึงวันหมดอายุ (ms, ไม่ใส่ = 1 ชั่วโมง) — การตัดสิทธิ์มีผลทันทีอยู่แล้ว
+ACCOUNT_EXPIRY_CHECK_INTERVAL_MS=3600000
+
 # อีเมลแจ้งเตือน (ยังไม่ได้สร้าง — ทำภายหลัง) — dev/test: log, production: gmail + GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN
 MAIL_TRANSPORT=log
+
+# บริการเซ็น (ค่า SIGNER_TOKEN เดียวกับ apps/signer/.env)
+SIGNER_URL=http://localhost:4020
+SIGNER_TOKEN=...
+SIGNER_TIMEOUT_MS=30000
+# CRL: ออกใหม่ทันทีเมื่อเพิกถอน + ทุก CRL_REISSUE_HOURS, เผยแพร่ที่ GET /crl/msu-ca.crl (cdp.msu.ac.th ใช้ cron ดึง)
+CRL_VALIDITY_DAYS=7
+CRL_REISSUE_HOURS=24
+CRL_CHECK_INTERVAL_MS=300000
+CRL_PUBLISH_FORMAT=pem                    # pem = แบบ openssl ca -gencrl เดิม, der = ตาม RFC 5280
+
+# apps/signer/.env (ดู apps/signer/.env.example)
+SIGNER_PORT=4020
+SIGNER_TOKEN=...                          # อย่างน้อย 32 ตัว (openssl rand -hex 32)
+CA_CERT_PATH=... CA_KEY_PATH=... CA_KEY_PASSPHRASE=...   # dev = CA ปลอมจาก dev-ca ห้ามใช้ CA key จริงบนเครื่อง dev
+ESCROW_KEK=...                            # base64 32 ไบต์ (openssl rand -base64 32) หายแล้วกู้ key สำรองไม่ได้
+ESCROW_KEK_ID=dev-1
+CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl
 
 # apps/web/.env.local
 API_URL=http://localhost:4010              # ใช้ฝั่ง server (Server Component)
@@ -102,6 +129,10 @@ NEXT_PUBLIC_API_URL=http://localhost:4010  # ใช้ฝั่ง browser
     /migrations         # ไฟล์ node-pg-migrate
     /scripts            # seed ผู้ดูแลระบบสูงสุด ฯลฯ
     /tests
+  /signer               # บริการเซ็น: ออกใบรับรอง (OpenSSL CLI), key สำรอง (escrow) — ไม่มีฐานข้อมูล
+    /src/services       # certificate-issuer, escrow, ca, openssl
+    /scripts            # create-dev-ca (CA ปลอมสำหรับ dev/test)
+    /tests              # ทดสอบกับ OpenSSL จริงและ CA ปลอม
 /docker
   /garage/garage.toml   # config ของ Garage สำหรับ dev
 /deploy                 # production: compose, nginx, env ตัวอย่าง, สคริปต์ deploy/backup (ดู docs/deployment.md)
@@ -116,6 +147,9 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - เปิด Postgres + Garage: `docker compose up -d`
 - รัน web: `pnpm --filter web dev`
 - รัน api: `pnpm --filter api dev` (ใช้ `tsx watch`)
+- รัน signer: `pnpm --filter signer dev` (ต้องมี OpenSSL CLI — บน Windows มากับ Git Bash)
+- นำเข้าใบรับรองเดิมจาก openssl ca: `pnpm --filter api cert:import -- --dir <โฟลเดอร์ CA> [--dry-run]` (ต้องเปิด signer — ลำดับการย้ายระบบดู `docs/design/certificates.md`)
+- สร้าง CA ปลอมสำหรับ dev: `pnpm --filter signer dev-ca` (รันซ้ำได้ ไม่สร้างทับ — แสดงค่า env ที่ต้องใส่ใน `apps/signer/.env`)
 - ทดสอบ: `pnpm test`
 - Lint / Type check: `pnpm lint` / `pnpm typecheck`
 - สร้าง migration: `pnpm --filter api migrate create ชื่อ-migration`
@@ -138,7 +172,7 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - error ทุกตัวไปจบที่ error middleware ตัวเดียว รูปแบบ `{ "error": { "code": "...", "message": "..." } }` ห้ามส่ง stack trace หรือรายละเอียด SQL ออกไป
 - Middleware ที่ต้องมี: `helmet`, `cors`, `cookie-parser`, JSON body limit, request logger (`pino`), error handler
 - **CORS:** `origin` ต้องเป็นค่าจาก `CORS_ORIGIN` เท่านั้น (ห้าม `*`) และเปิด `credentials: true`
-- ใส่ rate limit (`express-rate-limit`) ที่ endpoint `/auth/*`
+- ใส่ rate limit (`express-rate-limit`) ที่ขั้นตอนเข้าสู่ระบบ (`/auth/google`, `/auth/google/callback` และ login ด้วยรหัสผ่านในอนาคต) — **ห้าม**จำกัด `/auth/me` เพราะ Next.js เรียกจาก server ทุกหน้า (IP เดียวกันทุกผู้ใช้) จะทำให้ทั้งระบบถูกบล็อก
 - ต้องมี `GET /health` ที่ตรวจการเชื่อมต่อ database
 - Graceful shutdown: ปิด HTTP server แล้วค่อย `pool.end()`
 
@@ -150,8 +184,10 @@ Flow (Authorization Code + PKCE):
 2. API สร้าง `state`, `nonce`, PKCE verifier เก็บใน cookie อายุสั้น (httpOnly) แล้ว redirect ไป Google (scope: `openid email profile`)
 3. Google เรียกกลับ `GET /auth/google/callback` → API ตรวจ `state`, แลก code, **ตรวจ ID token** (signature, `aud`, `iss`, `exp`, `nonce`) ด้วย `google-auth-library`
 4. ต้องได้ `email_verified = true` ไม่เช่นนั้นปฏิเสธ
-5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบให้สร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
+5. ค้นหาผู้ใช้ด้วย **`google_sub`** (ไม่ใช้ email เป็นตัวระบุ เพราะ email เปลี่ยนได้) ถ้าไม่พบ: ผูกกับบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้าด้วยอีเมลนั้นก่อน (`google_sub` ยังเป็น NULL, อีเมลโดเมน มมส. ต้องมี `hd` ตรง) ถ้าไม่มีจึงสร้างใหม่พร้อมกำหนด role `user` (ทำใน transaction เดียว)
 5.1 แยกประเภทบัญชีจากส่วนหน้า @: ตัวเลข 11 หลักพอดี = นิสิต (ให้ role `student`, คณะ = หลักที่ 5-6 อ้างอิง `org_units.code`, ไม่พบ = NULL) นอกนั้น = บุคลากร (ให้ role `staff` และดึงข้อมูลจาก ERP-HR ด้วย Google access token) ตรวจและให้ role ทุกครั้งที่ login พร้อม log
+5.2 บัญชีใหม่ที่ ERP ตอบว่า **ไม่พบบุคลากร** = บัญชีหน่วยงาน (`service`) สถานะรออนุมัติ (ERP เรียกไม่สำเร็จ = ยังเป็นบุคลากร, บัญชีเดิมไม่เปลี่ยนประเภทอัตโนมัติ)
+5.3 ใบรับรองที่นำเข้าจากระบบเดิมแต่ยังไม่มีเจ้าของ (`certificates.user_id` NULL) ผูกกับผู้ใช้ที่ login ด้วยอีเมลเดียวกัน (เงื่อนไขเดียวกับข้อ 5)
 6. สร้าง session แล้ว redirect กลับ `WEB_URL`
 7. web ถามผู้ใช้ปัจจุบันจาก `GET /auth/me`, ออกจากระบบด้วย `POST /auth/logout`
 
@@ -182,6 +218,7 @@ Role และ permission เฉพาะระบบนี้ (**เริ่�
 | `student` | นิสิต | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (ส่วนหน้า @ เป็นตัวเลข 11 หลัก) |
 | `staff` | บุคลากร | false | (ยังไม่ผูก) — `is_system`, ระบบให้อัตโนมัติตอน login (บัญชี @msu.ac.th อื่น ๆ) |
 | `external` | บุคลากรภายนอก | false | (ยังไม่ผูก) — `is_system`, ระบบให้เมื่อบัญชีภายนอกได้รับอนุมัติ |
+| `service` | บัญชีหน่วยงาน | false | (ยังไม่ผูก) — `is_system`, ระบบให้เมื่อบัญชีหน่วยงานได้รับอนุมัติ (บัญชีที่ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ขอใบรับรองได้เหมือนบุคคล) |
 | `admin` | ผู้ดูแลระบบ | true | (ยังไม่ผูก) — ให้/ถอนได้เฉพาะ `super_admin` |
 
 Permission ที่ลงทะเบียนแล้ว (ยังไม่ผูกกับ role ใด → ใช้ได้เฉพาะ `super_admin`):
@@ -189,12 +226,29 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | permission | คำอธิบาย |
 |---|---|
 | `user_role:assign` | ให้/ถอน role ที่ไม่ใช่ role สิทธิ์สูงแก่ผู้ใช้อื่น |
-| `user:approve` | อนุมัติ/ปฏิเสธบัญชีบุคลากรภายนอกที่รออนุมัติ |
+| `user:approve` | อนุมัติ/ปฏิเสธบัญชีบุคลากรภายนอกและบัญชีหน่วยงานที่รออนุมัติ |
+| `user:read` | ดูรายชื่อ ค้นหา และดูรายละเอียดผู้ใช้ |
+| `user:create` | ลงทะเบียนผู้ใช้ล่วงหน้าด้วยอีเมล |
+| `user:update` | แก้ไขข้อมูลผู้ใช้ |
+| `user:deactivate` | ปิด/เปิดบัญชีผู้ใช้ |
+| `user:delete` | ลบบัญชีและข้อมูลส่วนบุคคลของผู้ใช้ |
+| `certificate:request` | ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง |
+| `certificate:read` | ดูใบรับรองของผู้อื่น |
+| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
+
+ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`
+ระบบใบรับรอง (บริการเซ็น `apps/signer`, key สำรอง, CRL, นำเข้าใบเดิม, ระยะการพัฒนา): ดู `docs/design/certificates.md` — ลงนามเอกสารบนเว็บ: `docs/design/document-signing.md`
 
 บัญชีบุคลากรภายนอก (ตัดสินใจ 2026-10-07):
 - เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น
 - บัญชีใหม่มี `users.approval_status = 'pending'` ใช้งานไม่ได้จนผู้มี `user:approve` อนุมัติ จึงได้ role `external`
 - `ALLOWED_EMAIL_DOMAINS` จึงหมายถึงโดเมนที่ **ไม่ต้องรออนุมัติ** (ไม่ใช่โดเมนเดียวที่ login ได้)
+
+บัญชีหน่วยงาน (ตัดสินใจ 2026-10-08):
+- ประเภทเดียว (`account_type = 'service'`) ครอบคลุมบัญชีระบบสารสนเทศ คณะ/หน่วยงาน และกิจกรรม — ขอใบรับรองได้ไม่ต่างจากบุคคล
+- ต้องกำหนด **หน่วยงาน** และ **ผู้รับผิดชอบ** (`responsible_user_id` = บุคลากรที่ใช้งานได้) ก่อนอนุมัติ จึงได้ role `service`
+- กำหนด **วันหมดอายุ** ได้ (`account_expires_at`, ไม่บังคับ) ถึงเวลาแล้วตัดสิทธิ์ทันที และ job ปิดบัญชีพร้อมเขียน `user_audit_logs` (action `expire`)
 
 หลักการ:
 - **1 ผู้ใช้มีได้หลาย role** ผ่านตาราง `user_roles` สิทธิ์จริงของผู้ใช้ = รวม (union) permission จากทุก role ที่ถืออยู่
@@ -216,9 +270,9 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - ห้ามแก้ role ของตัวเอง, ห้ามถอน role `user`, ห้ามถอน `super_admin` คนสุดท้ายออกจากระบบ
 - ทุกการให้/ถอนต้องเขียน `role_change_logs` (ใครทำ, กับใคร, role อะไร, grant หรือ revoke, เหตุผล, เมื่อไร) ใน **transaction เดียวกัน** และห้ามแก้/ลบ log
 - `super_admin` คนแรกสร้างผ่าน seed script (`INITIAL_SUPER_ADMIN_EMAIL`) เท่านั้น ห้ามมีช่องทางผ่าน UI หรือ API สาธารณะ
-- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` ให้ตอนอนุมัติบัญชีเท่านั้น
+- ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` และ `service` ให้ตอนอนุมัติบัญชีเท่านั้น
 
-ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name`, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
+ตารางหลัก: `roles` (`code` UNIQUE, `name_th`, `is_system`, `is_privileged`), `permissions` (`code` UNIQUE), `role_permissions`, `users` (`google_sub` UNIQUE, `email`, `name` = ชื่อจาก Google, `display_name` = ชื่อที่ระบบแสดง, `picture_url`, `is_active`, `last_login_at`), `user_roles` (PK `user_id, role_id`, `granted_by`, `granted_at`), `sessions` (`token_hash` UNIQUE, `user_id`, `expires_at`, `last_seen_at`), `role_change_logs`
 
 ## 10. กฎการเขียน SQL (สำคัญ)
 - **ห้ามใช้ ORM หรือ query builder** ให้เขียน SQL ตรง ๆ ผ่าน `pg`
@@ -304,8 +358,9 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - **สรุปท้ายงาน:** บอกว่าแก้ไฟล์ไหนบ้าง และต้องรันคำสั่งอะไรต่อ (เช่น migration)
 
 ## 18. ข้อควรระวังเฉพาะโปรเจกต์
-> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ส่วนต่อไปนี้ **ยังไม่ได้สร้าง** และไฟล์ที่อ้างถึงยังไม่มีอยู่จริง: ERP-HR, PDPA (`/privacy`, `PrivacyNotice.tsx`, `privacy-service.ts`, `docs/design/pdpa.md`), อีเมลแจ้งเตือน (`src/mail`), deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น
+> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) ส่วนต่อไปนี้ **ยังไม่ได้สร้าง** และไฟล์ที่อ้างถึงยังไม่มีอยู่จริง: หน้าจับคู่หน่วยงาน ERP แบบ `manual`, PDPA (`/privacy`, `PrivacyNotice.tsx`, `privacy-service.ts`, `docs/design/pdpa.md`), อีเมลแจ้งเตือน (`src/mail`), deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น
 - **ERP-HR** (`ERP_HR_STAFFINFO_URL`): เรียกด้วย Google access token ของผู้ใช้ตอน callback เท่านั้น ห้ามเก็บ access token ลงฐานข้อมูลหรือ log เรียกนอก transaction และถ้าล้มเหลวต้องไม่ทำให้ login ล้ม (รายละเอียด API: `docs/erp_hr_msu_staff_info_integration.md`)
+- ข้อมูลบุคลากรเก็บที่ `staff_profiles` (รหัสบุคลากร, ชื่อไทย/อังกฤษ, ตำแหน่ง, คณะ/กอง/กลุ่มงาน) อัปเดตทุกครั้งที่ login ถ้า ERP ล้มเหลวใช้ข้อมูลเดิม — `users.display_name` ของบุคลากร = ชื่อ-นามสกุลไทยจาก ERP (ไม่มีคำนำหน้า) ส่วนนิสิต/บุคลากรภายนอก = ชื่อจาก Google ทุกหน้าที่แสดงชื่อผู้ใช้ต้องใช้ `display_name`
 - รหัสหน่วยงานของ ERP (`facultyid`/`departmentid` 12 หลัก) เป็นคนละชุดกับ `org_units.code` (2 หลัก) ห้ามนำมาเทียบกันตรง ๆ ให้ผูกผ่านตาราง `erp_org_units` (จับคู่ด้วยรหัส ERP, ระบบจับคู่จากชื่อที่ตรงกันให้อัตโนมัติ, การจับคู่แบบ `manual` ห้ามถูกทับ) หน่วยงานของบุคลากรใช้ระดับกอง/ฝ่ายก่อน แล้วค่อยคณะ/สำนัก
 - ไม่เก็บเบอร์โทรศัพท์จาก ERP (PDPA)
 - **PDPA:** ระบบมีประกาศความเป็นส่วนตัวเฉพาะบริการ (`/privacy`, อ้างนโยบายมหาวิทยาลัยและประกาศสำหรับบุคลากร) ผู้ใช้ต้องกด "รับทราบ" ก่อนใช้ระบบ ฐานหลักคือประโยชน์โดยชอบด้วยกฎหมาย (ไม่ใช้ความยินยอมเป็นเงื่อนไขการใช้ระบบ) ดู `docs/design/pdpa.md`

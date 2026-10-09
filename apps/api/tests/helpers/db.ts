@@ -6,12 +6,19 @@ import { createSession } from '../../src/services/session-service.js';
 
 /**
  * ล้างข้อมูลผู้ใช้ทั้งหมดและ role ที่ test สร้าง
- * role_change_logs กัน TRUNCATE ไว้ จึงปิด trigger ชั่วคราวใน transaction เดียวกัน (ใช้ใน test เท่านั้น)
+ * role_change_logs, user_audit_logs และ certificate_audit_logs กัน TRUNCATE ไว้ จึงปิด trigger ชั่วคราวใน transaction เดียวกัน (ใช้ใน test เท่านั้น)
  */
 export async function resetDatabase(): Promise<void> {
   await withTransaction(async (client) => {
     await client.query('ALTER TABLE role_change_logs DISABLE TRIGGER trg_role_change_logs_no_truncate');
-    await client.query('TRUNCATE users, sessions, user_roles, role_change_logs CASCADE');
+    await client.query('ALTER TABLE user_audit_logs DISABLE TRIGGER trg_user_audit_logs_no_truncate');
+    await client.query('ALTER TABLE certificate_audit_logs DISABLE TRIGGER trg_certificate_audit_logs_no_truncate');
+    await client.query(
+      `TRUNCATE users, sessions, user_roles, role_change_logs, user_audit_logs, erp_org_units,
+                certificates, certificate_key_escrows, certificate_audit_logs, crls CASCADE`,
+    );
+    await client.query('ALTER TABLE certificate_audit_logs ENABLE TRIGGER trg_certificate_audit_logs_no_truncate');
+    await client.query('ALTER TABLE user_audit_logs ENABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query(`DELETE FROM role_permissions`);
     await client.query(`DELETE FROM roles WHERE code LIKE 'test\\_%'`);
@@ -20,24 +27,33 @@ export async function resetDatabase(): Promise<void> {
 
 type CreateUserInput = {
   email?: string;
-  accountType?: 'student' | 'staff' | 'external';
+  /** ชื่อ (ใช้ทั้ง name และ display_name) */
+  name?: string;
+  accountType?: 'student' | 'staff' | 'external' | 'service';
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   isActive?: boolean;
   roles?: string[];
+  orgUnitId?: string | null;
+  responsibleUserId?: string | null;
+  accountExpiresAt?: Date | null;
 };
 
 export async function createUser(input: CreateUserInput = {}): Promise<{ id: string }> {
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO users (google_sub, email, name, account_type, approval_status, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (google_sub, email, name, display_name, account_type, approval_status, is_active,
+                        org_unit_id, responsible_user_id, account_expires_at)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       `sub-${crypto.randomUUID()}`,
       input.email ?? `user-${crypto.randomUUID().slice(0, 8)}@msu.ac.th`,
-      'ผู้ใช้ทดสอบ',
+      input.name ?? 'ผู้ใช้ทดสอบ',
       input.accountType ?? 'staff',
       input.approvalStatus ?? 'approved',
       input.isActive ?? true,
+      input.orgUnitId ?? null,
+      input.responsibleUserId ?? null,
+      input.accountExpiresAt ?? null,
     ],
   );
   const user = result.rows[0]!;

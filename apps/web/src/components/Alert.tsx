@@ -4,10 +4,10 @@ export type AlertTone = 'info' | 'success' | 'warning' | 'danger';
 
 // พื้นอ่อน + ตัวอักษรเข้ม (contrast ≥ 6.8:1) + ไอคอน — ไม่สื่อด้วยสีอย่างเดียว
 const TONES: Record<AlertTone, { box: string; icon: LucideIcon }> = {
-  info: { box: 'border-blue-200 bg-blue-50 text-blue-800', icon: Info },
-  success: { box: 'border-green-200 bg-green-50 text-green-800', icon: CircleCheck },
-  warning: { box: 'border-amber-200 bg-amber-50 text-amber-800', icon: TriangleAlert },
-  danger: { box: 'border-red-200 bg-red-50 text-red-800', icon: CircleAlert },
+  info: { box: 'border-info-line bg-info-soft text-info-fg', icon: Info },
+  success: { box: 'border-success-line bg-success-soft text-success-fg', icon: CircleCheck },
+  warning: { box: 'border-warning-line bg-warning-soft text-warning-fg', icon: TriangleAlert },
+  danger: { box: 'border-danger-line bg-danger-soft text-danger-fg', icon: CircleAlert },
 };
 
 /**

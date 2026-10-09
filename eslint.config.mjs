@@ -21,4 +21,18 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // หน้าเว็บต้องใช้ semantic token (bg-surface, text-danger-fg ...) ไม่ใช้สี palette ของ Tailwind ตรง ๆ
+    // เพื่อให้โหมดสว่าง/มืดและการเปลี่ยนโทนสีทำที่ globals.css ที่เดียว (docs/design/ui-guidelines.md หัวข้อ 3)
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...['Literal[value', 'TemplateElement[value.raw'].map((node) => ({
+          selector: `${node}=/(^|[\\s:'"\`])(bg|text|border|ring|divide|outline|fill|stroke|from|via|to|accent|placeholder|decoration|shadow)-((slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d|white\\b|black\\b)/]`,
+          message: 'ใช้ semantic token จาก globals.css (เช่น bg-surface, text-danger-fg) แทนสี palette ตรง ๆ',
+        })),
+      ],
+    },
+  },
 );

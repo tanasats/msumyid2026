@@ -6,6 +6,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "seed:super-admin": "tsx scripts/seed-super-admin.ts",
+    "cert:import": "tsx scripts/import-legacy-certificates.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "node-pg-migrate --migrations-dir migrations --migration-file-language sql --envPath .env -d DATABASE_URL",

@@ -14,3 +14,6 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+
+# CA ปลอมสำหรับ dev (pnpm --filter signer dev-ca)
+.dev-ca/
