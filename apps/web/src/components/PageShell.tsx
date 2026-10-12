@@ -18,7 +18,7 @@ type PageShellProps = {
   headerAction?: React.ReactNode;
 };
 
-/** ชื่อระบบ: ฟอนต์ display (serif) ภาษาอังกฤษเว้นช่องไฟกว้างเล็กน้อย ให้ความรู้สึกเรียบหรู */
+/** ชื่อระบบ: ฟอนต์ display ภาษาอังกฤษเว้นช่องไฟกว้างเล็กน้อย ให้ความรู้สึกเรียบหรู */
 function BrandName({ className = '' }: { className?: string }) {
   return (
     <span className={`leading-tight ${className}`}>

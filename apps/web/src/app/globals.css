@@ -123,9 +123,9 @@
 
 /* utility อ้างค่าตอนใช้งาน (inline) จึงเปลี่ยนตามโหมดโดยไม่ต้องสร้างคลาสใหม่ */
 @theme inline {
-  --font-sans: var(--font-noto-sans-thai), ui-sans-serif, system-ui, sans-serif;
-  /* ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) — เนื้อหาใช้ font-sans เพื่ออ่านง่าย */
-  --font-display: var(--font-noto-serif-thai), ui-serif, Georgia, serif;
+  --font-sans: var(--font-sarabun), ui-sans-serif, system-ui, sans-serif;
+  /* ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) — ตอนนี้ใช้ Sarabun เดียวกับเนื้อหา คงไว้เป็นบทบาทแยกเพื่อเปลี่ยนฟอนต์หัวข้อได้ที่เดียว */
+  --font-display: var(--font-sarabun), ui-sans-serif, system-ui, sans-serif;
 
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
