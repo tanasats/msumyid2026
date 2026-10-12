@@ -33,6 +33,16 @@ export const CERTIFICATE_STATUS_LABELS: Record<CertificateStatus, string> = {
   revoked: 'เพิกถอนแล้ว',
 };
 
+/** เพิกถอนเพราะ key อาจหลุด — API ไม่สร้าง .p12 ใหม่ให้ (KEY_COMPROMISED) */
+export function isKeyCompromised(c: Pick<Certificate, 'revocationReason'>): boolean {
+  return c.revocationReason === 'keyCompromise';
+}
+
+/** ดาวน์โหลด .p12 ใหม่ได้ = มี key สำรอง และไม่ได้เพิกถอนเพราะ key อาจหลุด (ซ่อนปุ่มเพื่อ UX — API ตรวจอีกครั้ง) */
+export function canRedownload(c: Pick<Certificate, 'hasKeyEscrow' | 'revocationReason'>): boolean {
+  return c.hasKeyEscrow && !isKeyCompromised(c);
+}
+
 export type RevocationReasonOption = { value: string; label: string; hint?: string };
 
 // เหตุผลที่ผู้ใช้เลือกได้เมื่อเพิกถอนใบของตัวเอง (ตรงกับ SELF_REVOCATION_REASONS ของ API)

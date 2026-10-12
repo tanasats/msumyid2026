@@ -171,6 +171,7 @@ export async function revokeMyCertificate(
 /**
  * ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ลืมรหัสผ่าน / ทำไฟล์หาย / ติดตั้งเครื่องใหม่)
  * ได้ทุกสถานะ รวมใบที่หมดอายุหรือถูกเพิกถอน — key เดิมยังจำเป็นสำหรับเปิดอีเมลเก่าที่เข้ารหัสไว้
+ * ยกเว้นใบที่เพิกถอนเพราะ key อาจหลุด (keyCompromise) — ไม่สร้างไฟล์ที่มี key นั้นออกไปอีก
  * ใบของคนอื่นตอบ "ไม่พบ" เหมือนใบที่ไม่มีอยู่ และเขียน audit log ก่อนคืนไฟล์ทุกครั้ง
  */
 export async function downloadMyCertificateP12(
@@ -181,6 +182,13 @@ export async function downloadMyCertificateP12(
   const certificate = await findCertificateWithEscrow(pool, certificateId);
   if (!certificate || certificate.userId !== user.id) {
     throw new AppError(404, 'CERTIFICATE_NOT_FOUND', 'ไม่พบใบรับรองนี้');
+  }
+  if (certificate.revocationReason === 'keyCompromise') {
+    throw new AppError(
+      409,
+      'KEY_COMPROMISED',
+      'ใบรับรองนี้ถูกเพิกถอนเพราะ key อาจหลุดไปถึงผู้อื่น จึงดาวน์โหลดใหม่ไม่ได้',
+    );
   }
   if (!certificate.escrow) {
     throw new AppError(

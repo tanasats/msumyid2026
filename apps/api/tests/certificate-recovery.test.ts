@@ -40,7 +40,7 @@ async function requester() {
 /** ใบรับรอง (+ key สำรอง ถ้า withEscrow) ใส่ตรงในฐานข้อมูล */
 async function insertCertificate(
   userId: string,
-  input: { withEscrow?: boolean; revoked?: boolean; expired?: boolean } = {},
+  input: { withEscrow?: boolean; revoked?: string; expired?: boolean } = {},
 ) {
   const serialNumber = `1${randomBytes(15).toString('hex')}`;
   const notAfter = new Date(Date.now() + (input.expired ? -DAY : 365 * DAY));
@@ -55,7 +55,7 @@ async function insertCertificate(
       new Date(notAfter.getTime() - 365 * DAY),
       notAfter,
       input.revoked ? new Date() : null,
-      input.revoked ? 'keyCompromise' : null,
+      input.revoked ?? null,
       randomBytes(32).toString('hex'),
     ],
   );
@@ -122,9 +122,21 @@ describe('POST /me/certificates/:id/p12 (certificate:request)', () => {
     mockRebuild();
     const user = await requester();
     const expired = await insertCertificate(user.id, { expired: true });
-    const revoked = await insertCertificate(user.id, { revoked: true });
+    const revoked = await insertCertificate(user.id, { revoked: 'superseded' });
     expect((await download(user.cookie, expired.id)).status).toBe(200);
     expect((await download(user.cookie, revoked.id)).status).toBe(200);
+  });
+
+  it('ใบที่เพิกถอนเพราะ key อาจหลุด (keyCompromise) → 409 KEY_COMPROMISED ไม่เรียก signer และไม่เขียน audit', async () => {
+    const rebuild = mockRebuild();
+    const user = await requester();
+    const cert = await insertCertificate(user.id, { revoked: 'keyCompromise' });
+    const res = await download(user.cookie, cert.id);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('KEY_COMPROMISED');
+    expect(rebuild).not.toHaveBeenCalled();
+    const { rows } = await pool.query('SELECT 1 FROM certificate_audit_logs WHERE certificate_id = $1', [cert.id]);
+    expect(rows).toHaveLength(0);
   });
 
   it('ใบของคนอื่น → 404 และไม่เรียก signer', async () => {

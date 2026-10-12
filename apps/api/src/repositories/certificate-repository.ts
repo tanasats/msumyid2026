@@ -210,6 +210,8 @@ export type CertificateWithEscrow = {
   serialNumber: string;
   email: string;
   certificatePem: string;
+  /** เหตุผลการเพิกถอน (null = ยังไม่ถูกเพิกถอน) — keyCompromise ห้ามสร้าง .p12 ใหม่ */
+  revocationReason: RevocationReason | null;
   /** null = ไม่มี key สำรอง */
   escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer } | null;
 };
@@ -225,11 +227,12 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
     serial_number: string;
     email: string;
     certificate_pem: string;
+    revocation_reason: RevocationReason | null;
     kek_id: string | null;
     encrypted_key: Buffer | null;
     wrapped_data_key: Buffer | null;
   }>(
-    `SELECT c.id, c.user_id, c.serial_number, c.email, c.certificate_pem,
+    `SELECT c.id, c.user_id, c.serial_number, c.email, c.certificate_pem, c.revocation_reason,
             e.kek_id, e.encrypted_key, e.wrapped_data_key
      FROM certificates c
      LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id
@@ -244,6 +247,7 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
     serialNumber: row.serial_number,
     email: row.email,
     certificatePem: row.certificate_pem,
+    revocationReason: row.revocation_reason,
     escrow:
       row.kek_id && row.encrypted_key && row.wrapped_data_key
         ? { kekId: row.kek_id, encryptedKey: row.encrypted_key, wrappedDataKey: row.wrapped_data_key }

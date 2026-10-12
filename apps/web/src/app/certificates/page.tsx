@@ -10,6 +10,7 @@ import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser } from '@/lib/auth';
+import { canRedownload, isKeyCompromised } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
 
 export const metadata: Metadata = { title: 'ใบรับรองของฉัน' };
@@ -88,12 +89,10 @@ export default async function CertificatesPage() {
                   <dt className="text-muted">หมายเลขใบรับรอง</dt>
                   <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
                 </dl>
-                {canRequest && (c.hasKeyEscrow || c.status === 'active') && (
+                {canRequest && c.status === 'active' && (
                   <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
-                    {c.status === 'active' && (
-                      <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
-                    )}
-                    {c.hasKeyEscrow && (
+                    <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
+                    {canRedownload(c) && (
                       <Link
                         href={`/certificates/${c.id}/download`}
                         className={buttonClasses({ variant: 'secondary', size: 'sm', fullWidth: true })}
@@ -103,6 +102,24 @@ export default async function CertificatesPage() {
                       </Link>
                     )}
                   </div>
+                )}
+                {/* ใบที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) */}
+                {canRequest && c.status !== 'active' && canRedownload(c) && (
+                  <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted">ใช้ลงนามไม่ได้แล้ว ดาวน์โหลดได้เพื่อเปิดอีเมลเก่าที่เข้ารหัสไว้</p>
+                    <Link
+                      href={`/certificates/${c.id}/download`}
+                      className={buttonClasses({ variant: 'ghost', size: 'sm', fullWidth: true })}
+                    >
+                      <Download className="size-4" aria-hidden />
+                      ดาวน์โหลดไว้เปิดอีเมลเก่า
+                    </Link>
+                  </div>
+                )}
+                {isKeyCompromised(c) && (
+                  <p className="mt-4 border-t border-line pt-4 text-sm text-muted">
+                    เพิกถอนเพราะ key อาจหลุดไปถึงผู้อื่น จึงดาวน์โหลดไฟล์ใหม่ไม่ได้
+                  </p>
                 )}
               </li>
             ))}

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, ShieldAlert } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
@@ -10,6 +10,7 @@ import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { getCurrentUser } from '@/lib/auth';
+import { isKeyCompromised } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
 
 export const metadata: Metadata = { title: 'ดาวน์โหลดไฟล์ใบรับรองใหม่' };
@@ -30,7 +31,19 @@ export default async function DownloadCertificatePage({ params }: { params: Prom
 
   return (
     <PageShell title="ดาวน์โหลดไฟล์ใบรับรองใหม่" backHref="/certificates" user={user} width="form">
-      {!certificate.hasKeyEscrow ? (
+      {isKeyCompromised(certificate) ? (
+        <StatusState
+          icon={ShieldAlert}
+          title="ใบรับรองนี้ถูกเพิกถอนเพราะ key อาจหลุดไปถึงผู้อื่น"
+          action={
+            <Link href="/certificates" className={buttonClasses({ fullWidth: true })}>
+              กลับไปที่ใบรับรองของฉัน
+            </Link>
+          }
+        >
+          ระบบจึงไม่สร้างไฟล์ที่มี key นี้ออกไปอีก
+        </StatusState>
+      ) : !certificate.hasKeyEscrow ? (
         <StatusState
           icon={KeyRound}
           title="ใบรับรองนี้ไม่มี key สำรองในระบบ"
@@ -45,7 +58,7 @@ export default async function DownloadCertificatePage({ params }: { params: Prom
       ) : (
         <P12PasswordForm
           endpoint={`/me/certificates/${certificate.id}/p12`}
-          submitLabel="ดาวน์โหลดไฟล์"
+          submitLabel={certificate.status === 'active' ? 'ดาวน์โหลดไฟล์' : 'ดาวน์โหลดไว้เปิดอีเมลเก่า'}
           successTitle="สร้างไฟล์ใบรับรองใหม่แล้ว"
         >
           <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
