@@ -99,6 +99,7 @@ CRL_PUBLISH_FORMAT=pem                    # pem = แบบ openssl ca -gencrl �
 SIGNER_PORT=4020
 SIGNER_TOKEN=...                          # อย่างน้อย 32 ตัว (openssl rand -hex 32)
 CA_CERT_PATH=... CA_KEY_PATH=... CA_KEY_PASSPHRASE=...   # dev = CA ปลอมจาก dev-ca ห้ามใช้ CA key จริงบนเครื่อง dev
+CA_CHAIN_PATH=...                         # root ที่ออก Intermediate (ใส่ลง .p12) — production = apps/signer/ca/root.cert.pem, dev = root ของ dev-ca
 ESCROW_KEK=...                            # base64 32 ไบต์ (openssl rand -base64 32) หายแล้วกู้ key สำรองไม่ได้
 ESCROW_KEK_ID=dev-1
 CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl
