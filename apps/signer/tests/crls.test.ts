@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { config } from '../src/config/index.js';
+import { normalizeDn } from './helpers/openssl-output.js';
 
 // ออก CRL กับ CA ปลอมและ OpenSSL จริง แล้วตรวจด้วย openssl crl (ลายเซ็น, เลข CRL, วันที่, รายการเพิกถอน)
 
@@ -60,7 +61,7 @@ describe('POST /crls', () => {
     const crl = await inspect(res.body.crlDer);
     expect(crl.ok).toBe(true);
     expect(crl.verify).toContain('verify OK');
-    expect(crl.text).toContain('Issuer: C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Intermediate CA');
+    expect(normalizeDn(crl.text)).toContain('Issuer: C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Intermediate CA');
     expect(crl.text).toMatch(/Last Update: Oct\s+8 03:00:00 2026 GMT/);
     expect(crl.text).toMatch(/Next Update: Oct\s+15 03:00:00 2026 GMT/);
     // openssl crl -text แสดงเลข CRL เป็นฐาน 10
