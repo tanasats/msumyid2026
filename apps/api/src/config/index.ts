@@ -56,6 +56,16 @@ const envSchema = z.object({
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
 
+/**
+ * path ของ cookie OAuth (state/nonce/PKCE) = โฟลเดอร์ของ callback ตามที่ browser เห็น
+ * dev: http://localhost:4010/auth/google/callback → /auth/google
+ * production หลัง nginx: https://did.msu.ac.th/api/auth/google/callback → /api/auth/google
+ * (route ใน Express ยังเป็น /auth/google เพราะ nginx ตัด /api ออกก่อนถึง API)
+ */
+export function oauthCookiePath(redirectUri: string): string {
+  return new URL(redirectUri).pathname.replace(/\/[^/]*$/, '') || '/';
+}
+
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
@@ -89,6 +99,7 @@ export const config = {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET,
     redirectUri: env.GOOGLE_REDIRECT_URI,
+    oauthCookiePath: oauthCookiePath(env.GOOGLE_REDIRECT_URI),
   },
   allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
   erpHr: {

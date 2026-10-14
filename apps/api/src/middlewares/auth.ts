@@ -35,7 +35,8 @@ export function clearSessionCookie(res: Response): void {
 }
 
 // cookie อายุสั้นเก็บ state/nonce/PKCE verifier ระหว่างไป login ที่ Google (CLAUDE.md หัวข้อ 8 ข้อ 2)
-// path จำกัดที่ /auth/google จึงส่งเฉพาะตอน callback และ SameSite=Lax ยังส่งได้เพราะ Google redirect กลับแบบ GET
+// path จำกัดที่โฟลเดอร์ของ callback (dev: /auth/google, production: /api/auth/google — config.google.oauthCookiePath)
+// จึงส่งเฉพาะตอน callback และ SameSite=Lax ยังส่งได้เพราะ Google redirect กลับแบบ GET
 const OAUTH_COOKIE_NAME = `${config.session.cookieName}_oauth`;
 const OAUTH_COOKIE_MAX_AGE_MS = 10 * 60 * 1000;
 
@@ -48,7 +49,7 @@ const oauthCookieSchema = z.object({
 export type OAuthCookie = z.infer<typeof oauthCookieSchema>;
 
 function oauthCookieOptions(): CookieOptions {
-  return { ...sessionCookieOptions(), path: '/auth/google' };
+  return { ...sessionCookieOptions(), path: config.google.oauthCookiePath };
 }
 
 export function setOAuthCookie(res: Response, value: OAuthCookie): void {
