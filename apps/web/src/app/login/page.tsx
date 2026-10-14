@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ShieldCheck } from 'lucide-react';
 import { Alert } from '@/components/Alert';
@@ -68,6 +69,12 @@ export default async function LoginPage({
             เข้าสู่ระบบด้วย Google
           </a>
         </section>
+        <p className="mt-4 text-center text-sm text-muted">
+          ตรวจลายเซ็นบนเอกสารไม่ผ่าน?{' '}
+          <Link href="/root-ca" className="font-medium text-accent underline-offset-4 hover:underline">
+            ติดตั้งใบรับรองหลัก
+          </Link>
+        </p>
       </div>
     </PageShell>
   );
