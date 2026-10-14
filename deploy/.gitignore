@@ -1,0 +1,7 @@
+# ค่าจริงบน VM — ห้าม commit
+.env
+env/*.env
+secrets/
+ca/*.key.pem
+backups/
+deployed.log

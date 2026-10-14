@@ -1,0 +1,132 @@
+# production ของ MSU Digital ID — คัดลอกโฟลเดอร์ deploy/ ทั้งหมดไปเป็น /opt/msumyid บน VM (docs/deployment.md)
+# ค่าในไฟล์นี้อ่านจาก .env (deploy.env.example) และ env/*.env — ห้ามใส่ secret ตรงนี้
+name: msumyid-prod
+
+x-app: &app
+  restart: unless-stopped
+  # รันด้วย uid ของผู้ใช้ deploy บน VM จึงอ่านไฟล์ secret/key สิทธิ์ 600 ที่ผู้ใช้นั้นเป็นเจ้าของได้
+  user: "${APP_UID:?ต้องกำหนด APP_UID ใน .env}:${APP_GID:?ต้องกำหนด APP_GID ใน .env}"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    env_file: env/postgres.env
+    volumes:
+      # PostgreSQL 18 mount ที่ /var/lib/postgresql
+      - msumyid_prod_pgdata:/var/lib/postgresql
+    networks: [db]
+    # ไม่มี ports: — เข้าถึงได้เฉพาะ api/migrate ใน network db
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # บริการเซ็น: ถือ key ของ Intermediate CA และ KEK ของ key สำรอง — อยู่ใน network signer (internal) เท่านั้น
+  # ไม่มี ports: และออกอินเทอร์เน็ตไม่ได้ มีแค่ api ที่เรียกได้
+  signer:
+    <<: *app
+    image: ${IMAGE_PREFIX:?}-signer:${APP_TAG:?ต้องกำหนด APP_TAG ใน .env}
+    env_file: env/signer.env
+    environment:
+      SIGNER_PORT: "4020"
+      CA_CERT_PATH: /app/ca/univ-ca.cert.pem
+      CA_CHAIN_PATH: /app/ca/root.cert.pem
+      CA_KEY_PATH: /run/ca/univ-ca.key.pem
+      SIGNER_TOKEN_FILE: /run/secrets/signer_token
+      CA_KEY_PASSPHRASE_FILE: /run/secrets/ca_key_passphrase
+      ESCROW_KEK_FILE: /run/secrets/escrow_kek
+    volumes:
+      - ./ca/univ-ca.key.pem:/run/ca/univ-ca.key.pem:ro
+    secrets: [signer_token, ca_key_passphrase, escrow_kek]
+    networks: [signer]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4020/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  api:
+    <<: *app
+    image: ${IMAGE_PREFIX:?}-api:${APP_TAG:?}
+    env_file: env/api.env
+    environment:
+      PORT: "4000"
+      SIGNER_URL: http://signer:4020
+      SIGNER_TOKEN_FILE: /run/secrets/signer_token
+    secrets: [signer_token]
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    # app = ออกอินเทอร์เน็ตได้ (Google, ERP-HR) และให้ web เรียก, db = postgres, signer = บริการเซ็น
+    networks: [app, db, signer]
+    depends_on:
+      postgres: { condition: service_healthy }
+      signer: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  web:
+    <<: *app
+    image: ${IMAGE_PREFIX:?}-web:${APP_TAG:?}
+    env_file: env/web.env
+    environment:
+      API_URL: http://api:4000
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    networks: [app]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/login"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  # รันครั้งเดียวก่อนสลับเวอร์ชัน (scripts/deploy.sh) — docker compose run --rm migrate
+  migrate:
+    <<: *app
+    restart: "no"
+    profiles: [tools]
+    image: ${IMAGE_PREFIX:?}-api:${APP_TAG:?}
+    env_file: env/api.env
+    command: ["node_modules/.bin/node-pg-migrate", "-m", "migrations", "--migration-file-language", "sql", "-d", "DATABASE_URL", "up"]
+    networks: [db]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+secrets:
+  signer_token:
+    file: ./secrets/signer_token
+  ca_key_passphrase:
+    file: ./secrets/ca_key_passphrase
+  escrow_kek:
+    file: ./secrets/escrow_kek
+
+networks:
+  app: {}
+  db:
+    internal: true
+  signer:
+    internal: true
+
+volumes:
+  msumyid_prod_pgdata:
+    name: msumyid_prod_pgdata
