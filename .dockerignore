@@ -1,0 +1,25 @@
+# กันของที่ไม่ควรเข้า image (build context = root ของ repo)
+.git
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+
+# env และ secret — ห้ามเข้า image เด็ดขาด
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev-ca
+**/passphrase*.txt
+**/*.key.pem
+**/*.p12
+
+# ไม่ใช้ตอน build
+docs
+deploy
+docker
+.github
+.claude
+**/tests
