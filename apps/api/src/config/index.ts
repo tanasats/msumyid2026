@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { loadSecretFiles } from './secret-files.js';
 
 // ตรวจ env ตอนเริ่มระบบ ถ้าขาดหรือผิดรูปแบบให้หยุดทำงานทันที (CLAUDE.md หัวข้อ 6)
 const envSchema = z.object({
@@ -64,6 +65,14 @@ const envSchema = z.object({
  */
 export function oauthCookiePath(redirectUri: string): string {
   return new URL(redirectUri).pathname.replace(/\/[^/]*$/, '') || '/';
+}
+
+// production อ่าน secret จากไฟล์ (Docker secret) — deploy/compose.yml
+try {
+  loadSecretFiles(process.env, ['SIGNER_TOKEN']);
+} catch (err) {
+  console.error('ค่า env ไม่ถูกต้อง:', err instanceof Error ? err.message : err);
+  process.exit(1);
 }
 
 const parsed = envSchema.safeParse(process.env);
