@@ -65,6 +65,14 @@ describe('สายใบรับรองของ CA', () => {
     expect(univ!.checkIssued(root!) && univ!.verify(root!.publicKey)).toBe(true);
     expect(univ!.subject).toContain('O=Mahasarakham University');
   });
+
+  it('ใบ root ที่หน้าเว็บให้ดาวน์โหลด (apps/web/src/lib/root-ca.ts) ตรงกับ apps/signer/ca/root.cert.pem', async () => {
+    const repo = path.join(import.meta.dirname, '..', '..', '..');
+    const [root] = parsePemCertificates(await readFile(path.join(repo, 'apps/signer/ca/root.cert.pem'), 'utf8'));
+    const web = parsePemCertificates(await readFile(path.join(repo, 'apps/web/src/lib/root-ca.ts'), 'utf8'));
+    expect(web).toHaveLength(1);
+    expect(web[0]!.raw.equals(root!.raw)).toBe(true);
+  });
 });
 
 describe('อายุใบรับรองไม่เกินวันหมดอายุของ CA', () => {
