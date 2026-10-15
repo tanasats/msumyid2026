@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
+import { oauthCookiePath } from '../src/config/index.js';
 import { pool } from '../src/db/pool.js';
 import { googleOAuth } from '../src/services/google-oauth.js';
 import { classifyAccount } from '../src/services/google-login-service.js';
@@ -93,6 +94,12 @@ describe('GET /auth/google', () => {
     expect(cookie).toMatch(/Path=\/auth\/google/);
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/SameSite=Lax/);
+  });
+
+  it('path ของ cookie ตาม GOOGLE_REDIRECT_URI — production ที่ API อยู่ใต้ /api ได้ /api/auth/google', () => {
+    expect(oauthCookiePath('http://localhost:4010/auth/google/callback')).toBe('/auth/google');
+    expect(oauthCookiePath('https://did.msu.ac.th/api/auth/google/callback')).toBe('/api/auth/google');
+    expect(oauthCookiePath('https://did.msu.ac.th/callback')).toBe('/');
   });
 
   it('สร้าง state ใหม่ทุกครั้ง', async () => {
