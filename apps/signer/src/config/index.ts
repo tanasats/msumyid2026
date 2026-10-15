@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { loadSecretFiles } from './secret-files.js';
 
 // ตรวจ env ตอนเริ่มระบบ ถ้าขาดหรือผิดรูปแบบให้หยุดทำงานทันที (CLAUDE.md หัวข้อ 6)
 // บริการนี้ถือ key ของ Intermediate CA และ KEK ของ key สำรอง — ห้ามเปิดสู่ภายนอก (docs/design/certificates.md)
@@ -35,6 +36,14 @@ const envSchema = z.object({
   // ขนาด RSA key ของผู้ใช้ (ระบบเดิมใช้ 4096) — test ใช้ 2048 เพื่อให้เร็ว
   USER_KEY_BITS: z.coerce.number().int().min(2048).max(8192).default(4096),
 });
+
+// production อ่าน secret จากไฟล์ (Docker secret) — deploy/compose.yml
+try {
+  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'CA_KEY_PASSPHRASE', 'ESCROW_KEK']);
+} catch (err) {
+  console.error('ค่า env ไม่ถูกต้อง:', err instanceof Error ? err.message : err);
+  process.exit(1);
+}
 
 const parsed = envSchema.safeParse(process.env);
 

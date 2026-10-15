@@ -9,6 +9,7 @@ import { createApp } from '../src/app.js';
 import { config } from '../src/config/index.js';
 import { openPrivateKey } from '../src/services/escrow.js';
 import { runOpenssl } from '../src/services/openssl.js';
+import { normalizeDn } from './helpers/openssl-output.js';
 
 // ออกใบรับรองกับ CA ปลอมและ OpenSSL จริง (ไม่ mock) แล้วตรวจผลด้วย OpenSSL อีกที
 
@@ -160,8 +161,8 @@ describe('ไฟล์ .p12', () => {
     const p12 = await openP12(body.p12, PASSWORD);
     expect(p12.ok).toBe(true);
     expect(p12.certificates.match(/BEGIN CERTIFICATE/g)).toHaveLength(3);
-    expect(p12.certificates).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Intermediate CA');
-    expect(p12.certificates).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Root CA');
+    expect(normalizeDn(p12.certificates)).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Intermediate CA');
+    expect(normalizeDn(p12.certificates)).toContain('subject=C=TH, O=Mahasarakham University, CN=MSU Digital ID DEV Root CA');
     expect(p12.info).toContain('AES-256-CBC');
     expect(p12.info).not.toContain('TripleDES');
   });

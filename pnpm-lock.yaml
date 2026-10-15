@@ -205,6 +205,9 @@ importers:
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
+      node-pg-migrate:
+        specifier: ^9.0.0
+        version: 9.0.0(@types/pg@8.23.1)(pg@8.23.1)
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -233,9 +236,6 @@ importers:
       '@types/supertest':
         specifier: ^7.2.1
         version: 7.2.1
-      node-pg-migrate:
-        specifier: ^9.0.0
-        version: 9.0.0(@types/pg@8.23.1)(pg@8.23.1)
       supertest:
         specifier: ^7.3.1
         version: 7.3.1
