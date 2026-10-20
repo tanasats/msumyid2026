@@ -255,6 +255,35 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
   };
 }
 
+export type CertificateRevocationStatus = {
+  serialNumber: string;
+  fingerprintSha256: string;
+  status: CertificateStatus;
+  revokedAt: Date | null;
+  revocationReason: RevocationReason | null;
+};
+
+/**
+ * สถานะการเพิกถอนของใบตาม serial (หน้าตรวจลายมือชื่อบนเอกสารใช้) — ใช้ unique index ของ serial_number
+ * คืนเฉพาะข้อมูลของใบ ไม่มีข้อมูลบัญชีผู้ใช้ เพราะเรียกจาก endpoint สาธารณะ
+ */
+export async function findCertificateRevocationStatus(
+  db: Queryable,
+  serialNumber: string,
+): Promise<CertificateRevocationStatus | null> {
+  const result = await db.query<CertificateRevocationStatus>(
+    `SELECT c.serial_number      AS "serialNumber",
+            c.fingerprint_sha256 AS "fingerprintSha256",
+            ${STATUS_SQL}        AS status,
+            c.revoked_at         AS "revokedAt",
+            c.revocation_reason  AS "revocationReason"
+     FROM certificates c
+     WHERE c.serial_number = $1`,
+    [serialNumber],
+  );
+  return result.rows[0] ?? null;
+}
+
 export type ExistingCertificate = {
   id: string;
   serialNumber: string;

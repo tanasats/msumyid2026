@@ -19,6 +19,21 @@ afterAll(async () => {
 });
 
 describe('rate limit', () => {
+  it('ตรวจลายมือชื่อบนเอกสาร: POST /verify/pdf เกิน 30 ครั้งใน 15 นาที → 429', async () => {
+    const send = () =>
+      request(app)
+        .post('/verify/pdf')
+        .set('Origin', 'http://localhost:3010')
+        .set('Content-Type', 'application/pdf')
+        .send(Buffer.from('%PDF-1.7\n%%EOF\n'));
+    for (let i = 0; i < 30; i += 1) {
+      expect((await send()).status).toBe(200);
+    }
+    const res = await send();
+    expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe('TOO_MANY_REQUESTS');
+  });
+
   it('ไม่จำกัด GET /auth/me (Next.js เรียกทุกหน้าจาก IP เดียวกัน — บั๊กเดิมทำให้ทั้งระบบใช้ไม่ได้)', async () => {
     const user = await createUser();
     const cookie = await loginAs(user.id);
