@@ -15,6 +15,7 @@
     "migrate:test": "node-pg-migrate --migrations-dir migrations --migration-file-language sql --envPath .env -d TEST_DATABASE_URL"
   },
   "dependencies": {
+    "asn1js": "^3.0.10",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
@@ -26,6 +27,7 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "pkijs": "^3.4.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

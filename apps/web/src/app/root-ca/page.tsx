@@ -146,6 +146,13 @@ export default async function RootCaPage() {
           ไม่ต้องติดตั้งใบรับรองของมหาวิทยาลัย (Intermediate) แยก เพราะแนบมากับลายเซ็นแล้ว
         </Alert>
 
+        <p className="text-center text-sm text-muted">
+          ไม่ต้องการติดตั้งโปรแกรม?{' '}
+          <Link href="/verify" className="font-medium text-accent underline-offset-4 hover:underline">
+            ตรวจสอบลายมือชื่อบนเว็บ
+          </Link>
+        </p>
+
         {!user && (
           <p className="text-center text-sm text-muted">
             ต้องการขอใบรับรอง?{' '}

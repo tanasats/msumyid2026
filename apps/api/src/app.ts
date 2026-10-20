@@ -13,6 +13,7 @@ import { meRouter } from './routes/me.js';
 import { adminCertificatesRouter } from './routes/admin-certificates.js';
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
+import { verifyRouter } from './routes/verify.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -39,6 +40,7 @@ export function createApp() {
   app.use(adminUsersRouter);
   app.use(adminCertificatesRouter);
   app.use(certificatesRouter);
+  app.use(verifyRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

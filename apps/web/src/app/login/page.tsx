@@ -70,7 +70,11 @@ export default async function LoginPage({
           </a>
         </section>
         <p className="mt-4 text-center text-sm text-muted">
-          ตรวจลายเซ็นบนเอกสารไม่ผ่าน?{' '}
+          ได้รับเอกสารที่ลงนามจากมหาวิทยาลัย?{' '}
+          <Link href="/verify" className="font-medium text-accent underline-offset-4 hover:underline">
+            ตรวจสอบลายมือชื่อ
+          </Link>
+          {' · '}
           <Link href="/root-ca" className="font-medium text-accent underline-offset-4 hover:underline">
             ติดตั้งใบรับรองหลัก
           </Link>

@@ -101,6 +101,11 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
 
 ## 5. เตรียม VM ครั้งแรก (ทำครั้งเดียว)
 
+**5.0 สเปก VM** — ใช้กับระบบนี้ระบบเดียว (VM ถือ key ของ Intermediate CA และ KEK — ระบบอื่นบนเครื่องเดียวกันถูกเจาะ = key รั่ว)
+- Ubuntu 24.04 LTS (ห้ามใช้รุ่นที่หมดระยะ support), 2 vCPU, RAM 4 GB, disk 40 GB ขึ้นไป
+- Docker Engine + Compose v2 จาก repo ของ Docker (`docker compose version` ต้องเป็น v2.20 ขึ้นไป — `docker-compose` v1 ของ Ubuntu ใช้ไม่ได้)
+- nginx 1.18 ขึ้นไป (จาก Ubuntu 24.04 ได้ 1.24)
+
 **5.1 ฝั่ง GitHub**
 1. merge PR ที่มีไฟล์ชุดนี้เข้า `main` → workflow **Release** build image ครั้งแรก (ดูแท็กในหน้า Actions → Summary)
 2. (ถ้าต้องเปลี่ยน URL ของ API) Settings → Secrets and variables → Actions → Variables: `NEXT_PUBLIC_API_URL`
@@ -112,9 +117,11 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
 
 **5.3 ฝั่ง VM**
 ```bash
-sudo adduser --disabled-password deploy && sudo usermod -aG docker deploy
-sudo mkdir -p /opt/msumyid && sudo chown deploy:deploy /opt/msumyid
-# ในฐานะผู้ใช้ deploy — คัดลอกโฟลเดอร์ deploy/ จาก repo (เช่น git clone แล้ว cp -r deploy/. /opt/msumyid/)
+sudo adduser --disabled-password --gecos "" deploy && sudo usermod -aG docker deploy
+sudo mkdir -p /opt/msumyid && sudo chown deploy:deploy /opt/msumyid && sudo chmod 750 /opt/msumyid
+sudo -iu deploy                      # deploy ไม่มีรหัสผ่านและไม่มี sudo — เข้าทางนี้เท่านั้น
+git clone https://github.com/tanasats/msumyid2026.git ~/msumyid2026
+cp -r ~/msumyid2026/deploy/. /opt/msumyid/
 # ⚠ ทุกไฟล์ใน /opt/msumyid ต้องเป็นของผู้ใช้ deploy (ห้ามสร้างด้วย sudo) ถ้าเผลอ: sudo chown -R deploy:deploy /opt/msumyid
 cd /opt/msumyid
 cp env/deploy.env.example .env
@@ -143,15 +150,32 @@ echo '<PAT read:packages>' | docker login ghcr.io -u <github-user> --password-st
 ```
 signer ตรวจตอนเริ่มว่า key ตรงกับใบ Intermediate และสายใบถึง root ถูกต้อง ไม่ผ่าน = ไม่ healthy และ deploy.sh จะหยุด (ดู `docker compose logs signer`)
 
-**5.6 nginx**
+**5.6 nginx** — ในฐานะผู้ใช้ที่มี sudo (ไม่ใช่ `deploy`) เพราะต้องแก้ไฟล์ของระบบ
+
+ใบรับรอง TLS ของมหาวิทยาลัย (`*.msu.ac.th` ออกโดย GeoTrust TLS RSA CA G1) มาเป็นใบเดียว ต้องต่อ intermediate เอง:
 ```bash
-# วางใบรับรองของมหาวิทยาลัยที่ /etc/ssl/msu/fullchain.pem (รวม intermediate) และ privkey.pem
-./scripts/update-cloudflare-realip.sh     # ติดตั้ง /etc/nginx/snippets/cloudflare-realip.conf (ต้องมีก่อน)
-sudo cp nginx/msumyid.conf /etc/nginx/sites-available/msumyid.conf
+# ไฟล์ intermediate จาก GeoTrust เป็น DER — OpenSSL 3 อ่าน DER ได้เอง จึงต้องสั่งแปลงเป็น PEM ตรง ๆ ก่อนต่อไฟล์
+curl -fsS -o inter.crt http://cacerts.geotrust.com/GeoTrustTLSRSACAG1.crt   # URL จาก "CA Issuers" ในใบ
+openssl x509 -in inter.crt -out inter.pem
+openssl verify -untrusted inter.pem msu.crt                                  # ต้องได้ msu.crt: OK
+{ cat msu.crt; echo; cat inter.pem; } | sed 's/\r$//; /^$/d' > fullchain.pem
+grep -c 'BEGIN CERTIFICATE' fullchain.pem                                    # ต้องได้ 2
+sudo mkdir -p /etc/ssl/msu
+sudo install -o root -g root -m 644 fullchain.pem /etc/ssl/msu/fullchain.pem
+sudo install -o root -g root -m 600 msu.key       /etc/ssl/msu/privkey.pem  # key ต้องไม่มีรหัสผ่าน
+```
+ติดตั้ง site:
+```bash
+# /opt/msumyid เป็นของ deploy (750) ผู้ใช้อื่นอ่านได้ผ่าน sudo เท่านั้น
+sudo bash /opt/msumyid/scripts/update-cloudflare-realip.sh   # ติดตั้ง /etc/nginx/snippets/cloudflare-realip.conf (ต้องมีก่อน)
+sudo cp /opt/msumyid/nginx/msumyid.conf /etc/nginx/sites-available/msumyid.conf
 sudo ln -s /etc/nginx/sites-available/msumyid.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
+curl -s --resolve did.msu.ac.th:443:127.0.0.1 https://did.msu.ac.th/api/health   # ทดสอบก่อนมี DNS/Cloudflare
 ```
 ถ้าเปลี่ยน `WEB_PORT`/`API_PORT` ใน `.env` ต้องแก้ upstream ใน `msumyid.conf` ให้ตรง
+
+**ใบ TLS `*.msu.ac.th` หมดอายุ 2027-03-05** — ต่ออายุล่วงหน้าอย่างน้อย 1 เดือน แล้วทำขั้นตอนข้างบนซ้ำ (เฉพาะส่วนใบรับรอง) และ `sudo systemctl reload nginx`
 
 **5.7 super_admin คนแรก**: เจ้าของ `INITIAL_SUPER_ADMIN_EMAIL` login ด้วย Google 1 ครั้ง แล้ว
 ```bash
@@ -243,7 +267,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 
 - **ห้าม** เก็บ `escrow_kek` ไว้ใน `backups/`, `env.tgz` หรือปลายทาง `BACKUP_REMOTE` เดียวกับ `db.dump`
 - **หมุน KEK** (เมื่อสงสัยว่ารั่ว): ยังไม่มีเครื่องมือ re-wrap key เดิม — `ESCROW_KEK_ID` เก็บคู่กับ key สำรองทุกก้อนไว้รองรับแล้ว ต้องพัฒนาสคริปต์ก่อนใช้งานจริง
-- **ใบ root ของ TUC หมดอายุ 2030-03-25** — ต่ออายุแล้วแก้ `apps/signer/ca/root.cert.pem` และ `apps/web/src/lib/root-ca.ts` (test ตรวจว่าตรงกัน) แล้ว deploy ใหม่ (`docs/design/certificates.md`)
+- **ใบ root ของ TUC หมดอายุ 2030-03-25** — ต่ออายุแล้วแก้ `apps/signer/ca/root.cert.pem`, `apps/web/src/lib/root-ca.ts` และ `apps/api/src/services/signature-verification/university-ca.ts` (test ตรวจว่าตรงกัน) แล้ว deploy ใหม่ (`docs/design/certificates.md`)
 - ใบของ CA (`univ-ca.cert.pem`, `root.cert.pem`) อยู่ใน image ของ signer — แก้ใบ = build image ใหม่
 
 ## 10. CRL
@@ -282,6 +306,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 **แจ้งงานเครือข่าย**
 - `/api/*` ห้าม cache (มีไฟล์ `.p12` ที่มี private key — nginx ส่ง `no-store` แล้ว ขอให้ตั้ง Cache Rule "Bypass" ด้วย)
 - `/api/crl/msu-ca.crl` ต้องให้ `cdp.msu.ac.th` ดึงได้ (ไม่ติด challenge ของ WAF/Bot) — ถ้าติด ให้ cron บน cdp ดึงผ่าน IP ภายในแทน
+- `/api/verify/pdf` (หน้าตรวจลายมือชื่อ สาธารณะ) รับไฟล์ PDF ไม่เกิน 20 MB แบบ `application/pdf` — ต้องไม่ติดกฎ WAF เรื่องขนาด/ชนิดไฟล์ และห้าม cache
 - อาการเมื่อ WAF บล็อก: 403 แบบ `text/html` พร้อม header `cf-ray` และคำขอ**ไม่ปรากฏ**ใน `access.log` ของ nginx → ส่ง Ray ID ให้งานเครือข่าย
 
 ## 13. Checklist ก่อนเปิดใช้จริง

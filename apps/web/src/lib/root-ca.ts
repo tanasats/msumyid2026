@@ -2,7 +2,7 @@ import { X509Certificate } from 'node:crypto';
 
 // ใบรับรอง root ของ Thai University Consortium (ผู้ออกใบ CA ของมหาวิทยาลัยมหาสารคาม) ให้ผู้ใช้ดาวน์โหลดไปตั้งเป็น trusted root
 // ใน Acrobat/Foxit — ข้อมูลสาธารณะ ไม่มี key ใช้ฝั่ง server เท่านั้น (node:crypto)
-// ต้องตรงกับ apps/signer/ca/root.cert.pem ทุกไบต์ (test ใน apps/signer/tests/ca.test.ts ตรวจให้) — ต่ออายุ root แล้วแก้ทั้งสองที่
+// ต้องตรงกับ apps/signer/ca/root.cert.pem ทุกไบต์ (test ใน apps/signer/tests/ca.test.ts ตรวจให้) — ต่ออายุ root แล้วแก้ทุกที่ (รวม apps/api/src/services/signature-verification/university-ca.ts)
 
 const ROOT_CA_PEM = `
 -----BEGIN CERTIFICATE-----

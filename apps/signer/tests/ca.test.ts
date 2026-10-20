@@ -73,6 +73,18 @@ describe('สายใบรับรองของ CA', () => {
     expect(web).toHaveLength(1);
     expect(web[0]!.raw.equals(root!.raw)).toBe(true);
   });
+
+  it('ใบ CA ที่ API ใช้ตรวจลายมือชื่อบนเอกสาร ตรงกับ apps/signer/ca', async () => {
+    const repo = path.join(import.meta.dirname, '..', '..', '..');
+    const [root] = parsePemCertificates(await readFile(path.join(repo, 'apps/signer/ca/root.cert.pem'), 'utf8'));
+    const [univ] = parsePemCertificates(await readFile(path.join(repo, 'apps/signer/ca/univ-ca.cert.pem'), 'utf8'));
+    const api = parsePemCertificates(
+      await readFile(path.join(repo, 'apps/api/src/services/signature-verification/university-ca.ts'), 'utf8'),
+    );
+    expect(api).toHaveLength(2);
+    expect(api[0]!.raw.equals(root!.raw)).toBe(true);
+    expect(api[1]!.raw.equals(univ!.raw)).toBe(true);
+  });
 });
 
 describe('อายุใบรับรองไม่เกินวันหมดอายุของ CA', () => {
