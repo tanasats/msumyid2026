@@ -267,7 +267,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 
 - **ห้าม** เก็บ `escrow_kek` ไว้ใน `backups/`, `env.tgz` หรือปลายทาง `BACKUP_REMOTE` เดียวกับ `db.dump`
 - **หมุน KEK** (เมื่อสงสัยว่ารั่ว): ยังไม่มีเครื่องมือ re-wrap key เดิม — `ESCROW_KEK_ID` เก็บคู่กับ key สำรองทุกก้อนไว้รองรับแล้ว ต้องพัฒนาสคริปต์ก่อนใช้งานจริง
-- **ใบ root ของ TUC หมดอายุ 2030-03-25** — ต่ออายุแล้วแก้ `apps/signer/ca/root.cert.pem` และ `apps/web/src/lib/root-ca.ts` (test ตรวจว่าตรงกัน) แล้ว deploy ใหม่ (`docs/design/certificates.md`)
+- **ใบ root ของ TUC หมดอายุ 2030-03-25** — ต่ออายุแล้วแก้ `apps/signer/ca/root.cert.pem`, `apps/web/src/lib/root-ca.ts` และ `apps/api/src/services/signature-verification/university-ca.ts` (test ตรวจว่าตรงกัน) แล้ว deploy ใหม่ (`docs/design/certificates.md`)
 - ใบของ CA (`univ-ca.cert.pem`, `root.cert.pem`) อยู่ใน image ของ signer — แก้ใบ = build image ใหม่
 
 ## 10. CRL
@@ -306,6 +306,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 **แจ้งงานเครือข่าย**
 - `/api/*` ห้าม cache (มีไฟล์ `.p12` ที่มี private key — nginx ส่ง `no-store` แล้ว ขอให้ตั้ง Cache Rule "Bypass" ด้วย)
 - `/api/crl/msu-ca.crl` ต้องให้ `cdp.msu.ac.th` ดึงได้ (ไม่ติด challenge ของ WAF/Bot) — ถ้าติด ให้ cron บน cdp ดึงผ่าน IP ภายในแทน
+- `/api/verify/pdf` (หน้าตรวจลายมือชื่อ สาธารณะ) รับไฟล์ PDF ไม่เกิน 20 MB แบบ `application/pdf` — ต้องไม่ติดกฎ WAF เรื่องขนาด/ชนิดไฟล์ และห้าม cache
 - อาการเมื่อ WAF บล็อก: 403 แบบ `text/html` พร้อม header `cf-ray` และคำขอ**ไม่ปรากฏ**ใน `access.log` ของ nginx → ส่ง Ray ID ให้งานเครือข่าย
 
 ## 13. Checklist ก่อนเปิดใช้จริง
