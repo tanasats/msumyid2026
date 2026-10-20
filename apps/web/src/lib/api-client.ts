@@ -36,6 +36,53 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   return (await res.json()) as T;
 }
 
+/**
+ * อัปโหลดไฟล์ดิบ (body = ไฟล์ทั้งไฟล์) แล้วคืน JSON ที่ API ตอบ
+ * ใช้ XMLHttpRequest แทน fetch เพราะต้องแสดงความคืบหน้าของการอัปโหลด (fetch ไม่มี) และยกเลิกได้ด้วย signal
+ */
+export function apiUpload<T>(
+  path: string,
+  file: File,
+  { contentType, onProgress, signal }: { contentType: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${process.env.NEXT_PUBLIC_API_URL}${path}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.responseType = 'json';
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      const data = xhr.response as { error?: { code: string; message: string } } | null;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as T);
+        return;
+      }
+      reject(
+        new ApiClientError(
+          xhr.status,
+          data?.error?.code ?? 'UNKNOWN',
+          data?.error?.message ??
+            (xhr.status === 413 ? 'ไฟล์ใหญ่เกินกำหนด' : 'ดำเนินการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'),
+        ),
+      );
+    };
+    xhr.onerror = () =>
+      reject(new ApiClientError(0, 'NETWORK_ERROR', 'เชื่อมต่อระบบไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่'));
+    xhr.onabort = () => reject(new DOMException('ยกเลิกแล้ว', 'AbortError'));
+
+    if (signal?.aborted) {
+      reject(new DOMException('ยกเลิกแล้ว', 'AbortError'));
+      return;
+    }
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
+
 /** ส่งคำขอเปลี่ยนข้อมูล — คืน JSON ที่ API ตอบ (204 No Content = undefined) */
 export async function apiMutate<T = void>(
   path: string,
