@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { CurrentUser } from '@/lib/auth';
 import { Avatar } from './Avatar';
+import { MsuMark } from './BrandLogo';
 import { NavLinks } from './NavLinks';
 
 type PageShellProps = {
@@ -12,13 +13,13 @@ type PageShellProps = {
   backHref?: string;
   /** ผู้ใช้ที่ได้รับอนุมัติแล้ว → แสดงเมนูนำทาง ไม่ส่ง = หน้าสาธารณะ/รออนุมัติ (ไม่มีเมนู) */
   user?: CurrentUser;
-  /** ความกว้างสูงสุดของเนื้อหา: form = ฟอร์ม, wide = รายการ/ตาราง */
-  width?: 'form' | 'wide';
+  /** ความกว้างสูงสุดของเนื้อหา: form = ฟอร์ม, wide = รายการ/ตาราง, bleed = เต็มจอไม่มีระยะขอบ (หน้าแลนดิ้ง — แต่ละส่วนจัดความกว้างเอง) */
+  width?: 'form' | 'wide' | 'bleed';
   /** ปุ่มเพิ่มเติมท้าย header (เช่น ตัวเลือกโหมดการแสดงผลในหน้าที่ยังไม่มีเมนู) */
   headerAction?: React.ReactNode;
 };
 
-/** ชื่อระบบ: ฟอนต์ display ภาษาอังกฤษเว้นช่องไฟกว้างเล็กน้อย ให้ความรู้สึกเรียบหรู */
+/** ชื่อระบบ: ฟอนต์ display (serif) ภาษาอังกฤษเว้นช่องไฟกว้างเล็กน้อย แบบหัวกระดาษของหน่วยงาน */
 function BrandName({ className = '' }: { className?: string }) {
   return (
     <span className={`leading-tight ${className}`}>
@@ -26,11 +27,6 @@ function BrandName({ className = '' }: { className?: string }) {
       <span className="block text-xs font-normal text-muted">มหาวิทยาลัยมหาสารคาม</span>
     </span>
   );
-}
-
-/** เส้นทองบาง 1px จางที่ปลายทั้งสองข้าง — ใช้แทนเส้นขอบล่างของ header (ตกแต่งเท่านั้น) */
-function GoldHairline() {
-  return <div aria-hidden className="h-px bg-linear-to-r from-transparent via-gold/70 to-transparent" />;
 }
 
 /**
@@ -50,7 +46,7 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
       {navUser && (
         <aside className="fixed inset-y-0 left-0 z-20 hidden w-20 flex-col border-r border-line bg-surface md:flex lg:w-64">
           <div className="flex h-14 items-center justify-center gap-2 border-b border-line lg:justify-start lg:px-5">
-            <ShieldCheck className="size-7 shrink-0 text-gold" aria-hidden />
+            <MsuMark className="h-6 w-auto shrink-0" />
             <BrandName className="hidden text-sm lg:block" />
           </div>
           <nav aria-label="เมนูหลัก" className="flex-1 overflow-y-auto py-4">
@@ -59,7 +55,7 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
         </aside>
       )}
 
-      <header className="sticky top-0 z-10 bg-surface/95 pt-[env(safe-area-inset-top)] backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-line bg-surface/95 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-2 md:px-4 lg:px-6">
           {backHref ? (
             <Link
@@ -71,7 +67,9 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
             </Link>
           ) : (
             // ไม่มีเมนูด้านข้าง (มือถือ/หน้าสาธารณะ) → แสดงโลโก้ใน header แทน
-            <ShieldCheck className={`ml-2 size-7 shrink-0 text-gold ${showNav ? 'md:hidden' : ''}`} aria-hidden />
+            <span className={`ml-2 shrink-0 ${showNav ? 'md:hidden' : ''}`}>
+              <MsuMark className="h-5 w-auto" />
+            </span>
           )}
 
           <div className="min-w-0 flex-1 px-1">
@@ -97,11 +95,12 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
             </Link>
           )}
         </div>
-        <GoldHairline />
       </header>
 
       <main
-        className={`mx-auto w-full px-4 py-6 md:px-6 lg:px-8 lg:py-8 ${width === 'form' ? 'max-w-2xl' : 'max-w-6xl'} ${
+        className={`mx-auto w-full ${
+          width === 'bleed' ? '' : `px-4 py-6 md:px-6 lg:px-8 lg:py-8 ${width === 'form' ? 'max-w-2xl' : 'max-w-6xl'}`
+        } ${
           showBottomNav ? 'pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8' : ''
         }`}
       >

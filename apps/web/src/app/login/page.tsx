@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ShieldCheck } from 'lucide-react';
 import { Alert } from '@/components/Alert';
+import { MsuLogo } from '@/components/BrandLogo';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
+import { SecurityPattern } from '@/components/SecurityPattern';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { getCurrentUser } from '@/lib/auth';
 import { serverConfig } from '@/lib/config';
@@ -36,26 +37,22 @@ export default async function LoginPage({
 
   return (
     <PageShell width="form" headerAction={<ThemeSwitcher initial={theme} compact />}>
-      {/* แสงทองจาง ๆ ด้านบนของหน้า (ตกแต่ง) */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70dvh] bg-[radial-gradient(ellipse_at_top,var(--color-accent-soft),transparent_70%)]"
-      />
       {/* มือถือ: ดันการ์ดลงครึ่งล่างของจอ (ใกล้นิ้วโป้ง) / จอใหญ่: กึ่งกลาง */}
       <div className="flex min-h-[calc(100dvh-8rem)] flex-col justify-end sm:justify-center">
         <section className="relative mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-8">
-          {/* เส้นทองบางด้านบนของการ์ด */}
-          <div aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-transparent via-gold to-transparent" />
-          <div className="flex size-12 items-center justify-center rounded-full bg-accent-soft ring-1 ring-gold/50">
-            <ShieldCheck className="size-6 text-gold" aria-hidden />
+          {/* แถบสีหมึกบนการ์ด + ลายนิรภัยที่มุมล่าง (ไม่ทับโลโก้ — เว้นพื้นที่รอบโลโก้ตาม CI) แบบเอกสารสำคัญ (ตกแต่ง) */}
+          <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-primary" />
+          <SecurityPattern className="pointer-events-none absolute -right-20 -bottom-20 size-56 text-ornament opacity-50" />
+          <div className="relative w-full max-w-72">
+            <MsuLogo className="h-auto w-full" />
           </div>
-          <h1 className="mt-5 font-display text-2xl leading-snug font-semibold">เข้าสู่ระบบ</h1>
-          <p className="mt-2 leading-relaxed text-muted">
+          <h1 className="relative mt-5 font-display text-2xl leading-snug font-semibold">เข้าสู่ระบบ</h1>
+          <p className="relative mt-2 leading-relaxed text-muted">
             นิสิตและบุคลากรใช้บัญชี @msu.ac.th ส่วนบุคลากรภายนอกใช้บัญชี Google ได้ทุกโดเมน (ต้องรอผู้ดูแลระบบอนุมัติ)
           </p>
 
           {errorMessage && (
-            <Alert tone="danger" className="mt-4">
+            <Alert tone="danger" className="relative mt-4">
               {errorMessage}
             </Alert>
           )}
@@ -63,7 +60,7 @@ export default async function LoginPage({
           {/* ใช้ <a> ไม่ใช่ <Link> เพราะต้องเปิดหน้าของ API ซึ่ง redirect ต่อไป Google */}
           <a
             href={`${serverConfig.publicApiUrl}/auth/google`}
-            className={`${buttonClasses({ variant: 'secondary' })} mt-6 w-full`}
+            className={`${buttonClasses({ variant: 'secondary' })} relative mt-6 w-full`}
           >
             <GoogleIcon />
             เข้าสู่ระบบด้วย Google

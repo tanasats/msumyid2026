@@ -1,4 +1,5 @@
 import { CircleAlert, Info, ShieldCheck, ShieldQuestionMark, ShieldX, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { MsuMark } from '@/components/BrandLogo';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import {
   INTEGRITY_LABELS,
@@ -66,7 +67,7 @@ export function SignatureResultCard({ report, total }: { report: SignatureReport
 
       {report.issuedByUniversity && (
         <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent-soft-fg">
-          <ShieldCheck className="size-3.5" aria-hidden />
+          <MsuMark className="h-3 w-auto" />
           ใบรับรองของมหาวิทยาลัยมหาสารคาม
         </p>
       )}

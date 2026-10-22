@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { FileSearch, FileUp, RotateCcw, X } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { Button, buttonClasses } from '@/components/Button';
+import { SecurityPattern } from '@/components/SecurityPattern';
 import { StatusState } from '@/components/StatusState';
 import { ApiClientError, apiUpload } from '@/lib/api-client';
 import { MAX_PDF_BYTES, formatBytes, type VerificationReport } from '@/lib/verify';
@@ -87,7 +88,7 @@ export function PdfVerifier() {
           setDragging(false);
           if (!uploading) pick(e.dataTransfer.files);
         }}
-        className={`flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-6 text-center transition ${
+        className={`relative flex min-h-48 flex-col overflow-hidden items-center justify-center gap-3 rounded-xl border-2 border-dashed p-6 text-center transition ${
           dragging ? 'border-accent bg-accent-soft' : 'border-line bg-surface'
         } ${uploading ? 'cursor-default' : 'cursor-pointer hover:bg-surface-hover'}`}
       >
@@ -118,8 +119,12 @@ export function PdfVerifier() {
           </div>
         ) : (
           <>
-            <span className="flex size-14 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg">
-              <FileUp className="size-7" aria-hidden />
+            {/* ไอคอนกลางลายนิรภัย — สื่อว่าเป็นการตรวจเอกสารสำคัญ (ตกแต่ง) */}
+            <span className="relative flex size-28 items-center justify-center">
+              <SecurityPattern className="absolute inset-0 size-full text-ornament opacity-60" />
+              <span className="relative flex size-14 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg ring-4 ring-surface">
+                <FileUp className="size-7" aria-hidden />
+              </span>
             </span>
             <span className="font-medium">เลือกไฟล์ PDF หรือลากไฟล์มาวางที่นี่</span>
             <span className="text-sm text-muted">ไฟล์ PDF ขนาดไม่เกิน {formatBytes(MAX_PDF_BYTES)}</span>

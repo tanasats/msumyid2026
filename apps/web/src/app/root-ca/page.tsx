@@ -37,7 +37,7 @@ export default async function RootCaPage() {
             className={`${buttonClasses({ fullWidth: true })} mt-5`}
           >
             <Download className="size-5" aria-hidden />
-            ดาวน์โหลดใบรับรองหลัก (.cer)
+            ดาวน์โหลดใบรับรองหลัก
           </a>
         </section>
 
