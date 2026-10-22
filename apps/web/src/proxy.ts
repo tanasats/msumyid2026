@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { serverConfig } from '@/lib/config';
 
 // หน้าที่เปิดได้โดยไม่ต้อง login
+// / = หน้าแลนดิ้ง (ยังไม่ login) หรือหน้าหลัก (login แล้ว — หน้าเลือกเอง)
 // /root-ca = วิธีติดตั้งใบรับรอง root สำหรับตรวจลายเซ็น, /verify = ตรวจลายมือชื่อบนเอกสาร (ผู้รับเอกสารอาจไม่มีบัญชีในระบบ)
-const PUBLIC_PATHS = ['/login', '/root-ca', '/root-ca/tuc-root-ca.cer', '/verify'];
+const PUBLIC_PATHS = ['/', '/login', '/root-ca', '/root-ca/tuc-root-ca.cer', '/verify'];
 
 /**
  * ผู้ที่ไม่มี session cookie → ส่งไปหน้า login (เพื่อ UX เท่านั้น — CLAUDE.md หัวข้อ 14)

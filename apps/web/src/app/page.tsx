@@ -1,14 +1,16 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ChevronRight, FileBadge, ShieldCheck } from 'lucide-react';
+import { Landing } from '@/components/landing/Landing';
 import { PageShell } from '@/components/PageShell';
 import { getCurrentUser } from '@/lib/auth';
+import { getThemePreference } from '@/lib/theme-server';
 
-// หน้าแรกหลัง login — ทางเข้าบริการของระบบ (ต้อง login เท่านั้น)
+// หน้าแรก: ยังไม่ login = หน้าแลนดิ้งสาธารณะ (ตรวจลายมือชื่อ + อธิบายความน่าเชื่อถือ) / login แล้ว = ทางเข้าบริการของระบบ
 export default async function HomePage() {
   const user = await getCurrentUser();
-  // cookie หมดอายุ/ถูกเพิกถอน (proxy ตรวจแค่ว่ามี cookie)
-  if (!user) redirect('/login');
+  // ไม่มี session หรือ cookie หมดอายุ/ถูกเพิกถอน (proxy ตรวจแค่ว่ามี cookie)
+  if (!user) return <Landing theme={await getThemePreference()} />;
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
   return (
