@@ -6,7 +6,7 @@ import { PERMISSIONS } from '../services/permissions.js';
 
 export const adminCertificatePolicyRouter = Router();
 
-// ช่วงค่าตรงกับ CHECK ใน migration create-certificate-policies-table
+// ช่วงค่าตรงกับ CHECK ใน migration create-certificate-policies-table และ add-supplementary-max-lead-days
 const policyBody = z.object({
   primaryMode: z.enum(['days', 'fixed_date']),
   primaryDays: z.number().int().min(1).max(825),
@@ -16,6 +16,7 @@ const policyBody = z.object({
   renewalWindowDays: z.number().int().min(0).max(365),
   supplementaryMaxDays: z.number().int().min(1).max(825),
   supplementaryMaxActive: z.number().int().min(0).max(20),
+  supplementaryMaxLeadDays: z.number().int().min(0).max(365),
 });
 
 // สิทธิ์: certificate_policy:manage — ดูนโยบายอายุใบรับรอง ตัวอย่างวันหมดอายุ และประวัติการแก้

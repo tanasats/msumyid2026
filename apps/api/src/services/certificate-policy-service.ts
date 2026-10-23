@@ -17,7 +17,7 @@ import type { AuthUser } from './authorization-service.js';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 /** เวลาประเทศไทย UTC+7 (ไม่มี daylight saving) */
-const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+export const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
 const POLICY_LOG_LIMIT = 20;
 
 /** วันสุดท้ายของเดือน (ไม่นับ 29 ก.พ. — ใช้ได้ทุกปี) */
@@ -107,5 +107,6 @@ function pickSettings(policy: CertificatePolicy): CertificatePolicySettings {
     renewalWindowDays: policy.renewalWindowDays,
     supplementaryMaxDays: policy.supplementaryMaxDays,
     supplementaryMaxActive: policy.supplementaryMaxActive,
+    supplementaryMaxLeadDays: policy.supplementaryMaxLeadDays,
   };
 }

@@ -265,7 +265,8 @@ describe('POST /me/certificates (certificate:request)', () => {
     const user = await requester();
     expect((await postRequest(user.cookie)).status).toBe(201);
 
-    const days = issue.mock.calls[0]![0].validityDays;
+    const input = issue.mock.calls[0]![0];
+    const days = 'validityDays' in input ? input.validityDays : 0;
     const expires = new Date(Date.now() + days * DAY);
     // วันหมดอายุตกวันที่ 31 ธ.ค. ตามเวลาประเทศไทย
     expect(expires.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })).toMatch(/-12-31$/);

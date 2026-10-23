@@ -12,8 +12,10 @@ import { authRouter } from './routes/auth.js';
 import { meRouter } from './routes/me.js';
 import { adminCertificatePolicyRouter } from './routes/admin-certificate-policy.js';
 import { adminCertificatesRouter } from './routes/admin-certificates.js';
+import { adminSupplementaryRequestsRouter } from './routes/admin-supplementary-certificate-requests.js';
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
+import { supplementaryCertificatesRouter } from './routes/supplementary-certificates.js';
 import { verifyRouter } from './routes/verify.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
@@ -41,7 +43,9 @@ export function createApp() {
   app.use(adminUsersRouter);
   app.use(adminCertificatesRouter);
   app.use(adminCertificatePolicyRouter);
+  app.use(adminSupplementaryRequestsRouter);
   app.use(certificatesRouter);
+  app.use(supplementaryCertificatesRouter);
   app.use(verifyRouter);
 
   app.use(notFoundHandler);

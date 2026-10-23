@@ -16,7 +16,7 @@ import { PERMISSIONS } from '../services/permissions.js';
 
 export const certificatesRouter = Router();
 
-const requestBody = z.object({
+export const p12Body = z.object({
   // ไม่ trim: ช่องว่างเป็นส่วนหนึ่งของรหัสผ่านได้
   p12Password: z.string().min(8, 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร').max(128),
   legacyP12: z.boolean().default(false),
@@ -34,7 +34,7 @@ certificatesRouter.get('/me/certificates', requireAuth, async (req, res) => {
 
 // สิทธิ์: certificate:request — ขอใบรับรองใหม่ได้ไฟล์ .p12 กลับไปครั้งเดียว (ระบบไม่เก็บไฟล์และรหัสผ่าน)
 certificatesRouter.post('/me/certificates', requirePermission(PERMISSIONS.CERTIFICATE_REQUEST), async (req, res) => {
-  const input = requestBody.parse(req.body);
+  const input = p12Body.parse(req.body);
   const { certificate, p12 } = await requestCertificate(req.user!, input);
   // ไฟล์ที่มี private key ห้ามถูกเก็บใน cache ใด ๆ
   res.set('Cache-Control', 'no-store');
@@ -48,10 +48,11 @@ certificatesRouter.post('/me/certificates', requirePermission(PERMISSIONS.CERTIF
 const certificateIdParams = z.object({ id: z.uuid() });
 const revokeBody = z.object({ reason: z.enum(SELF_REVOCATION_REASONS) });
 
-// สิทธิ์: certificate:request — เพิกถอนใบรับรองของตัวเอง (ย้อนกลับไม่ได้) แล้วออก CRL ใหม่
+// สิทธิ์: ตามประเภทใบ (ตรวจใน service) — ใบประจำตัว = certificate:request, ใบเสริม = supplementary_certificate:request
+// เพิกถอนใบรับรองของตัวเอง (ย้อนกลับไม่ได้) แล้วออก CRL ใหม่
 certificatesRouter.post(
   '/me/certificates/:id/revoke',
-  requirePermission(PERMISSIONS.CERTIFICATE_REQUEST),
+  requireAuth,
   async (req, res) => {
     const { id } = certificateIdParams.parse(req.params);
     const { reason } = revokeBody.parse(req.body);
@@ -60,13 +61,14 @@ certificatesRouter.post(
   },
 );
 
-// สิทธิ์: certificate:request — ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม)
+// สิทธิ์: ตามประเภทใบ (ตรวจใน service) เหมือนการเพิกถอน
+// ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม)
 certificatesRouter.post(
   '/me/certificates/:id/p12',
-  requirePermission(PERMISSIONS.CERTIFICATE_REQUEST),
+  requireAuth,
   async (req, res) => {
     const { id } = certificateIdParams.parse(req.params);
-    const input = requestBody.parse(req.body);
+    const input = p12Body.parse(req.body);
     const { p12, fileName } = await downloadMyCertificateP12(req.user!, id, input);
     // ไฟล์ที่มี private key ห้ามถูกเก็บใน cache ใด ๆ
     res.set('Cache-Control', 'no-store');

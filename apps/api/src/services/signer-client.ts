@@ -4,14 +4,19 @@ import { config } from '../config/index.js';
 // จุดเดียวที่คุยกับบริการเซ็น (apps/signer) — test ของ API mock เฉพาะ object นี้
 // signer ถือ key ของ CA และ KEK: API ส่งเฉพาะ subject ที่กำหนดจากฐานข้อมูล และได้ key สำรองกลับมาแบบเข้ารหัสแล้วเท่านั้น
 
-export type IssueCertificateInput = {
+type IssueBase = {
   commonName: string;
   email: string;
   p12Password: string;
   legacyP12: boolean;
-  /** อายุใบ (วัน) ตามนโยบาย — signer ตัดให้ไม่เกินเพดานและอายุ CA */
-  validityDays: number;
 };
+
+/** ใบประจำตัว (S/MIME) อายุเป็นจำนวนวัน หรือใบเสริม (ลงนามเอกสาร) ตามช่วงเวลาที่อนุมัติ — signer ตัดให้ไม่เกินเพดานและอายุ CA */
+export type IssueCertificateInput = IssueBase &
+  (
+    | { validityDays: number }
+    | { profile: 'document_signing'; notBefore: Date; notAfter: Date }
+  );
 
 export type IssuedCertificate = {
   certificatePem: string;

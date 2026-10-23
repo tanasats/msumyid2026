@@ -35,6 +35,7 @@ import { deleteSessionsByUser, type AccountType } from '../repositories/session-
 import { findUsersByEmail } from '../repositories/user-repository.js';
 import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
 import { erasePersonalDataFromCertificates } from '../repositories/certificate-repository.js';
+import { erasePersonalDataFromRequests } from '../repositories/supplementary-certificate-request-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -458,6 +459,7 @@ export async function deleteUser(
     // ใบรับรอง: เพิกถอนใบที่ใช้งานอยู่ก่อน แล้วลบชื่อ/อีเมล/key สำรอง (คง serial และการเพิกถอนไว้ให้ CRL)
     const revoked = await revokeCertificatesOfClosedAccount(client, { userId, actorId: actor.id, note: 'ลบบัญชี' });
     const erased = await erasePersonalDataFromCertificates(client, userId);
+    const erasedRequests = await erasePersonalDataFromRequests(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,
@@ -469,6 +471,7 @@ export async function deleteUser(
         revokedRoles,
         revokedCertificates: revoked,
         erasedCertificates: erased.certificates,
+        erasedSupplementaryRequests: erasedRequests,
         deletedKeyEscrows: erased.keyEscrows,
       },
       reason,
