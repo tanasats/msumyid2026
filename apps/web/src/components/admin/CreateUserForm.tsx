@@ -8,7 +8,7 @@ import { Button, buttonClasses } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import type { AccountType, OrgUnit } from '@/lib/admin-users';
 import { apiMutate } from '@/lib/api-client';
-import { ACCOUNT_TYPE_LABELS, expiryDateToIso, type ResponsibleUser } from '@/lib/account-type';
+import { ACCOUNT_TYPE_LABELS, ASSIGNABLE_ACCOUNT_TYPES, expiryDateToIso, type ResponsibleUser } from '@/lib/account-type';
 import { AccountExpiryField } from './AccountExpiryField';
 import { ResponsibleUserField } from './ResponsibleUserField';
 
@@ -122,7 +122,7 @@ export function CreateUserForm({ orgUnits }: { orgUnits: OrgUnit[] }) {
             onChange={(e) => setAccountType(e.target.value as AccountType)}
             className={selectClass}
           >
-            {(Object.keys(ACCOUNT_TYPE_LABELS) as AccountType[]).map((type) => (
+            {ASSIGNABLE_ACCOUNT_TYPES.map((type) => (
               <option key={type} value={type}>
                 {ACCOUNT_TYPE_LABELS[type]}
               </option>
