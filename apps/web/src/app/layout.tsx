@@ -1,13 +1,35 @@
 import type { Metadata, Viewport } from 'next';
-import { Sarabun } from 'next/font/google';
+import { IBM_Plex_Mono, IBM_Plex_Sans_Thai_Looped } from 'next/font/google';
+import localFont from 'next/font/local';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
 import './globals.css';
 
-// ฟอนต์เดียวทั้งระบบ (เนื้อหาและหัวข้อ) — Sarabun ไม่ใช่ variable font จึงต้องระบุน้ำหนักที่ใช้ (400 ปกติ, 500 medium, 600 semibold, 700 ตัวหนาเริ่มต้นเช่น <th>)
-const sarabun = Sarabun({
+// ฟอนต์เนื้อหา — IBM Plex Sans Thai Looped: ไทยมีหัว (ทางการ) ออกแบบมาสำหรับหน้าจอ ละตินและตัวเลขสัดส่วนเข้ากับไทย
+// ไม่ใช่ variable font จึงต้องระบุน้ำหนักที่ใช้ (400 ปกติ, 500 medium, 600 semibold, 700 ตัวหนาเริ่มต้นเช่น <th>)
+const plexSansThai = IBM_Plex_Sans_Thai_Looped({
   weight: ['400', '500', '600', '700'],
   subsets: ['thai', 'latin'],
-  variable: '--font-sarabun',
+  variable: '--font-plex-sans-thai',
+  display: 'swap',
+});
+
+// ฟอนต์รหัส (font-mono) — serial, fingerprint: แยก 0/O, 1/l ชัด และหน้าตาเหมือนกันทุกระบบปฏิบัติการ
+const plexMono = IBM_Plex_Mono({
+  weight: ['400', '500'],
+  subsets: ['latin'],
+  variable: '--font-plex-mono',
+  display: 'swap',
+});
+
+// ฟอนต์หัวข้อ (font-display) — Mornamchi ฟอนต์อัตลักษณ์ของมหาวิทยาลัยมหาสารคาม (ต้นฉบับ docs/Font - Mornamchi/)
+// มีแค่ Regular/Bold สำหรับเว็บ: font-semibold (600) ที่หัวข้อใช้ → browser เลือก Bold (700) ให้เอง
+// ไฟล์อยู่ใน repo (next/font/local) จึงไม่ต้องโหลดจากภายนอก
+const mornamchi = localFont({
+  src: [
+    { path: '../fonts/Mornamchi-Regular.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/Mornamchi-Bold.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--font-mornamchi',
   display: 'swap',
 });
 
@@ -25,8 +47,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#fffdf9' },
-    { media: '(prefers-color-scheme: dark)', color: '#16130f' },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#121830' },
   ],
 };
 
@@ -36,7 +58,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html
       lang="th"
-      className={sarabun.variable}
+      className={`${plexSansThai.variable} ${mornamchi.variable} ${plexMono.variable}`}
       data-theme={theme === 'system' ? undefined : theme}
       data-text-size={textSize === 'normal' ? undefined : textSize}
     >

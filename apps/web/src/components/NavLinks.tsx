@@ -58,9 +58,9 @@ export function NavLinks({ permissions, variant }: { permissions: string[]; vari
               className={`${classes.item} transition ${
                 active
                   ? 'font-semibold text-accent-soft-fg' +
-                    // sidebar: พื้นทองอ่อน + แถบทองบางด้านซ้าย
+                    // sidebar: พื้นน้ำเงินอ่อน + แถบสีหมึกด้านซ้าย
                     (variant === 'side'
-                      ? ' relative bg-accent-soft before:absolute before:inset-y-2.5 before:left-0 before:w-0.5 before:rounded-full before:bg-gold'
+                      ? ' relative bg-accent-soft before:absolute before:inset-y-2.5 before:left-0 before:w-[3px] before:rounded-full before:bg-primary'
                       : '')
                   : 'text-muted hover:bg-surface-hover hover:text-fg'
               }`}

@@ -49,7 +49,7 @@ export function SegmentedControl<T extends string>({
             className={`flex min-h-11 items-center justify-center gap-2 rounded-full text-sm font-medium transition ${
               compact ? 'min-w-11' : 'flex-1 px-4 sm:flex-none'
             } ${
-              selected ? 'bg-surface text-accent-soft-fg shadow-card ring-1 ring-gold/60' : 'text-muted hover:text-fg'
+              selected ? 'bg-surface text-accent-soft-fg shadow-card ring-1 ring-ornament/60' : 'text-muted hover:text-fg'
             }`}
           >
             {Icon && <Icon className="size-4" aria-hidden />}

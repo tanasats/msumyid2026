@@ -2,7 +2,8 @@
 
 /*
  * Design tokens — ดูที่มาและค่า contrast ใน docs/design/ui-guidelines.md หัวข้อ 3
- * โทน "Ivory & Espresso" (สว่าง) / "Obsidian & Champagne" (มืด) — เรียบ สุขุม ทองใช้เป็นสีเน้นเท่านั้น
+ * โทน "หมึกและกระดาษ" (Ink & Paper): กระดาษขาวอมเทาเย็น ตัวอักษรหมึกเกือบดำ ปุ่มหลักสีหมึกน้ำเงินคราม
+ * (สีหมึกที่ใช้ลงนามเอกสารราชการ) — เป็นทางการ น่าเชื่อถือ เรียบ ตกแต่งเฉพาะลายนิรภัย
  * หน้าเว็บใช้ชื่อ semantic (bg-canvas, text-muted, bg-primary ...) ห้ามใช้ชื่อสี palette ตรง ๆ (ESLint ตรวจ)
  *
  * โหมด: ค่าเริ่มต้นตามระบบของเครื่อง (prefers-color-scheme)
@@ -13,49 +14,49 @@
 :root {
   color-scheme: light;
 
-  --c-canvas: #f7f4ee;
-  --c-surface: #fffdf9;
-  --c-surface-hover: #f1ece4;
-  --c-skeleton: #e9e2d7;
-  --c-fg: #1c1611;
-  --c-muted: #5e5248;
-  --c-subtle: #7a6c60;
-  --c-line: #e6ded2;
-  /* ขอบช่องกรอก/checkbox ต้อง contrast ≥ 3:1 กับพื้น (3.81) */
-  --c-line-input: #8e7f71;
+  --c-canvas: #f3f5f8;
+  --c-surface: #ffffff;
+  --c-surface-hover: #edf0f5;
+  --c-skeleton: #e2e6ed;
+  --c-fg: #121a2e;
+  --c-muted: #4a5468;
+  --c-subtle: #626b7f;
+  --c-line: #dce1e9;
+  /* ขอบช่องกรอก/checkbox ต้อง contrast ≥ 3:1 กับพื้น (3.65, บน canvas 3.34) */
+  --c-line-input: #7d869a;
 
-  --c-primary: #3a2a20;
-  --c-primary-hover: #2a1e17;
-  --c-on-primary: #fbf7f0;
-  /* ทองเข้ม (antique gold) สำหรับข้อความ/ลิงก์ — ทอง champagne บนพื้นสว่างมี contrast แค่ 2.2 ใช้ตกแต่งเท่านั้น */
-  --c-accent: #7e5f26;
-  --c-accent-soft: #f3ead8;
-  --c-accent-soft-fg: #5c4318;
-  --c-gold: #c9a96e;
-  --c-focus: #9a7432;
+  --c-primary: #1f2d6b;
+  --c-primary-hover: #17225a;
+  --c-on-primary: #ffffff;
+  --c-accent: #2a3f9e;
+  --c-accent-soft: #e8ecf8;
+  --c-accent-soft-fg: #1f2d6b;
+  /* ลายเส้นตกแต่ง (ลายนิรภัย, แถบเมนูที่เลือก) — contrast 2.9 ห้ามใช้กับข้อความหรือไอคอนที่สื่อความหมาย */
+  --c-ornament: #8a97c9;
+  --c-focus: #2a3f9e;
 
-  --c-success-soft: #eef4ec;
-  --c-success-fg: #2f5d3a;
-  --c-success-line: #c9dcc9;
-  --c-warning-soft: #fbf2e2;
-  --c-warning-fg: #7a4b12;
-  --c-warning-line: #eed9b2;
-  --c-danger: #9b2c2c;
-  --c-danger-hover: #7f2222;
+  --c-success-soft: #e9f3ee;
+  --c-success-fg: #1e6142;
+  --c-success-line: #bfdccb;
+  --c-warning-soft: #fbf1e0;
+  --c-warning-fg: #7f4a00;
+  --c-warning-line: #ebd3a6;
+  --c-danger: #a3242b;
+  --c-danger-hover: #861c22;
   --c-on-danger: #ffffff;
-  --c-danger-soft: #fbedec;
-  --c-danger-fg: #8e2a2a;
-  --c-danger-line: #efc9c6;
-  --c-info-soft: #ecf1f5;
-  --c-info-fg: #2d4a63;
-  --c-info-line: #c8d6e2;
-  --c-neutral-soft: #f1ece4;
-  --c-neutral-fg: #4a4038;
-  --c-neutral-line: #e0d7ca;
+  --c-danger-soft: #fbebec;
+  --c-danger-fg: #9a2229;
+  --c-danger-line: #edc4c6;
+  --c-info-soft: #e8f1f6;
+  --c-info-fg: #1f4e6b;
+  --c-info-line: #bfd5e3;
+  --c-neutral-soft: #eef0f3;
+  --c-neutral-fg: #3f4757;
+  --c-neutral-line: #d9dde4;
 
-  --c-overlay: rgb(11 11 13 / 0.55);
-  /* เงาอุ่นนุ่มมาก (ใช้กับการ์ด/กล่องที่ลอยเหนือพื้น) — โหมดมืดไม่ใช้เงา */
-  --c-shadow: 0 1px 2px rgb(28 22 17 / 0.04), 0 8px 24px -12px rgb(28 22 17 / 0.08);
+  --c-overlay: rgb(11 16 32 / 0.55);
+  /* เงาบางมาก แค่แยกการ์ดจากพื้น — ความเป็นทางการมาจากเส้นขอบ ไม่ใช่เงาลอย; โหมดมืดไม่ใช้เงา */
+  --c-shadow: 0 1px 2px rgb(18 26 46 / 0.06);
 }
 
 /*
@@ -73,48 +74,48 @@
   }
 }
 
-/* ---- โหมดมืด ---- */
+/* ---- โหมดมืด "หมึกยามค่ำ": พื้นน้ำเงินหมึกเข้ม ตัวอักษรขาวอมเทา ปุ่มหลักน้ำเงินอ่อน ---- */
 :root {
   @variant dark {
     color-scheme: dark;
 
-    --c-canvas: #0b0b0d;
-    --c-surface: #16130f;
-    --c-surface-hover: #221d18;
-    --c-skeleton: #2a231d;
-    --c-fg: #f1eadf;
-    --c-muted: #bdb0a0;
-    --c-subtle: #968a7c;
-    --c-line: #2c251f;
-    --c-line-input: #74685b;
+    --c-canvas: #0b1020;
+    --c-surface: #121830;
+    --c-surface-hover: #1b2340;
+    --c-skeleton: #222b4a;
+    --c-fg: #e7eaf3;
+    --c-muted: #a9b1c7;
+    --c-subtle: #8790a8;
+    --c-line: #232c48;
+    --c-line-input: #6b7594;
 
-    --c-primary: #d4b77c;
-    --c-primary-hover: #e3ca96;
-    --c-on-primary: #0b0b0d;
-    --c-accent: #d9bf8a;
-    --c-accent-soft: #2a2217;
-    --c-accent-soft-fg: #e6cf9e;
-    --c-gold: #d4b77c;
-    --c-focus: #d4b77c;
+    --c-primary: #a9b8f2;
+    --c-primary-hover: #c0ccf7;
+    --c-on-primary: #0b1020;
+    --c-accent: #afc0fa;
+    --c-accent-soft: #1c2550;
+    --c-accent-soft-fg: #c9d4fb;
+    --c-ornament: #5d6ca8;
+    --c-focus: #afc0fa;
 
-    --c-success-soft: #14231a;
-    --c-success-fg: #9ccba4;
-    --c-success-line: #2a4a33;
-    --c-warning-soft: #2a2010;
-    --c-warning-fg: #e5be7a;
-    --c-warning-line: #5a4420;
-    --c-danger: #a83a35;
-    --c-danger-hover: #bd4a44;
+    --c-success-soft: #10251c;
+    --c-success-fg: #8fd1ae;
+    --c-success-line: #24503a;
+    --c-warning-soft: #2a1f0c;
+    --c-warning-fg: #ebc27e;
+    --c-warning-line: #5a4319;
+    --c-danger: #b23a40;
+    --c-danger-hover: #c64c52;
     --c-on-danger: #ffffff;
-    --c-danger-soft: #2e1514;
-    --c-danger-fg: #f0a5a0;
-    --c-danger-line: #5e2a27;
-    --c-info-soft: #141e28;
-    --c-info-fg: #a9c3da;
-    --c-info-line: #2b3e52;
-    --c-neutral-soft: #221d18;
-    --c-neutral-fg: #cfc4b6;
-    --c-neutral-line: #3a322a;
+    --c-danger-soft: #2c1214;
+    --c-danger-fg: #f2a7aa;
+    --c-danger-line: #5c2629;
+    --c-info-soft: #0f2230;
+    --c-info-fg: #9cc8e2;
+    --c-info-line: #24465c;
+    --c-neutral-soft: #1b2133;
+    --c-neutral-fg: #c3c9d8;
+    --c-neutral-line: #333b52;
 
     --c-overlay: rgb(0 0 0 / 0.7);
     --c-shadow: none;
@@ -123,9 +124,15 @@
 
 /* utility อ้างค่าตอนใช้งาน (inline) จึงเปลี่ยนตามโหมดโดยไม่ต้องสร้างคลาสใหม่ */
 @theme inline {
-  --font-sans: var(--font-sarabun), ui-sans-serif, system-ui, sans-serif;
-  /* ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) — ตอนนี้ใช้ Sarabun เดียวกับเนื้อหา คงไว้เป็นบทบาทแยกเพื่อเปลี่ยนฟอนต์หัวข้อได้ที่เดียว */
-  --font-display: var(--font-sarabun), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-plex-sans-thai), ui-sans-serif, system-ui, sans-serif;
+  /* ฟอนต์หัวข้อ (ชื่อระบบ, h1, หัวข้อส่วน) — Mornamchi ฟอนต์อัตลักษณ์ของมหาวิทยาลัย (แบบเดียวกับตัวอักษรในโลโก้) */
+  --font-display: var(--font-mornamchi), var(--font-plex-sans-thai), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* มุมโค้งน้อยลงทั้งระบบ (ทางการ) — ปรับสเกลของ Tailwind ที่นี่ที่เดียว: lg 6px, xl 8px, 2xl 12px */
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.75rem;
 
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
@@ -142,7 +149,7 @@
   --color-accent: var(--c-accent);
   --color-accent-soft: var(--c-accent-soft);
   --color-accent-soft-fg: var(--c-accent-soft-fg);
-  --color-gold: var(--c-gold);
+  --color-ornament: var(--c-ornament);
   --color-focus: var(--c-focus);
   --color-success-soft: var(--c-success-soft);
   --color-success-fg: var(--c-success-fg);

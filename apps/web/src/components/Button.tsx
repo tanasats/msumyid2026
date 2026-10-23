@@ -10,10 +10,10 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   danger: 'bg-danger text-on-danger hover:bg-danger-hover active:bg-danger-hover',
 };
 
-// md = ปุ่มหลัก/ปุ่มในฟอร์ม (48px), sm = ปุ่มรอง (44px — ขั้นต่ำของพื้นที่แตะ)
+// md = ปุ่มหลัก/ปุ่มในฟอร์ม (สูงอย่างน้อย 48px), sm = ปุ่มรอง (44px — ขั้นต่ำของพื้นที่แตะ) — ข้อความยาวบนจอแคบขึ้นบรรทัดใหม่ได้ ปุ่มสูงตาม
 const SIZE_CLASSES: Record<ButtonSize, string> = {
-  md: 'h-12 px-5 text-base',
-  sm: 'h-11 px-4 text-sm',
+  md: 'min-h-12 px-5 py-2 text-base leading-snug text-center',
+  sm: 'min-h-11 px-4 py-1.5 text-sm leading-snug text-center',
 };
 
 /**
