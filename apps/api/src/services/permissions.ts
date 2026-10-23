@@ -21,7 +21,7 @@ export const PERMISSIONS = {
   CERTIFICATE_READ: 'certificate:read',
   /** เพิกถอนใบรับรองของผู้อื่น */
   CERTIFICATE_REVOKE: 'certificate:revoke',
-  /** กำหนดนโยบายอายุใบรับรองหลักและเพดานของใบรับรองเสริม */
+  /** กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม */
   CERTIFICATE_POLICY_MANAGE: 'certificate_policy:manage',
   /** ลงนามเอกสารด้วยใบรับรองของตัวเอง */
   DOCUMENT_SIGN: 'document:sign',

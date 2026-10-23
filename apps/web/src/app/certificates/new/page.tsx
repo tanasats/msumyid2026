@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'ขอใบรับรองให
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', timeZone: 'Asia/Bangkok' });
 
-// ขอใบรับรองหลัก (ต้องมี certificate:request — API ตรวจสิทธิ์และกฎใบหลัก 1 ใบ/ช่วงต่ออายุอีกครั้งตอนส่ง)
+// ขอใบรับรองประจำตัว (ต้องมี certificate:request — API ตรวจสิทธิ์และกฎใบประจำตัว 1 ใบ/ช่วงต่ออายุอีกครั้งตอนส่ง)
 export default async function NewCertificatePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
@@ -28,7 +28,7 @@ export default async function NewCertificatePage() {
       {renewableFrom ? (
         <StatusState
           icon={FileBadge}
-          title="คุณมีใบรับรองหลักที่ใช้งานอยู่แล้ว"
+          title="คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว"
           action={
             <Link href="/certificates" className={buttonClasses({ fullWidth: true })}>
               กลับไปที่ใบรับรองของฉัน

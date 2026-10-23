@@ -2,7 +2,7 @@ import type { Queryable } from '../db/types.js';
 
 export type CertificateStatus = 'active' | 'expired' | 'revoked';
 
-/** primary = ใบหลัก (ขอเองได้), supplementary = ใบเสริม (ออกเมื่อคำขอได้รับอนุมัติ) */
+/** primary = ใบประจำตัว (ขอเองได้), supplementary = ใบเสริม (ออกเมื่อคำขอได้รับอนุมัติ) */
 export type CertificateKind = 'primary' | 'supplementary';
 
 export type RevocationReason =
@@ -69,7 +69,7 @@ export async function listCertificatesByUser(db: Queryable, userId: string, limi
 }
 
 /**
- * วันหมดอายุของใบที่ใช้งานอยู่ (ยังไม่เพิกถอนและยังไม่หมดอายุ) ของผู้ใช้ตามประเภท — ใช้ตรวจกฎใบหลัก 1 ใบ/ช่วงต่ออายุ
+ * วันหมดอายุของใบที่ใช้งานอยู่ (ยังไม่เพิกถอนและยังไม่หมดอายุ) ของผู้ใช้ตามประเภท — ใช้ตรวจกฎใบประจำตัว 1 ใบ/ช่วงต่ออายุ
  * ต้องเรียกหลัง lockUserForCertificate ใน transaction เดียวกัน จึงจะตรวจได้ถูกต้องเมื่อขอพร้อมกันหลายคำขอ
  * ใช้ index certificates_user_id_kind_idx — ผู้ใช้มีใบที่ใช้งานอยู่ไม่กี่ใบ แต่ยังจำกัดจำนวนไว้
  */
@@ -116,7 +116,7 @@ export type InsertCertificateInput = {
   notBefore: Date;
   notAfter: Date;
   source: 'issued' | 'imported';
-  /** ไม่ระบุ = ใบหลัก (ใบที่นำเข้าจากระบบเดิมเป็นใบหลักเสมอ) */
+  /** ไม่ระบุ = ใบประจำตัว (ใบที่นำเข้าจากระบบเดิมเป็นใบประจำตัวเสมอ) */
   kind?: CertificateKind;
   certificatePem: string;
   fingerprintSha256: string;
