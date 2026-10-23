@@ -96,12 +96,12 @@ export function CertificatePolicyForm({ initial }: { initial: CertificatePolicyS
 
       <section className="space-y-5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
         <div>
-          <h2 className="font-display text-lg font-semibold">ใบรับรองหลัก</h2>
+          <h2 className="font-display text-lg font-semibold">ใบรับรองประจำตัว</h2>
           <p className="mt-1 text-sm text-muted">ผู้ใช้ขอเองได้คนละ 1 ใบ ใบที่ออกแล้วไม่เปลี่ยนตามนโยบายใหม่</p>
         </div>
 
         <SegmentedControl
-          label="วิธีกำหนดอายุใบหลัก"
+          label="วิธีกำหนดอายุใบประจำตัว"
           value={mode}
           onChange={(m) => {
             setSaved(false);
@@ -161,7 +161,7 @@ export function CertificatePolicyForm({ initial }: { initial: CertificatePolicyS
           {...numberProps('renewalWindowDays')}
           label="ช่วงต่ออายุ (วัน)"
           max={365}
-          hint="ผู้ใช้ขอใบหลักใบใหม่ได้เมื่อใบเดิมเหลืออายุไม่เกินเท่านี้ ใบเดิมใช้ต่อได้จนหมดอายุ"
+          hint="ผู้ใช้ขอใบประจำตัวใบใหม่ได้เมื่อใบเดิมเหลืออายุไม่เกินเท่านี้ ใบเดิมใช้ต่อได้จนหมดอายุ"
         />
 
         <div className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg" aria-live="polite">

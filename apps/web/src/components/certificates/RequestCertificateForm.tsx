@@ -4,7 +4,7 @@ import { InfoList, InfoRow } from '@/components/InfoList';
 import { P12PasswordForm } from './P12PasswordForm';
 
 /**
- * ฟอร์มขอใบรับรองหลัก: ผู้ใช้ตั้งรหัสผ่านของไฟล์ .p12 เอง อายุใบตามนโยบายที่ผู้ดูแลกำหนด
+ * ฟอร์มขอใบรับรองประจำตัว: ผู้ใช้ตั้งรหัสผ่านของไฟล์ .p12 เอง อายุใบตามนโยบายที่ผู้ดูแลกำหนด
  * ชื่อและอีเมลในใบรับรองมาจากบัญชี (API กำหนดเอง แก้ที่นี่ไม่ได้)
  */
 export function RequestCertificateForm({

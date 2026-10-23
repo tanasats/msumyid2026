@@ -26,7 +26,7 @@ export default async function CertificatesPage() {
 
   const { certificates, primaryRequest } = await getMyCertificates();
   const canRequest = user.permissions.includes('certificate:request');
-  // มีใบหลักที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
+  // มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
   const renewableFrom = primaryRequest.renewableFrom ? new Date(primaryRequest.renewableFrom) : null;
 
   const requestButton = (
@@ -47,7 +47,7 @@ export default async function CertificatesPage() {
           </Alert>
         )}
         {canRequest && renewableFrom && (
-          <Alert tone="info" title="คุณมีใบรับรองหลักที่ใช้งานอยู่แล้ว">
+          <Alert tone="info" title="คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว">
             ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ {dateFormatter.format(renewableFrom)} (ก่อนใบเดิมหมดอายุ{' '}
             {primaryRequest.renewalWindowDays} วัน) ใบเดิมใช้ได้ต่อจนหมดอายุ
           </Alert>

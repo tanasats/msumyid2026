@@ -37,7 +37,7 @@ export default async function CertificatePolicyPage() {
           </h2>
           {logs.length === 0 ? (
             <StatusState icon={History} title="ยังไม่มีการแก้ไข">
-              ระบบใช้ค่าเริ่มต้น: ใบหลักอายุ 365 วัน ต่ออายุได้เมื่อเหลือ 30 วัน
+              ระบบใช้ค่าเริ่มต้น: ใบประจำตัวอายุ 365 วัน ต่ออายุได้เมื่อเหลือ 30 วัน
             </StatusState>
           ) : (
             <ol className="mt-3 divide-y divide-line">

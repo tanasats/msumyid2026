@@ -2,7 +2,7 @@
 
 export type CertificateStatus = 'active' | 'expired' | 'revoked';
 
-/** primary = ใบหลัก (ขอเองได้), supplementary = ใบเสริม เฉพาะกิจ/ระยะสั้น (ออกเมื่อคำขอได้รับอนุมัติ) */
+/** primary = ใบประจำตัว (ขอเองได้), supplementary = ใบเสริม เฉพาะกิจ/ระยะสั้น (ออกเมื่อคำขอได้รับอนุมัติ) */
 export type CertificateKind = 'primary' | 'supplementary';
 
 /** ใบรับรองตามที่ API GET /me/certificates ส่งมา */

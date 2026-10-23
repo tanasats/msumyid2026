@@ -48,7 +48,7 @@ export const MAX_DAY_OF_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
 
-/** ตัวอย่างวันหมดอายุของใบหลักถ้าออก ณ เวลา now (ตรรกะเดียวกับ primaryValidityDays ของ API) */
+/** ตัวอย่างวันหมดอายุของใบประจำตัวถ้าออก ณ เวลา now (ตรรกะเดียวกับ primaryValidityDays ของ API) */
 export function previewPrimaryExpiry(policy: CertificatePolicySettings, now: Date): Date | null {
   if (policy.primaryMode === 'days') {
     return policy.primaryDays >= 1 ? new Date(now.getTime() + policy.primaryDays * DAY_MS) : null;
@@ -62,7 +62,7 @@ export function previewPrimaryExpiry(policy: CertificatePolicySettings, now: Dat
   return null;
 }
 
-/** สรุปนโยบายใบหลักเป็นประโยคสั้น */
+/** สรุปนโยบายใบประจำตัวเป็นประโยคสั้น */
 export function describePrimaryPolicy(policy: CertificatePolicySettings): string {
   return policy.primaryMode === 'days'
     ? `อายุ ${policy.primaryDays} วันนับจากวันที่ออก`
@@ -70,8 +70,8 @@ export function describePrimaryPolicy(policy: CertificatePolicySettings): string
 }
 
 const FIELD_LABELS: Record<keyof CertificatePolicySettings, string> = {
-  primaryMode: 'วิธีกำหนดอายุใบหลัก',
-  primaryDays: 'อายุใบหลัก (วัน)',
+  primaryMode: 'วิธีกำหนดอายุใบประจำตัว',
+  primaryDays: 'อายุใบประจำตัว (วัน)',
   primaryExpiryMonth: 'เดือนที่หมดอายุ',
   primaryExpiryDay: 'วันที่หมดอายุ',
   primaryMinDays: 'อายุขั้นต่ำ (วัน)',
@@ -91,7 +91,7 @@ function formatValue(key: keyof CertificatePolicySettings, value: CertificatePol
   return String(value);
 }
 
-/** รายการค่าที่เปลี่ยนในประวัติการแก้ เช่น "อายุใบหลัก (วัน): 365 → 180" */
+/** รายการค่าที่เปลี่ยนในประวัติการแก้ เช่น "อายุใบประจำตัว (วัน): 365 → 180" */
 export function describePolicyChanges(log: Pick<CertificatePolicyLog, 'before' | 'after'>): string[] {
   return (Object.keys(FIELD_LABELS) as (keyof CertificatePolicySettings)[])
     .filter((key) => log.before[key] !== log.after[key])

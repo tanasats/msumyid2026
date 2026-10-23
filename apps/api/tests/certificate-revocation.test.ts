@@ -171,7 +171,7 @@ describe('POST /me/certificates/:id/revoke (certificate:request)', () => {
     expect(await isCrlOutdated()).toBe(true);
   });
 
-  it('เพิกถอนใบหลักที่ใช้งานอยู่แล้ว จึงขอใบหลักใหม่ได้ก่อนถึงช่วงต่ออายุ', async () => {
+  it('เพิกถอนใบประจำตัวที่ใช้งานอยู่แล้ว จึงขอใบประจำตัวใหม่ได้ก่อนถึงช่วงต่ออายุ', async () => {
     mockCrl();
     vi.spyOn(signer, 'issueCertificate').mockImplementation(async () => ({
       certificatePem: '-----BEGIN CERTIFICATE-----\n',

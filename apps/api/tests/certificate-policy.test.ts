@@ -6,7 +6,7 @@ import type { CertificatePolicySettings } from '../src/repositories/certificate-
 import { primaryValidityDays } from '../src/services/certificate-policy-service.js';
 import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
 
-// นโยบายอายุใบรับรอง: คำนวณอายุใบหลัก + หน้าผู้ดูแล (certificate_policy:manage)
+// นโยบายอายุใบรับรอง: คำนวณอายุใบประจำตัว + หน้าผู้ดูแล (certificate_policy:manage)
 
 const app = createApp();
 const ORIGIN = 'http://localhost:3010';
@@ -103,7 +103,7 @@ describe('GET/PUT /admin/certificate-policy (certificate_policy:manage)', () => 
     expect(res.status).toBe(200);
   });
 
-  it('ค่าเริ่มต้นจาก migration: ใบหลัก 365 วัน ต่ออายุได้เมื่อเหลือ 30 วัน', async () => {
+  it('ค่าเริ่มต้นจาก migration: ใบประจำตัว 365 วัน ต่ออายุได้เมื่อเหลือ 30 วัน', async () => {
     const { cookie } = await admin();
     const res = await request(app).get('/admin/certificate-policy').set('Cookie', cookie);
     expect(res.status).toBe(200);
@@ -138,7 +138,7 @@ describe('GET/PUT /admin/certificate-policy (certificate_policy:manage)', () => 
     expect(rows[0].n).toBe(0);
   });
 
-  it('ช่วงต่ออายุไม่สั้นกว่าอายุใบหลัก → 422 (ไม่เช่นนั้นขอใบหลักใหม่ได้ตลอด)', async () => {
+  it('ช่วงต่ออายุไม่สั้นกว่าอายุใบประจำตัว → 422 (ไม่เช่นนั้นขอใบประจำตัวใหม่ได้ตลอด)', async () => {
     const { cookie } = await admin();
     expect((await put(cookie, { ...DEFAULTS, primaryDays: 30, renewalWindowDays: 30 })).status).toBe(422);
     expect((await put(cookie, fixedDate({ primaryMinDays: 20, renewalWindowDays: 30 }))).status).toBe(422);

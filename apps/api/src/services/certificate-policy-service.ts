@@ -12,7 +12,7 @@ import {
 } from '../repositories/certificate-policy-repository.js';
 import type { AuthUser } from './authorization-service.js';
 
-// นโยบายอายุใบรับรอง (docs/design/certificates.md หัวข้อ "ใบหลัก / ใบเสริม / นโยบายอายุ")
+// นโยบายอายุใบรับรอง (docs/design/certificates.md หัวข้อ "ใบประจำตัว / ใบเสริม / นโยบายอายุ")
 // อายุที่คำนวณได้ส่งให้ signer ซึ่งยังตัดให้ไม่เกินเพดาน CERT_VALIDITY_DAYS และอายุของ CA
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -29,7 +29,7 @@ function endOfDayBangkok(year: number, month: number, day: number): Date {
 }
 
 /**
- * อายุใบหลัก (วัน) ถ้าออก ณ เวลา now
+ * อายุใบประจำตัว (วัน) ถ้าออก ณ เวลา now
  * - days: ตามจำนวนวันที่กำหนด
  * - fixed_date: ถึงวัน/เดือนที่กำหนดของปีนี้ (เวลาประเทศไทย) ถ้าผ่านไปแล้วหรือเหลือน้อยกว่า primaryMinDays ใช้ปีถัดไป
  *   ปัดลงเป็นวันเต็ม — signer ออกใบด้วย -days จึงหมดอายุในวันที่กำหนด ณ เวลาเดียวกับที่ออก
@@ -45,15 +45,15 @@ export function primaryValidityDays(policy: CertificatePolicySettings, now: Date
     if (days >= Math.max(policy.primaryMinDays, 1)) return days;
   }
   // primaryMinDays ≤ 365 จึงไม่ถึงตรงนี้ (ปีถัดไปเหลืออย่างน้อย 365 วัน)
-  throw new Error('คำนวณอายุใบรับรองหลักไม่ได้');
+  throw new Error('คำนวณอายุใบรับรองประจำตัวไม่ได้');
 }
 
-/** วันหมดอายุโดยประมาณของใบหลักถ้าออก ณ เวลา now (ยังไม่ตัดตามอายุ CA ซึ่ง signer จัดการ) */
+/** วันหมดอายุโดยประมาณของใบประจำตัวถ้าออก ณ เวลา now (ยังไม่ตัดตามอายุ CA ซึ่ง signer จัดการ) */
 export function primaryExpiryPreview(policy: CertificatePolicySettings, now: Date): Date {
   return new Date(now.getTime() + primaryValidityDays(policy, now) * DAY_MS);
 }
 
-/** อายุสั้นที่สุดที่ใบหลักอาจได้ — ช่วงต่ออายุต้องสั้นกว่านี้ ไม่เช่นนั้นผู้ใช้ขอใบหลักใหม่ได้ตลอดเวลา */
+/** อายุสั้นที่สุดที่ใบประจำตัวอาจได้ — ช่วงต่ออายุต้องสั้นกว่านี้ ไม่เช่นนั้นผู้ใช้ขอใบประจำตัวใหม่ได้ตลอดเวลา */
 function shortestPrimaryDays(policy: CertificatePolicySettings): number {
   return policy.primaryMode === 'days' ? policy.primaryDays : Math.max(policy.primaryMinDays, 1);
 }
@@ -84,8 +84,8 @@ export async function changeCertificatePolicy(actor: AuthUser, settings: Certifi
       422,
       'POLICY_INVALID',
       settings.primaryMode === 'days'
-        ? 'ช่วงต่ออายุต้องสั้นกว่าอายุใบรับรองหลัก'
-        : 'ช่วงต่ออายุต้องสั้นกว่าอายุขั้นต่ำของใบรับรองหลัก',
+        ? 'ช่วงต่ออายุต้องสั้นกว่าอายุใบรับรองประจำตัว'
+        : 'ช่วงต่ออายุต้องสั้นกว่าอายุขั้นต่ำของใบรับรองประจำตัว',
     );
   }
 

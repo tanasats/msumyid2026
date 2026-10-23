@@ -102,7 +102,7 @@ describe('GET /me/certificates (ต้อง login เท่านั้น)', (
 
     const res = await request(app).get('/me/certificates').set('Cookie', await loginAs(me.id));
     expect(res.status).toBe(200);
-    // มีใบหลักที่ใช้งานอยู่ (หมดอายุอีก 365 วัน) → ขอใหม่ได้เมื่อเหลือ 30 วัน (ช่วงต่ออายุตามค่าเริ่มต้น)
+    // มีใบประจำตัวที่ใช้งานอยู่ (หมดอายุอีก 365 วัน) → ขอใหม่ได้เมื่อเหลือ 30 วัน (ช่วงต่ออายุตามค่าเริ่มต้น)
     expect(res.body.primaryRequest.renewalWindowDays).toBe(30);
     expect(Date.parse(res.body.primaryRequest.renewableFrom)).toBeGreaterThan(Date.now() + 330 * DAY);
     expect(Date.parse(res.body.primaryRequest.expiresAtIfRequested)).toBeGreaterThan(Date.now() + 364 * DAY);
@@ -224,7 +224,7 @@ describe('POST /me/certificates (certificate:request)', () => {
     expect(issue).not.toHaveBeenCalled();
   });
 
-  it('มีใบหลักที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ → 409 PRIMARY_CERTIFICATE_EXISTS แต่ใบที่หมดอายุ/เพิกถอนไม่นับ', async () => {
+  it('มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ → 409 PRIMARY_CERTIFICATE_EXISTS แต่ใบที่หมดอายุ/เพิกถอนไม่นับ', async () => {
     const issue = mockSigner();
     const user = await requester();
     await insertCertificate(user.id, { notAfter: new Date(Date.now() - DAY) });
@@ -238,7 +238,7 @@ describe('POST /me/certificates (certificate:request)', () => {
     expect(issue).toHaveBeenCalledTimes(1);
   });
 
-  it('ใบหลักเหลือไม่เกินช่วงต่ออายุ (30 วัน) → ขอใบใหม่ได้ 1 ใบ ใบเดิมยังใช้งานอยู่ แต่ขอใบที่ 3 ไม่ได้', async () => {
+  it('ใบประจำตัวเหลือไม่เกินช่วงต่ออายุ (30 วัน) → ขอใบใหม่ได้ 1 ใบ ใบเดิมยังใช้งานอยู่ แต่ขอใบที่ 3 ไม่ได้', async () => {
     mockSigner();
     const user = await requester();
     const old = await insertCertificate(user.id, { notAfter: new Date(Date.now() + 10 * DAY) });
@@ -249,7 +249,7 @@ describe('POST /me/certificates (certificate:request)', () => {
     expect(rows[0].revoked_at).toBeNull();
   });
 
-  it('ใบเสริมที่ใช้งานอยู่ไม่นับเป็นใบหลัก', async () => {
+  it('ใบเสริมที่ใช้งานอยู่ไม่นับเป็นใบประจำตัว', async () => {
     mockSigner();
     const user = await requester();
     const supplementary = await insertCertificate(user.id);
@@ -271,7 +271,7 @@ describe('POST /me/certificates (certificate:request)', () => {
     expect(expires.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })).toMatch(/-12-31$/);
   });
 
-  it('ขอพร้อมกันหลายคำขอ → ได้ใบหลักใบเดียว (ล็อกแถวผู้ใช้)', async () => {
+  it('ขอพร้อมกันหลายคำขอ → ได้ใบประจำตัวใบเดียว (ล็อกแถวผู้ใช้)', async () => {
     // signer ช้าเล็กน้อย ให้คำขอซ้อนกันจริง
     vi.spyOn(signer, 'issueCertificate').mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 50));
