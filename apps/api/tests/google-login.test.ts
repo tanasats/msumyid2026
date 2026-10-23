@@ -3,9 +3,11 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { oauthCookiePath } from '../src/config/index.js';
 import { pool } from '../src/db/pool.js';
+import { erpHr } from '../src/services/erp-hr.js';
 import { googleOAuth } from '../src/services/google-oauth.js';
 import { classifyAccount } from '../src/services/google-login-service.js';
 import { resetDatabase } from './helpers/db.js';
+import { ACCESS_TOKEN, STAFF_INFO } from './helpers/erp.js';
 import * as google from './helpers/google.js';
 
 // mock เฉพาะการเรียก Google (แลก code + ตรวจ ID token) ฐานข้อมูลใช้ app_test จริง (CLAUDE.md หัวข้อ 15)
@@ -26,6 +28,12 @@ afterAll(async () => {
   await resetDatabase();
   await pool.end();
 });
+
+/** login บุคลากร มมส. — ERP-HR ยืนยันว่าเป็นบุคลากร (ไม่ยืนยัน = รอจำแนกประเภท ดู service-accounts.test.ts) */
+function loginStaff(overrides: Parameters<typeof google.identity>[0] = {}) {
+  vi.spyOn(erpHr, 'fetchStaffInfo').mockResolvedValue(STAFF_INFO);
+  return google.loginWith(app, { accessToken: ACCESS_TOKEN, ...overrides });
+}
 
 async function userRoles(email: string): Promise<string[]> {
   const { rows } = await pool.query<{ code: string }>(
@@ -239,7 +247,7 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
   });
 
   it('บุคลากร: ได้ role user + staff และ approved ทันที', async () => {
-    const { res } = await google.loginWith(app, { email: 'somchai.s@msu.ac.th' });
+    const { res } = await loginStaff({ email: 'somchai.s@msu.ac.th' });
     expect(res.headers.location).toBe(WEB_URL);
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['staff', 'user']);
 
@@ -271,9 +279,9 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('login ซ้ำ: ค้นด้วย google_sub อัปเดตโปรไฟล์ ไม่สร้างผู้ใช้/role/log ซ้ำ', async () => {
     const sub = 'google-same-sub';
-    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th', name: 'ชื่อเดิม' });
+    await loginStaff({ sub, email: 'somchai.s@msu.ac.th', name: 'ชื่อเดิม' });
     // email เปลี่ยนได้ แต่ยังเป็นผู้ใช้คนเดิมเพราะใช้ google_sub
-    const { res } = await google.loginWith(app, { sub, email: 'somchai.new@msu.ac.th', name: 'ชื่อใหม่' });
+    const { res } = await loginStaff({ sub, email: 'somchai.new@msu.ac.th', name: 'ชื่อใหม่' });
     expect(res.headers.location).toBe(WEB_URL);
 
     const users = await pool.query(`SELECT email, name FROM users`);
@@ -286,11 +294,11 @@ describe('GET /auth/google/callback — สร้างผู้ใช้แล�
 
   it('ให้ role ประเภทบัญชีที่หายไปคืนตอน login (ตรวจทุกครั้งที่ login)', async () => {
     const sub = 'google-regrant';
-    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th' });
+    await loginStaff({ sub, email: 'somchai.s@msu.ac.th' });
     await pool.query(
       `DELETE FROM user_roles WHERE role_id = (SELECT id FROM roles WHERE code = 'staff')`,
     );
-    await google.loginWith(app, { sub, email: 'somchai.s@msu.ac.th' });
+    await loginStaff({ sub, email: 'somchai.s@msu.ac.th' });
     expect(await userRoles('somchai.s@msu.ac.th')).toEqual(['staff', 'user']);
   });
 
