@@ -61,10 +61,13 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   // ใบรับรองแสดงเฉพาะผู้มี certificate:read (API ตรวจซ้ำ)
   const certificates = can('certificate:read') ? await getUserCertificates(user.id) : null;
   const isService = user.accountType === 'service';
-  // บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ (API ตรวจซ้ำ)
-  const missingForApproval = isService
-    ? [!user.orgUnitId && 'หน่วยงาน', !user.responsibleUser && 'ผู้รับผิดชอบ'].filter((v): v is string => Boolean(v))
-    : [];
+  const isUnclassified = user.accountType === 'unclassified';
+  // บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ / บัญชีรอจำแนกต้องเลือกประเภทก่อน (API ตรวจซ้ำ)
+  const missingForApproval = isUnclassified
+    ? ['ประเภทบัญชี']
+    : isService
+      ? [!user.orgUnitId && 'หน่วยงาน', !user.responsibleUser && 'ผู้รับผิดชอบ'].filter((v): v is string => Boolean(v))
+      : [];
 
   return (
     <PageShell title={user.displayName} backHref="/admin/users" user={currentUser}>
@@ -77,7 +80,9 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
         )}
         {user.approvalStatus !== 'approved' && missingForApproval.length > 0 && (
           <Alert tone="warning" title="ยังอนุมัติไม่ได้">
-            บัญชีหน่วยงานต้องกำหนด{missingForApproval.join('และ')}ก่อน — กด &quot;แก้ไขข้อมูล&quot; เพื่อกำหนด
+            {isUnclassified
+              ? 'ระบบ ERP ไม่พบบัญชีนี้ อาจเป็นบุคลากรภายนอก (เช่น อาจารย์พิเศษ ผู้เชี่ยวชาญ) หรือบัญชีหน่วยงาน — กด "แก้ไขข้อมูล" เพื่อเลือกประเภทบัญชีก่อน'
+              : `บัญชีหน่วยงานต้องกำหนด${missingForApproval.join('และ')}ก่อน — กด "แก้ไขข้อมูล" เพื่อกำหนด`}
           </Alert>
         )}
 

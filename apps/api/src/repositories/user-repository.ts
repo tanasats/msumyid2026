@@ -106,6 +106,25 @@ export async function upsertGoogleUser(db: Queryable, input: UpsertGoogleUserInp
 }
 
 /**
+ * บัญชีรอจำแนกประเภทที่ ERP-HR ยืนยันภายหลังว่าเป็นบุคลากร (เช่น login ครั้งแรกตอน ERP ล่ม) → บุคลากร อนุมัติโดยระบบ
+ * - approved_by/approved_at = NULL เหมือนบุคลากรที่ระบบอนุมัติตอน login (users_approved_pair_chk) — หลักฐานอยู่ใน user_audit_logs
+ * - WHERE ตรวจสถานะซ้ำ: เฉพาะบัญชีที่ยังรอจำแนกและรออนุมัติ (ผู้ดูแลอาจเพิ่งจำแนก/ปฏิเสธไปแล้ว)
+ * คืน true ถ้าเปลี่ยนจริง
+ */
+export async function promoteUnclassifiedToStaff(db: Queryable, userId: string): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE users
+     SET account_type    = 'staff',
+         approval_status = 'approved',
+         approved_by     = NULL,
+         approved_at     = NULL
+     WHERE id = $1 AND account_type = 'unclassified' AND approval_status = 'pending'`,
+    [userId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
  * ตั้งหน่วยงานของบุคลากร (users.org_unit_id) จากข้อมูล ERP ที่เก็บไว้ (CLAUDE.md หัวข้อ 18)
  * - ใช้หน่วยงานที่จับคู่ของกอง/ฝ่ายก่อน ถ้าไม่มีจึงใช้ของคณะ/สำนัก (COALESCE) ไม่มีทั้งคู่ = NULL
  * - ผู้ใช้ที่ไม่มี staff_profiles: subquery m ไม่มีแถว จึงไม่ถูกแก้

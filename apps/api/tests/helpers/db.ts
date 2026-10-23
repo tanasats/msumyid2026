@@ -29,7 +29,7 @@ type CreateUserInput = {
   email?: string;
   /** ชื่อ (ใช้ทั้ง name และ display_name) */
   name?: string;
-  accountType?: 'student' | 'staff' | 'external' | 'service';
+  accountType?: 'student' | 'staff' | 'external' | 'service' | 'unclassified';
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   isActive?: boolean;
   roles?: string[];

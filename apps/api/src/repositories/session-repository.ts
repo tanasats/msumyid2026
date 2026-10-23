@@ -1,7 +1,10 @@
 import type { Queryable } from '../db/types.js';
 
-/** service = บัญชีหน่วยงาน (ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ไม่ใช่ของบุคคล) */
-export type AccountType = 'student' | 'staff' | 'external' | 'service';
+/**
+ * service = บัญชีหน่วยงาน (ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ไม่ใช่ของบุคคล)
+ * unclassified = รอจำแนกประเภท (บัญชี มมส. ที่ ERP ไม่พบ — บุคลากรภายนอกหรือบัญชีหน่วยงาน ผู้อนุมัติเป็นผู้เลือก)
+ */
+export type AccountType = 'student' | 'staff' | 'external' | 'service' | 'unclassified';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 export type SessionUserRow = {

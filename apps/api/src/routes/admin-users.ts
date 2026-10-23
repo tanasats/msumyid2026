@@ -25,7 +25,9 @@ const PAGE_SIZE = 20;
 // query ที่ไม่ส่งมา → null (repository ใช้ null = ไม่กรอง)
 const nullable = <T extends z.ZodType>(schema: T) => schema.optional().transform((v) => v ?? null);
 
+// ประเภทที่ผู้ดูแลกำหนดได้ — 'unclassified' (รอจำแนก) ระบบกำหนดตอน login เท่านั้น แต่กรองรายการได้
 const accountTypeSchema = z.enum(['student', 'staff', 'external', 'service']);
+const accountTypeFilterSchema = z.enum(['student', 'staff', 'external', 'service', 'unclassified']);
 // วันหมดอายุ: ISO 8601 พร้อม timezone (เช่น 2026-12-31T23:59:59+07:00) — null = ไม่หมดอายุ
 const accountExpiresAtSchema = z.iso
   .datetime({ offset: true })
@@ -40,7 +42,7 @@ const listQuerySchema = z.object({
     .optional()
     .transform((v) => v || null),
   status: nullable(z.enum(['active', 'pending', 'rejected', 'inactive'])),
-  accountType: nullable(accountTypeSchema),
+  accountType: nullable(accountTypeFilterSchema),
   role: nullable(z.string().regex(/^[a-z0-9_]+$/)),
   cursor: nullable(z.uuid()),
 });
