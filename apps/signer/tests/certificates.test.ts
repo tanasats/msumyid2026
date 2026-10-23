@@ -167,6 +167,90 @@ describe('ออกใบรับรอง', () => {
   });
 });
 
+describe('ใบเสริม: profile = document_signing', () => {
+  const DAY = 86_400_000;
+  /** เวลาไม่มีเศษวินาที (เวลาในใบรับรองละเอียดถึงวินาที) */
+  const at = (offsetMs: number) => new Date(Math.floor((Date.now() + offsetMs) / 1000) * 1000);
+
+  function issueDocumentSigning(range: { notBefore: Date; notAfter: Date }) {
+    return issue({
+      commonName: NAME,
+      email: EMAIL,
+      p12Password: PASSWORD,
+      profile: 'document_signing',
+      notBefore: range.notBefore.toISOString(),
+      notAfter: range.notAfter.toISOString(),
+    });
+  }
+
+  it('ลงนามเอกสารได้อย่างเดียว: nonRepudiation + EKU ลงนามเอกสาร ไม่มี emailProtection/keyEncipherment', async () => {
+    const res = await issueDocumentSigning({ notBefore: at(0), notAfter: at(7 * DAY) });
+    expect(res.status).toBe(201);
+    const text = await certText((res.body as IssueResponse).certificatePem);
+
+    expect(text).toMatch(/X509v3 Key Usage: critical\s*\n\s*Digital Signature, Non Repudiation\s*\n/);
+    // OpenSSL แต่ละเวอร์ชันพิมพ์ชื่อ OID ที่รู้จักต่างกัน (ชื่อ หรือเลข OID) จึงตรวจทีละค่าแบบรับได้ทั้งสองรูป
+    // OpenSSL บน Windows พิมพ์บรรทัดเป็น \r\n
+    const eku = /X509v3 Extended Key Usage:\s*\n\s*(.+?)\r?\n/.exec(text)?.[1] ?? '';
+    expect(eku.split(', ')).toHaveLength(3);
+    expect(eku).toMatch(/1\.3\.6\.1\.5\.5\.7\.3\.36|Document Signing/i);
+    expect(eku).toMatch(/1\.3\.6\.1\.4\.1\.311\.10\.3\.12|Microsoft.*Document Signing/i);
+    expect(eku).toContain('1.2.840.113583.1.1.5');
+    expect(text).not.toContain('E-mail Protection');
+    expect(text).not.toContain('Key Encipherment');
+    // ส่วนที่เหมือนใบประจำตัว
+    expect(text).toMatch(/X509v3 Basic Constraints:\s*\n\s*CA:FALSE/);
+    expect(text).toMatch(new RegExp(`X509v3 Subject Alternative Name:\\s*\\n\\s*email:${EMAIL}`));
+    expect(text).toMatch(/X509v3 CRL Distribution Points:[\s\S]*URI:https:\/\/cdp\.msu\.ac\.th\/msu-ca\.crl/);
+    expect(text).toContain('Signature Algorithm: sha256WithRSAEncryption');
+  });
+
+  it('CA เซ็นจริง subject เหมือนใบประจำตัว (ชื่อไทยเป็น UTF8String) และ serial ตรงกับที่คืน', async () => {
+    const res = await issueDocumentSigning({ notBefore: at(0), notAfter: at(7 * DAY) });
+    const body = res.body as IssueResponse;
+    const cert = new X509Certificate(body.certificatePem);
+    const ca = new X509Certificate(await readFile(config.ca.certPath));
+
+    expect(cert.checkIssued(ca)).toBe(true);
+    expect(cert.verify(ca.publicKey)).toBe(true);
+    expect(cert.subject.split('\n')).toEqual(['C=TH', 'O=Mahasarakham University', `CN=${NAME}`, `emailAddress=${EMAIL}`]);
+    expect(hasUtf8String(body.certificatePem, NAME)).toBe(true);
+    expect(body.serialNumber).toBe(cert.serialNumber.toLowerCase().replace(/^0+/, ''));
+  });
+
+  it('ช่วงในอนาคต → ใบเริ่มและสิ้นสุดตามที่ขอพอดี', async () => {
+    const range = { notBefore: at(10 * DAY), notAfter: at(20 * DAY) };
+    const body = (await issueDocumentSigning(range)).body as IssueResponse;
+    expect(body.notBefore).toBe(range.notBefore.toISOString());
+    expect(body.notAfter).toBe(range.notAfter.toISOString());
+  });
+
+  it('วันเริ่มผ่านไปแล้ว → เริ่มตอนออกใบ (ไม่ออกใบย้อนหลัง)', async () => {
+    const before = Date.now();
+    const body = (await issueDocumentSigning({ notBefore: at(-3 * DAY), notAfter: at(5 * DAY) })).body as IssueResponse;
+    expect(Date.parse(body.notBefore)).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+  });
+
+  it('ยาวเกินเพดาน CERT_VALIDITY_DAYS → ตัดที่เพดาน', async () => {
+    const notBefore = at(DAY);
+    const body = (await issueDocumentSigning({ notBefore, notAfter: at(2000 * DAY) })).body as IssueResponse;
+    expect((Date.parse(body.notAfter) - Date.parse(body.notBefore)) / DAY).toBe(config.certValidityDays);
+  });
+
+  it('ช่วงสิ้นสุดแล้ว → 422 VALIDITY_INVALID', async () => {
+    const res = await issueDocumentSigning({ notBefore: at(-5 * DAY), notAfter: at(-DAY) });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDITY_INVALID');
+  });
+
+  it('ไม่ส่งช่วงเวลา หรือส่ง validityDays แทน → 400', async () => {
+    const base = { commonName: NAME, email: EMAIL, p12Password: PASSWORD, profile: 'document_signing' };
+    expect((await issue(base)).status).toBe(400);
+    expect((await issue({ ...base, validityDays: 30 })).status).toBe(400);
+    expect((await issue({ ...base, profile: 'other', validityDays: 30 })).status).toBe(400);
+  });
+});
+
 describe('ไฟล์ .p12', () => {
   it('เปิดได้ด้วยรหัสผ่านที่ตั้ง มีใบของผู้ใช้ + Intermediate CA + root (CA_CHAIN_PATH) และเข้ารหัสแบบ AES-256 (ค่าเริ่มต้น)', async () => {
     const body = await issueOk();

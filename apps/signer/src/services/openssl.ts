@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 
 // ตัวแปรของระบบที่ OpenSSL ต้องใช้ — ไม่ส่ง env ทั้งหมดของ process ต่อ (มี passphrase ของ CA และ KEK อยู่)
 const PASSTHROUGH_ENV = ['PATH', 'Path', 'SystemRoot', 'SYSTEMROOT', 'TEMP', 'TMP', 'TMPDIR'];
@@ -36,4 +37,28 @@ export function runOpenssl(bin: string, args: string[], options: OpensslOptions 
       },
     );
   });
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * เวลาแบบ ASN.1: UTCTime (YYMMDDHHMMSSZ) ก่อนปี 2050 ตาม RFC 5280 หรือ GeneralizedTime (YYYYMMDDHHMMSSZ)
+ * openssl ca รับวันเพิกถอนใน index.txt แบบ UTCTime เท่านั้น
+ */
+export function asn1Time(date: Date, form: 'utc' | 'generalized' = 'utc'): string {
+  const y = date.getUTCFullYear();
+  const rest = `${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+  if (form === 'utc' && y >= 2050) throw new Error('วันที่ตั้งแต่ปี 2050 ใช้ UTCTime ไม่ได้');
+  return form === 'utc' ? `${String(y % 100).padStart(2, '0')}${rest}` : `${y}${rest}`;
+}
+
+/** ฐาน 16 ตัวพิมพ์ใหญ่ ความยาวคู่ (รูปแบบเดียวกับที่ openssl ca เขียนใน index.txt / crlnumber / serial) */
+export function evenHex(hex: string): string {
+  const upper = hex.toUpperCase();
+  return upper.length % 2 === 0 ? upper : `0${upper}`;
+}
+
+/** path ในไฟล์ config ของ OpenSSL: ใช้ / (\ คืออักขระ escape) และใส่ \ หน้า $ (แทนค่าตัวแปร) */
+export function confPath(p: string): string {
+  return p.split(path.sep).join('/').replace(/[$#"']/g, (c) => `\\${c}`);
 }

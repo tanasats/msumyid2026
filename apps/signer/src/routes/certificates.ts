@@ -7,15 +7,27 @@ export const certificatesRouter = Router();
 // ห้ามมีอักขระควบคุม (ขึ้นบรรทัดใหม่ ฯลฯ) ใน subject
 const noControlChars = (v: string) => !/\p{Cc}/u.test(v);
 
-const issueBody = z.object({
+const issueBase = z.object({
   // X.509 จำกัด commonName ไม่เกิน 64 ตัวอักษร (ub-common-name)
   commonName: z.string().trim().min(1).max(64).refine(noControlChars),
   email: z.email().max(255),
   p12Password: z.string().min(8).max(128).refine(noControlChars),
   legacyP12: z.boolean().default(false),
-  // อายุใบตามนโยบายของ API — signer ตัดให้ไม่เกินเพดาน CERT_VALIDITY_DAYS และอายุของ CA
-  validityDays: z.number().int().min(1).max(825).optional(),
 });
+
+// smime = ใบประจำตัว (อายุเป็นจำนวนวัน), document_signing = ใบเสริม (ช่วงเวลาที่อนุมัติ)
+// signer ตัดให้ไม่เกินเพดาน CERT_VALIDITY_DAYS และอายุของ CA เสมอ
+const issueBody = z.discriminatedUnion('profile', [
+  issueBase.extend({
+    profile: z.literal('smime').optional(),
+    validityDays: z.number().int().min(1).max(825).optional(),
+  }),
+  issueBase.extend({
+    profile: z.literal('document_signing'),
+    notBefore: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
+    notAfter: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
+  }),
+]);
 
 // สิทธิ์: เฉพาะ API ของระบบ (requireApiToken ใน app.ts) — API ตรวจสิทธิ์ของผู้ใช้และกำหนด subject จากฐานข้อมูลก่อนเรียก
 // ออกใบรับรองใหม่: คืนใบรับรอง, .p12 (ล็อกด้วยรหัสผ่านของผู้ใช้) และ key สำรองที่เข้ารหัสแล้ว
