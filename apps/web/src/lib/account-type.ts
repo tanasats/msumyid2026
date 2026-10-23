@@ -1,15 +1,22 @@
 // ป้ายประเภทบัญชี — แยกจาก auth.ts (ที่ใช้ next/headers) เพื่อให้ Client Component import ได้
 // ห้าม import โมดูลฝั่ง server ในไฟล์นี้
 
-/** service = บัญชีหน่วยงาน (ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ไม่ใช่ของบุคคล) */
-export type AccountType = 'student' | 'staff' | 'external' | 'service';
+/**
+ * service = บัญชีหน่วยงาน (ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม ไม่ใช่ของบุคคล)
+ * unclassified = รอจำแนกประเภท (บัญชี มมส. ที่ ERP ไม่พบ — ผู้อนุมัติเลือกว่าเป็นบุคลากรภายนอกหรือบัญชีหน่วยงาน)
+ */
+export type AccountType = 'student' | 'staff' | 'external' | 'service' | 'unclassified';
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   student: 'นิสิต',
   staff: 'บุคลากร',
   external: 'บุคลากรภายนอก',
   service: 'บัญชีหน่วยงาน',
+  unclassified: 'รอจำแนกประเภท',
 };
+
+/** ประเภทที่ผู้ดูแลเลือกได้ในฟอร์ม — "รอจำแนก" ระบบกำหนดตอน login เท่านั้น */
+export const ASSIGNABLE_ACCOUNT_TYPES: Exclude<AccountType, 'unclassified'>[] = ['staff', 'student', 'external', 'service'];
 
 /** ผู้รับผิดชอบบัญชีหน่วยงาน (บุคลากรตัวจริง) */
 export type ResponsibleUser = { id: string; displayName: string; email: string };

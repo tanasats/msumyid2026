@@ -26,6 +26,7 @@ const ACCOUNT_TYPE_OPTIONS = [
   { value: 'student', label: ACCOUNT_TYPE_LABELS.student },
   { value: 'external', label: ACCOUNT_TYPE_LABELS.external },
   { value: 'service', label: ACCOUNT_TYPE_LABELS.service },
+  { value: 'unclassified', label: ACCOUNT_TYPE_LABELS.unclassified },
 ] as const;
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' });

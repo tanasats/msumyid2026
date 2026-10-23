@@ -201,6 +201,7 @@ export async function activateUser(actor: AuthUser, userId: string, reason: stri
 /**
  * อนุมัติบัญชีบุคลากรภายนอกหรือบัญชีหน่วยงาน (รออนุมัติ หรือเคยถูกปฏิเสธ)
  * - ให้ role ประเภทบัญชี (external/service) ตอนอนุมัติ — CLAUDE.md หัวข้อ 9
+ * - บัญชีรอจำแนกประเภทต้องเลือกประเภทก่อน (แก้ไขข้อมูล → ประเภทบัญชี) ห้ามอนุมัติทั้งที่ยังไม่รู้ว่าเป็นใคร
  * - บัญชีหน่วยงานต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อน (ตรวจผู้รับผิดชอบซ้ำ เพราะอาจถูกปิดบัญชีไปแล้ว)
  */
 export async function approveUser(actor: AuthUser, userId: string, reason: string | null): Promise<void> {
@@ -208,6 +209,9 @@ export async function approveUser(actor: AuthUser, userId: string, reason: strin
     const target = await lockTarget(client, actor, userId);
     if (target.approvalStatus === 'approved') {
       throw new AppError(409, 'ALREADY_APPROVED', 'บัญชีนี้ได้รับอนุมัติแล้ว');
+    }
+    if (target.accountType === 'unclassified') {
+      throw new AppError(409, 'ACCOUNT_TYPE_REQUIRED', 'ต้องเลือกประเภทบัญชี (บุคลากรภายนอกหรือบัญชีหน่วยงาน) ก่อนอนุมัติ');
     }
     if (target.accountType === 'service') {
       assertServiceAccountComplete(target.orgUnitId, target.responsibleUserId);
@@ -349,6 +353,10 @@ export async function updateUser(
     }
 
     const accountTypeChanged = input.accountType !== undefined && input.accountType !== target.accountType;
+    // "รอจำแนก" ระบบกำหนดตอน login เท่านั้น — ผู้ดูแลเปลี่ยนออกได้ แต่เปลี่ยนกลับเข้าไม่ได้
+    if (accountTypeChanged && input.accountType === 'unclassified') {
+      throw new AppError(400, 'ACCOUNT_TYPE_INVALID', 'เลือกประเภทบัญชีเป็น "รอจำแนกประเภท" ไม่ได้');
+    }
     if (accountTypeChanged) {
       changes.accountType = { from: target.accountType, to: input.accountType };
     }

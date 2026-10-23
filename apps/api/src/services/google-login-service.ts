@@ -8,7 +8,12 @@ import { upsertErpOrgUnit } from '../repositories/erp-org-unit-repository.js';
 import { upsertStaffProfile } from '../repositories/staff-profile-repository.js';
 import { insertUserAuditLog } from '../repositories/admin-user-repository.js';
 import { claimUnownedCertificates } from '../repositories/certificate-repository.js';
-import { linkPreRegisteredUser, syncStaffOrgUnit, upsertGoogleUser } from '../repositories/user-repository.js';
+import {
+  linkPreRegisteredUser,
+  promoteUnclassifiedToStaff,
+  syncStaffOrgUnit,
+  upsertGoogleUser,
+} from '../repositories/user-repository.js';
 import { erpHr, type ErpStaffInfo } from './erp-hr.js';
 import { googleOAuth, type GoogleAuthRequest } from './google-oauth.js';
 import { createSession } from './session-service.js';
@@ -47,14 +52,17 @@ export function classifyAccount(
   return { accountType: 'staff' };
 }
 
-/** role ประเภทบัญชีที่ระบบให้ตอน login — external/service ให้ตอนอนุมัติเท่านั้น (CLAUDE.md หัวข้อ 9) */
+/**
+ * role ประเภทบัญชีที่ระบบให้ตอน login — เฉพาะนิสิต/บุคลากร (CLAUDE.md หัวข้อ 9)
+ * external/service ให้ตอนอนุมัติเท่านั้น, unclassified ไม่มี role ประเภท
+ */
 function accountRoleOnLogin(accountType: AccountType): string | null {
-  return accountType === 'external' || accountType === 'service' ? null : accountType;
+  return accountType === 'student' || accountType === 'staff' ? accountType : null;
 }
 
 /**
- * ผลการเรียก ERP-HR — แยก "ไม่พบบุคลากร" ออกจาก "เรียกไม่สำเร็จ"
- * เพราะ not_found ใช้ตัดสินว่าบัญชีใหม่เป็นบัญชีหน่วยงาน ส่วน failed (ERP ล่ม) ต้องไม่ทำให้ใครเสียสิทธิ์
+ * ผลการเรียก ERP-HR — แยก "ไม่พบบุคลากร" ออกจาก "เรียกไม่สำเร็จ" เพื่อ log
+ * บัญชีใหม่: ทั้งสองกรณีเป็น "รอจำแนกประเภท" / บัญชีเดิม: failed ใช้ข้อมูลบุคลากรเดิม ไม่มีใครเสียสิทธิ์
  */
 export type StaffInfoResult =
   | { status: 'found'; info: ErpStaffInfo }
@@ -82,18 +90,19 @@ async function fetchStaffInfoSafely(accessToken: string): Promise<StaffInfoResul
 
 /**
  * ประเภทบัญชีและสถานะอนุมัติ "สำหรับผู้ใช้ใหม่" (ผู้ใช้เดิมไม่ถูกเปลี่ยน — upsertGoogleUser ใช้ค่านี้ตอน INSERT เท่านั้น)
- * - บุคลากรภายนอก → รออนุมัติ
- * - บัญชี มมส. ที่ไม่ใช่นิสิต และ ERP ยืนยันว่าไม่พบบุคลากร → บัญชีหน่วยงาน รออนุมัติ
- *   (บัญชีที่ออกให้ระบบสารสนเทศ คณะ/หน่วยงาน หรือกิจกรรม — ผู้มี user:approve กำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ)
- * - ERP เรียกไม่สำเร็จ → ยังเป็นบุคลากร (ERP ล่มต้องไม่ทำให้บุคลากรใช้งานไม่ได้ — CLAUDE.md หัวข้อ 18)
+ * - นิสิต → ใช้งานได้ทันที, โดเมนอื่น → บุคลากรภายนอก รออนุมัติ
+ * - บัญชี มมส. ที่ไม่ใช่นิสิต: ERP ยืนยันว่าเป็นบุคลากร → บุคลากร ใช้งานได้ทันที
+ * - นอกนั้น (ERP ไม่พบ เรียกไม่สำเร็จ หรือไม่มี access token) → รอจำแนกประเภท รออนุมัติ
+ *   ERP มักไม่มีอีเมลของอาจารย์พิเศษ/ผู้เชี่ยวชาญ จึงแยกบุคลากรภายนอกออกจากบัญชีหน่วยงานไม่ได้ — ผู้อนุมัติเป็นผู้เลือก
+ *   ถ้า ERP ล่ม บุคลากรตัวจริงจะได้รับการยืนยันใน login ครั้งถัดไป (completeGoogleLogin)
  */
 export function newAccountStatus(
   classification: AccountClassification,
   staffInfo: StaffInfoResult | null,
 ): { accountType: AccountType; approvalStatus: 'pending' | 'approved' } {
   if (classification.accountType === 'external') return { accountType: 'external', approvalStatus: 'pending' };
-  if (classification.accountType === 'staff' && staffInfo?.status === 'not_found') {
-    return { accountType: 'service', approvalStatus: 'pending' };
+  if (classification.accountType === 'staff' && staffInfo?.status !== 'found') {
+    return { accountType: 'unclassified', approvalStatus: 'pending' };
   }
   return { accountType: classification.accountType, approvalStatus: 'approved' };
 }
@@ -190,7 +199,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       });
     }
 
-    const user = await upsertGoogleUser(client, {
+    const upserted = await upsertGoogleUser(client, {
       googleSub: identity.sub,
       email: identity.email,
       name: identity.name ?? identity.email,
@@ -200,7 +209,22 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
       orgUnitCode: classification.accountType === 'student' ? classification.facultyCode : null,
       approvalStatus: newAccount.approvalStatus,
     });
-    if (!user) return null;
+    if (!upserted) return null;
+    let user = upserted;
+
+    // บัญชีรอจำแนกที่ ERP ยืนยันแล้วว่าเป็นบุคลากร (เช่น login ครั้งแรกตอน ERP ล่ม) → บุคลากร ใช้งานได้ทันที
+    if (user.accountType === 'unclassified' && user.approvalStatus === 'pending' && staffInfo) {
+      if (await promoteUnclassifiedToStaff(client, user.id)) {
+        await insertUserAuditLog(client, {
+          actorId: null,
+          targetUserId: user.id,
+          action: 'approve',
+          changes: { accountType: { from: 'unclassified', to: 'staff' } },
+          reason: 'ระบบ ERP-HR ยืนยันว่าเป็นบุคลากร',
+        });
+        user = { ...user, accountType: 'staff', approvalStatus: 'approved' };
+      }
+    }
 
     if (user.accountType === 'staff') {
       if (staffInfo) {
@@ -246,10 +270,10 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
   }
 
   const { user, grantedRoles, session, linked, claimedCertificates } = result;
-  // บัญชีหน่วยงานใช้อีเมล มมส. ที่ไม่ใช่นิสิต จึงตรวจพบเป็น staff เสมอ — ไม่ถือว่าไม่ตรง
+  // บัญชีหน่วยงาน/รอจำแนกใช้อีเมล มมส. ที่ไม่ใช่นิสิต จึงตรวจพบเป็น staff เสมอ — ไม่ถือว่าไม่ตรง
   const matchesDetected =
     user.accountType === classification.accountType ||
-    (user.accountType === 'service' && classification.accountType === 'staff');
+    ((user.accountType === 'service' || user.accountType === 'unclassified') && classification.accountType === 'staff');
   if (!user.inserted && !matchesDetected) {
     // ประเภทบัญชีไม่ถูกเปลี่ยนอัตโนมัติ ให้ผู้ดูแลตรวจสอบ
     logger.warn(

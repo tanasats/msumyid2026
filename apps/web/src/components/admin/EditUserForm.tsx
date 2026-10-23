@@ -8,7 +8,13 @@ import { Button, buttonClasses } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import type { AccountType, OrgUnit } from '@/lib/admin-users';
 import { apiMutate } from '@/lib/api-client';
-import { ACCOUNT_TYPE_LABELS, expiryDateToIso, isoToExpiryDate, type ResponsibleUser } from '@/lib/account-type';
+import {
+  ACCOUNT_TYPE_LABELS,
+  ASSIGNABLE_ACCOUNT_TYPES,
+  expiryDateToIso,
+  isoToExpiryDate,
+  type ResponsibleUser,
+} from '@/lib/account-type';
 import { AccountExpiryField } from './AccountExpiryField';
 import { ResponsibleUserField } from './ResponsibleUserField';
 
@@ -115,13 +121,25 @@ export function EditUserForm({ userId, fallbackName, initial, orgUnits }: EditUs
             onChange={(e) => setAccountType(e.target.value as AccountType)}
             className={selectClass}
           >
-            {(Object.keys(ACCOUNT_TYPE_LABELS) as AccountType[]).map((type) => (
+            {/* บัญชีรอจำแนก: แสดงค่าปัจจุบันไว้ให้เห็น แต่เลือกกลับมาไม่ได้ */}
+            {initial.accountType === 'unclassified' && (
+              <option value="unclassified" disabled>
+                {ACCOUNT_TYPE_LABELS.unclassified} — เลือกประเภท
+              </option>
+            )}
+            {ASSIGNABLE_ACCOUNT_TYPES.map((type) => (
               <option key={type} value={type}>
                 {ACCOUNT_TYPE_LABELS[type]}
               </option>
             ))}
           </select>
-          {accountType !== initial.accountType && (
+          {initial.accountType === 'unclassified' && accountType === 'unclassified' && (
+            <p className="text-sm text-muted">
+              ระบบ ERP ไม่พบบัญชีนี้ เลือก &quot;บุคลากรภายนอก&quot; (เช่น อาจารย์พิเศษ ผู้เชี่ยวชาญ) หรือ &quot;บัญชีหน่วยงาน&quot;
+              ก่อนอนุมัติ
+            </p>
+          )}
+          {accountType !== initial.accountType && initial.accountType !== 'unclassified' && (
             <p className="text-sm text-warning-fg">
               บทบาท &quot;{ACCOUNT_TYPE_LABELS[initial.accountType]}&quot; จะถูกถอน และให้บทบาท &quot;
               {ACCOUNT_TYPE_LABELS[accountType]}&quot; แทน

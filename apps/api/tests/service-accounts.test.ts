@@ -3,17 +3,17 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { expireAccounts } from '../src/services/account-expiry-service.js';
-import { erpHr } from '../src/services/erp-hr.js';
+import { erpHr, type ErpStaffInfo } from '../src/services/erp-hr.js';
+import { ACCESS_TOKEN, STAFF_INFO } from './helpers/erp.js';
 import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
 import * as google from './helpers/google.js';
 
-// บัญชีหน่วยงาน (account_type = 'service'): จัดประเภทตอน login, อนุมัติ, แก้ไข, ลงทะเบียนล่วงหน้า และหมดอายุ
+// บัญชีหน่วยงาน (account_type = 'service') และบัญชีรอจำแนก ('unclassified'): จัดประเภทตอน login, อนุมัติ, แก้ไข, ลงทะเบียนล่วงหน้า และหมดอายุ
 // mock เฉพาะ Google และ ERP-HR ฐานข้อมูลใช้ app_test จริง (CLAUDE.md หัวข้อ 15)
 
 const app = createApp();
 const ORIGIN = 'http://localhost:3010';
 const WEB_URL = 'http://localhost:3010';
-const ACCESS_TOKEN = 'ya29.test-access-token';
 const HOUR = 60 * 60 * 1000;
 
 let orgUnitId: string;
@@ -70,12 +70,14 @@ async function userRow(userId: string) {
   return rows[0];
 }
 
-/** login บัญชี มมส. ที่ไม่ใช่นิสิต โดย ERP ตอบตามที่กำหนด (null = ไม่พบบุคลากร, Error = เรียกไม่สำเร็จ) */
-async function loginMsu(erp: null | Error, overrides: Parameters<typeof google.identity>[0] = {}) {
+/** login บัญชี มมส. ที่ไม่ใช่นิสิต โดย ERP ตอบตามที่กำหนด (ข้อมูล = พบ, null = ไม่พบบุคลากร, Error = เรียกไม่สำเร็จ) */
+async function loginMsu(erp: ErpStaffInfo | null | Error, overrides: Parameters<typeof google.identity>[0] = {}) {
   const fetchStaffInfo = vi.spyOn(erpHr, 'fetchStaffInfo');
   if (erp instanceof Error) fetchStaffInfo.mockRejectedValue(erp);
   else fetchStaffInfo.mockResolvedValue(erp);
-  return google.loginWith(app, { email: 'openhouse2026@msu.ac.th', accessToken: ACCESS_TOKEN, ...overrides });
+  const result = await google.loginWith(app, { email: 'openhouse2026@msu.ac.th', accessToken: ACCESS_TOKEN, ...overrides });
+  fetchStaffInfo.mockRestore();
+  return result;
 }
 
 async function userIdByEmail(email: string): Promise<string> {
@@ -83,31 +85,63 @@ async function userIdByEmail(email: string): Promise<string> {
   return rows[0]!.id;
 }
 
-describe('login: จัดประเภทบัญชีหน่วยงาน', () => {
-  it('บัญชีใหม่ที่ ERP ยืนยันว่าไม่พบบุคลากร → บัญชีหน่วยงาน รออนุมัติ ได้แค่ role user', async () => {
+describe('login: บัญชี มมส. ที่ไม่ใช่นิสิต', () => {
+  it('ERP ไม่พบบุคลากร → รอจำแนกประเภท รออนุมัติ ได้แค่ role user (อาจเป็นอาจารย์พิเศษหรือบัญชีหน่วยงาน)', async () => {
     const { res } = await loginMsu(null);
     expect(res.headers.location).toBe(WEB_URL);
     const id = await userIdByEmail('openhouse2026@msu.ac.th');
-    expect(await userRow(id)).toMatchObject({ account_type: 'service', approval_status: 'pending' });
+    expect(await userRow(id)).toMatchObject({ account_type: 'unclassified', approval_status: 'pending' });
     expect(await rolesOf(id)).toEqual(['user']);
 
     const me = await request(app).get('/auth/me').set('Cookie', google.sessionCookieFrom(res)!.split(';')[0]!);
-    expect(me.body.user).toMatchObject({ accountType: 'service', approvalStatus: 'pending', permissions: [] });
+    expect(me.body.user).toMatchObject({ accountType: 'unclassified', approvalStatus: 'pending', permissions: [] });
   });
 
-  it('ERP เรียกไม่สำเร็จ → ยังเป็นบุคลากร (ERP ล่มต้องไม่ทำให้บุคลากรเสียสิทธิ์)', async () => {
+  it('บัญชีใหม่ตอน ERP เรียกไม่สำเร็จ → รอจำแนกประเภท ไม่ได้สิทธิ์บุคลากรโดยไม่มีใครยืนยัน', async () => {
     await loginMsu(new Error('timeout'));
+    const id = await userIdByEmail('openhouse2026@msu.ac.th');
+    expect(await userRow(id)).toMatchObject({ account_type: 'unclassified', approval_status: 'pending' });
+    expect(await rolesOf(id)).toEqual(['user']);
+  });
+
+  it('รอจำแนก แล้ว login ครั้งถัดไป ERP พบบุคลากร → บุคลากร อนุมัติโดยระบบ ได้ role staff และ log', async () => {
+    const sub = 'google-erp-was-down';
+    await loginMsu(new Error('timeout'), { sub });
+    const id = await userIdByEmail('openhouse2026@msu.ac.th');
+
+    await loginMsu(STAFF_INFO, { sub });
+    expect(await userRow(id)).toMatchObject({ account_type: 'staff', approval_status: 'approved' });
+    expect(await rolesOf(id)).toEqual(['staff', 'user']);
+
+    const { rows: profile } = await pool.query(`SELECT staff_id FROM staff_profiles WHERE user_id = $1`, [id]);
+    expect(profile).toEqual([{ staff_id: '1234567' }]);
+    const { rows: logs } = await pool.query(
+      `SELECT actor_id, changes FROM user_audit_logs WHERE target_user_id = $1 AND action = 'approve'`,
+      [id],
+    );
+    expect(logs).toEqual([{ actor_id: null, changes: { accountType: { from: 'unclassified', to: 'staff' } } }]);
+  });
+
+  it('รอจำแนกที่ผู้ดูแลปฏิเสธแล้ว → ERP พบภายหลังก็ไม่เปลี่ยนเอง (ผู้ดูแลตัดสินแล้ว)', async () => {
+    const admin = await superAdmin();
+    const sub = 'google-rejected';
+    await loginMsu(null, { sub });
+    const id = await userIdByEmail('openhouse2026@msu.ac.th');
+    expect((await post(`/admin/users/${id}/reject`, admin.cookie, { reason: 'ไม่ทราบตัวตน' })).status).toBe(204);
+
+    await loginMsu(STAFF_INFO, { sub });
+    expect(await userRow(id)).toMatchObject({ account_type: 'unclassified', approval_status: 'rejected' });
+    expect(await rolesOf(id)).toEqual(['user']);
+  });
+
+  it('บุคลากรเดิมที่ ERP ไม่พบหรือล่มภายหลัง → ยังเป็นบุคลากร ไม่เสียสิทธิ์', async () => {
+    const sub = 'google-existing-staff';
+    await loginMsu(STAFF_INFO, { sub });
+    await loginMsu(null, { sub });
+    await loginMsu(new Error('timeout'), { sub });
     const id = await userIdByEmail('openhouse2026@msu.ac.th');
     expect(await userRow(id)).toMatchObject({ account_type: 'staff', approval_status: 'approved' });
     expect(await rolesOf(id)).toEqual(['staff', 'user']);
-  });
-
-  it('บุคลากรเดิมที่ ERP ไม่พบข้อมูลภายหลัง → ไม่ถูกเปลี่ยนเป็นบัญชีหน่วยงาน', async () => {
-    const sub = 'google-existing-staff';
-    await loginMsu(new Error('timeout'), { sub });
-    await loginMsu(null, { sub });
-    const id = await userIdByEmail('openhouse2026@msu.ac.th');
-    expect(await userRow(id)).toMatchObject({ account_type: 'staff', approval_status: 'approved' });
   });
 
   it('บัญชีหน่วยงานที่ลงทะเบียนล่วงหน้า → ผูก Google แล้วใช้งานได้ทันที คงประเภทบัญชี', async () => {
@@ -126,6 +160,60 @@ describe('login: จัดประเภทบัญชีหน่วยงา
     expect(google.sessionCookieFrom(res)).toBeDefined();
     expect(await userRow(created.body.id)).toMatchObject({ account_type: 'service', approval_status: 'approved' });
     expect(await rolesOf(created.body.id)).toEqual(['service', 'user']);
+  });
+});
+
+describe('อนุมัติบัญชีรอจำแนกประเภท', () => {
+  const pendingUnclassified = () =>
+    createUser({ accountType: 'unclassified', approvalStatus: 'pending', roles: ['user'] });
+
+  it('ยังไม่เลือกประเภท → อนุมัติไม่ได้', async () => {
+    const admin = await superAdmin();
+    const target = await pendingUnclassified();
+    const res = await post(`/admin/users/${target.id}/approve`, admin.cookie);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ACCOUNT_TYPE_REQUIRED');
+    expect(await userRow(target.id)).toMatchObject({ approval_status: 'pending' });
+  });
+
+  it('เลือกเป็นบุคลากรภายนอกแล้วอนุมัติ → ได้ role external', async () => {
+    const admin = await superAdmin();
+    const target = await pendingUnclassified();
+    const updated = await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'external', reason: 'อาจารย์พิเศษ' });
+    expect(updated.status).toBe(204);
+    expect(await rolesOf(target.id)).toEqual(['user']);
+    expect((await post(`/admin/users/${target.id}/approve`, admin.cookie)).status).toBe(204);
+    expect(await userRow(target.id)).toMatchObject({ account_type: 'external', approval_status: 'approved' });
+    expect(await rolesOf(target.id)).toEqual(['external', 'user']);
+  });
+
+  it('เลือกเป็นบัญชีหน่วยงาน → ต้องกำหนดหน่วยงานและผู้รับผิดชอบก่อนอนุมัติ', async () => {
+    const admin = await superAdmin();
+    const responsible = await staffMember();
+    const target = await pendingUnclassified();
+    await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'service', reason: 'บัญชีงานเปิดบ้าน' });
+    const blocked = await post(`/admin/users/${target.id}/approve`, admin.cookie);
+    expect(blocked.body.error.code).toBe('SERVICE_ORG_UNIT_REQUIRED');
+
+    await patch(`/admin/users/${target.id}`, admin.cookie, { orgUnitId, responsibleUserId: responsible.id, reason: 'x' });
+    expect((await post(`/admin/users/${target.id}/approve`, admin.cookie)).status).toBe(204);
+    expect(await rolesOf(target.id)).toEqual(['service', 'user']);
+  });
+
+  it('ผู้ดูแลเปลี่ยนบัญชีเป็น "รอจำแนก" เองไม่ได้', async () => {
+    const admin = await superAdmin();
+    const target = await createUser({ accountType: 'external', approvalStatus: 'pending', roles: ['user'] });
+    const res = await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'unclassified', reason: 'x' });
+    expect(res.status).toBe(400);
+    expect(await userRow(target.id)).toMatchObject({ account_type: 'external' });
+  });
+
+  it('กรองรายชื่อด้วยประเภท "รอจำแนก" ได้', async () => {
+    const admin = await superAdmin();
+    const target = await pendingUnclassified();
+    const res = await request(app).get('/admin/users?accountType=unclassified').set('Cookie', admin.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.users.map((u: { id: string }) => u.id)).toEqual([target.id]);
   });
 });
 
