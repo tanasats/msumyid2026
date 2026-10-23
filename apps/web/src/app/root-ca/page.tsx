@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Download } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
+import { BentoGrid, cardClasses } from '@/components/Card';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { getCurrentUser } from '@/lib/auth';
@@ -22,9 +23,10 @@ export default async function RootCaPage() {
   const ca = getRootCa();
 
   return (
-    <PageShell title="ติดตั้งใบรับรองหลัก (Root)" user={user ?? undefined} width="form">
-      <div className="space-y-4">
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+    <PageShell title="ติดตั้งใบรับรองหลัก (Root)" user={user ?? undefined}>
+      {/* จอใหญ่: เหตุผล+ดาวน์โหลด | ข้อมูลใบ (2 ช่อง) / Acrobat (2 ช่อง) | Foxit / Timestamp เต็มแถว */}
+      <BentoGrid>
+        <section className={`${cardClasses} md:col-span-2 lg:col-span-1`}>
           <h2 className="font-display text-lg font-semibold">ทำไมต้องติดตั้ง</h2>
           <p className="mt-2 leading-relaxed text-muted">
             ใบรับรองของมหาวิทยาลัยมหาสารคามออกภายใต้ใบรับรองหลักของ {ca.organization} ซึ่ง Acrobat และ Foxit
@@ -41,7 +43,7 @@ export default async function RootCaPage() {
           </a>
         </section>
 
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+        <section className={`${cardClasses} md:col-span-2`}>
           <h2 className="font-display text-lg font-semibold">ข้อมูลใบรับรอง</h2>
           <p className="mt-1 text-sm text-muted">
             ตรวจว่าค่า SHA-256 ที่โปรแกรมแสดงตรงกับค่านี้ทุกตัวอักษรก่อนกดเชื่อถือ
@@ -61,7 +63,7 @@ export default async function RootCaPage() {
           </InfoList>
         </section>
 
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+        <section className={`${cardClasses} lg:col-span-2`}>
           <h2 className="font-display text-lg font-semibold">Adobe Acrobat / Acrobat Reader</h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 leading-relaxed">
             <li>
@@ -87,7 +89,7 @@ export default async function RootCaPage() {
           </ol>
         </section>
 
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+        <section className={cardClasses}>
           <h2 className="font-display text-lg font-semibold">Foxit PDF Reader / Editor</h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 leading-relaxed">
             <li>
@@ -102,7 +104,7 @@ export default async function RootCaPage() {
           </ol>
         </section>
 
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
+        <section className={`${cardClasses} md:col-span-2 lg:col-span-3`}>
           <h2 className="font-display text-lg font-semibold">ตั้งค่า Timestamp Server (สำหรับผู้ลงนาม)</h2>
           <p className="mt-2 leading-relaxed text-muted">
             ประทับเวลาที่เชื่อถือได้ลงในลายเซ็น ทำให้ลายเซ็นยังตรวจผ่านหลังใบรับรองหมดอายุหรือถูกเพิกถอน
@@ -142,11 +144,11 @@ export default async function RootCaPage() {
           </ol>
         </section>
 
-        <Alert tone="info" title="ชื่อเมนูอาจต่างกันเล็กน้อยตามรุ่นของโปรแกรม">
+        <Alert tone="info" title="ชื่อเมนูอาจต่างกันเล็กน้อยตามรุ่นของโปรแกรม" className="md:col-span-2 lg:col-span-3">
           ไม่ต้องติดตั้งใบรับรองของมหาวิทยาลัย (Intermediate) แยก เพราะแนบมากับลายเซ็นแล้ว
         </Alert>
 
-        <p className="text-center text-sm text-muted">
+        <p className="text-center text-sm text-muted md:col-span-2 lg:col-span-3">
           ไม่ต้องการติดตั้งโปรแกรม?{' '}
           <Link href="/verify" className="font-medium text-accent underline-offset-4 hover:underline">
             ตรวจสอบลายมือชื่อบนเว็บ
@@ -154,14 +156,14 @@ export default async function RootCaPage() {
         </p>
 
         {!user && (
-          <p className="text-center text-sm text-muted">
+          <p className="text-center text-sm text-muted md:col-span-2 lg:col-span-3">
             ต้องการขอใบรับรอง?{' '}
             <Link href="/login" className="font-medium text-accent underline-offset-4 hover:underline">
               เข้าสู่ระบบ
             </Link>
           </p>
         )}
-      </div>
+      </BentoGrid>
     </PageShell>
   );
 }

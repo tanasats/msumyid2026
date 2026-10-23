@@ -1,10 +1,14 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, FileBadge, ShieldCheck } from 'lucide-react';
+import { ChevronRight, FileBadge, FileSearch, ShieldCheck, UserRound, Users, type LucideIcon } from 'lucide-react';
+import { BentoGrid, cardClasses } from '@/components/Card';
+import { IdentityCard } from '@/components/IdentityCard';
 import { Landing } from '@/components/landing/Landing';
 import { PageShell } from '@/components/PageShell';
-import { getCurrentUser } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
 import { getThemePreference } from '@/lib/theme-server';
+
+type Tile = { href: string; icon: LucideIcon; title: string; detail: string; className?: string };
 
 // หน้าแรก: ยังไม่ login = หน้าแลนดิ้งสาธารณะ (ตรวจลายมือชื่อ + อธิบายความน่าเชื่อถือ) / login แล้ว = ทางเข้าบริการของระบบ
 export default async function HomePage() {
@@ -13,42 +17,66 @@ export default async function HomePage() {
   if (!user) return <Landing theme={await getThemePreference()} />;
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
+  // แถวล่าง 3 ช่องเท่ากัน — ช่องที่ 3 เป็นงานผู้ดูแลถ้ามีสิทธิ์ (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์เสมอ)
+  const tiles: Tile[] = [
+    {
+      href: '/certificates',
+      icon: FileBadge,
+      title: 'ใบรับรองของฉัน',
+      detail: 'ขอและดาวน์โหลดใบรับรองสำหรับลงนามเอกสารและเข้ารหัสอีเมล',
+    },
+    {
+      href: '/verify',
+      icon: FileSearch,
+      title: 'ตรวจสอบลายมือชื่อ',
+      detail: 'อัปโหลด PDF เพื่อตรวจว่าเอกสารไม่ถูกแก้ไขและใครเป็นผู้ลงนาม',
+    },
+    {
+      href: '/root-ca',
+      icon: ShieldCheck,
+      title: 'ติดตั้งใบรับรองหลัก',
+      detail: 'ให้ Acrobat และ Foxit เชื่อถือลายมือชื่อของมหาวิทยาลัย',
+    },
+    user.permissions.includes('user:read')
+      ? { href: '/admin/users', icon: Users, title: 'ผู้ใช้ระบบ', detail: 'ค้นหา อนุมัติ และจัดการบัญชีผู้ใช้' }
+      : { href: '/account', icon: UserRound, title: 'บัญชีของฉัน', detail: 'ข้อมูลบัญชี โหมดสว่าง/มืด และขนาดตัวอักษร' },
+  ];
+
   return (
     <PageShell title="หน้าหลัก" user={user}>
-      <div className="space-y-6">
-        <section>
-          <h2 className="font-display text-xl font-semibold lg:text-2xl">สวัสดี {user.name}</h2>
-          <p className="mt-1 text-muted">ยินดีต้อนรับสู่ MSU Digital ID</p>
-        </section>
-
-        <Link
-          href="/certificates"
-          className="flex min-h-20 items-center gap-4 rounded-xl border border-line bg-surface shadow-card p-4 transition hover:bg-surface-hover sm:p-5"
-        >
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg">
-            <FileBadge className="size-6" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">ใบรับรองของฉัน</span>
-            <span className="block text-sm text-muted">ขอและดาวน์โหลดใบรับรองสำหรับลงนามและเข้ารหัสอีเมล</span>
-          </span>
-          <ChevronRight className="size-5 shrink-0 text-muted" aria-hidden />
-        </Link>
-
-        <Link
-          href="/root-ca"
-          className="flex min-h-20 items-center gap-4 rounded-xl border border-line bg-surface shadow-card p-4 transition hover:bg-surface-hover sm:p-5"
-        >
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg">
-            <ShieldCheck className="size-6" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">ติดตั้งใบรับรองหลัก (Root)</span>
-            <span className="block text-sm text-muted">ให้ Acrobat และ Foxit เชื่อถือลายเซ็นของมหาวิทยาลัย</span>
-          </span>
-          <ChevronRight className="size-5 shrink-0 text-muted" aria-hidden />
-        </Link>
-      </div>
+      <BentoGrid>
+        <IdentityCard
+          name={user.name}
+          email={user.email}
+          pictureUrl={user.pictureUrl}
+          accountTypeLabel={ACCOUNT_TYPE_LABELS[user.accountType]}
+          className="md:col-span-2"
+        />
+        {tiles.map((tile) => (
+          <LinkTile key={tile.href} {...tile} />
+        ))}
+      </BentoGrid>
     </PageShell>
+  );
+}
+
+/** ช่องลิงก์ในกริด — ทั้งช่องกดได้ ไอคอนบน ข้อความล่าง */
+function LinkTile({ href, icon: Icon, title, detail, className = '' }: Tile) {
+  return (
+    <Link
+      href={href}
+      className={`${cardClasses} group flex min-h-40 flex-col transition hover:border-line-input hover:bg-surface-hover ${className}`}
+    >
+      <span className="flex items-start justify-between">
+        <span className="flex size-11 items-center justify-center rounded-full bg-accent-soft text-accent-soft-fg">
+          <Icon className="size-6" aria-hidden />
+        </span>
+        <ChevronRight className="size-5 text-muted transition group-hover:translate-x-0.5" aria-hidden />
+      </span>
+      <span className="mt-auto pt-6">
+        <span className="block font-semibold">{title}</span>
+        <span className="mt-1 block text-sm leading-relaxed text-muted">{detail}</span>
+      </span>
+    </Link>
   );
 }

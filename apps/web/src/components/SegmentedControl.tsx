@@ -33,7 +33,8 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`inline-flex rounded-full border border-line bg-canvas p-1 ${compact ? '' : 'w-full sm:w-auto'}`}
+      // ไม่ compact: เต็มความกว้างของกล่องที่อยู่ (สูงสุด max-w-md) ปุ่มแบ่งเท่ากัน — วางในช่องแคบของกริดได้โดยไม่ล้น
+      className={`inline-flex rounded-full border border-line bg-canvas p-1 ${compact ? '' : 'w-full max-w-md'}`}
     >
       {options.map(({ value: optionValue, label: optionLabel, icon: Icon, display }) => {
         const selected = value === optionValue;
@@ -47,7 +48,7 @@ export function SegmentedControl<T extends string>({
             aria-label={iconOnly || display ? optionLabel : undefined}
             title={iconOnly || display ? optionLabel : undefined}
             className={`flex min-h-11 items-center justify-center gap-2 rounded-full text-sm font-medium transition ${
-              compact ? 'min-w-11' : 'flex-1 px-4 sm:flex-none'
+              compact ? 'min-w-11' : 'min-w-0 flex-1 px-2'
             } ${
               selected ? 'bg-surface text-accent-soft-fg shadow-card ring-1 ring-ornament/60' : 'text-muted hover:text-fg'
             }`}

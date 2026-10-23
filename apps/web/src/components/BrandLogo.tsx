@@ -9,12 +9,18 @@ import Image from 'next/image';
 
 type LogoProps = { className?: string; alt?: string };
 
-/** สัญลักษณ์ (ตัว M) อย่างเดียว — ไอคอนแบรนด์ใน header/sidebar และป้ายเล็ก (สัดส่วน 244:128) */
-export function MsuMark({ className = 'h-7 w-auto', alt = '' }: LogoProps) {
+/**
+ * สัญลักษณ์ (ตัว M) อย่างเดียว — ไอคอนแบรนด์ใน header/sidebar และป้ายเล็ก (สัดส่วน 244:128)
+ * onPrimary: วางบนพื้นสี primary (บัตรประจำตัว) — สลับกลับด้าน เพราะ primary เข้มในโหมดสว่าง แต่อ่อนในโหมดมืด
+ */
+export function MsuMark({ className = 'h-7 w-auto', alt = '', onPrimary = false }: LogoProps & { onPrimary?: boolean }) {
+  const [light, dark] = onPrimary
+    ? ['/brand/msu-mark-white.png', '/brand/msu-mark.png']
+    : ['/brand/msu-mark.png', '/brand/msu-mark-white.png'];
   return (
     <>
-      <Image src="/brand/msu-mark.png" alt={alt} width={244} height={128} className={`${className} dark:hidden`} />
-      <Image src="/brand/msu-mark-white.png" alt={alt} width={244} height={128} className={`${className} hidden dark:block`} />
+      <Image src={light} alt={alt} width={244} height={128} className={`${className} dark:hidden`} />
+      <Image src={dark} alt={alt} width={244} height={128} className={`${className} hidden dark:block`} />
     </>
   );
 }
