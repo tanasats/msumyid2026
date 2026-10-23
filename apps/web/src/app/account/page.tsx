@@ -1,14 +1,13 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Alert } from '@/components/Alert';
-import { Avatar } from '@/components/Avatar';
-import { InfoList, InfoRow } from '@/components/InfoList';
+import { BentoGrid, Card } from '@/components/Card';
+import { IdentityCard } from '@/components/IdentityCard';
 import { LogoutButton } from '@/components/LogoutButton';
 import { PageShell } from '@/components/PageShell';
 import { StaffProfileCard } from '@/components/StaffProfileCard';
 import { TextSizeSwitcher } from '@/components/TextSizeSwitcher';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
-import { Tag } from '@/components/UserStatusBadge';
 import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
 import { getMyStaffProfile } from '@/lib/staff-profile';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
@@ -24,45 +23,36 @@ export default async function AccountPage() {
   const staffProfile = user.accountType === 'staff' ? await getMyStaffProfile() : null;
   const [theme, textSize] = await Promise.all([getThemePreference(), getTextSize()]);
 
+  const isStaff = user.accountType === 'staff';
+
+  // bento (จอใหญ่): บัตรประจำตัว | การแสดงผล (2 ช่อง — ปุ่มเลือกต้องกว้างพอไม่ให้ข้อความตัดบรรทัด)
+  //                  ข้อมูลบุคลากร เต็มแถว (เฉพาะบุคลากร) — grid-flow-dense ให้การแสดงผลขึ้นไปอยู่แถวบน
+  // tablet: เรียงเต็มความกว้าง / มือถือ: บัตร → ข้อมูลบุคลากร → การแสดงผล
   return (
-    <PageShell title="บัญชีของฉัน" user={user} width="form">
-      <div className="space-y-6">
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
-          <div className="flex items-center gap-4">
-            <Avatar name={user.name} pictureUrl={user.pictureUrl} size="lg" />
-            <div className="min-w-0">
-              <h2 className="truncate font-display text-lg font-semibold">{user.name}</h2>
-              <p className="text-sm break-all text-muted">{user.email}</p>
-            </div>
-          </div>
+    <PageShell title="บัญชีของฉัน" user={user}>
+      <BentoGrid>
+        <IdentityCard
+          name={user.name}
+          email={user.email}
+          pictureUrl={user.pictureUrl}
+          accountTypeLabel={ACCOUNT_TYPE_LABELS[user.accountType]}
+          className="md:col-span-2 lg:col-span-1"
+        />
 
-          <InfoList className="mt-6">
-            <InfoRow label="ประเภทบัญชี">{ACCOUNT_TYPE_LABELS[user.accountType]}</InfoRow>
-            <InfoRow label="บทบาท">
-              <span className="flex flex-wrap gap-2">
-                {user.roles.map((role) => (
-                  <Tag key={role}>{role}</Tag>
-                ))}
-              </span>
-            </InfoRow>
-          </InfoList>
-        </section>
-
-        {user.accountType === 'staff' &&
+        {isStaff &&
           (staffProfile ? (
             <StaffProfileCard
               profile={staffProfile}
               description="ข้อมูลจากระบบบุคลากร (ERP) ของมหาวิทยาลัย อัปเดตทุกครั้งที่เข้าสู่ระบบ"
+              className="md:col-span-2 lg:col-span-3"
             />
           ) : (
-            <Alert tone="info" title="ยังไม่มีข้อมูลบุคลากร">
+            <Alert tone="info" title="ยังไม่มีข้อมูลบุคลากร" className="md:col-span-2 lg:col-span-3">
               ระบบยังดึงข้อมูลจากระบบบุคลากร (ERP) ไม่สำเร็จ จะลองใหม่เมื่อคุณเข้าสู่ระบบครั้งถัดไป
             </Alert>
           ))}
 
-        <section className="rounded-xl border border-line bg-surface shadow-card p-5 shadow-card sm:p-6">
-          <h2 className="font-display text-lg font-semibold">การแสดงผล</h2>
-          <p className="mt-1 text-sm text-muted">เลือกโหมดสว่างหรือมืด หรือให้เปลี่ยนตามการตั้งค่าของเครื่อง</p>
+        <Card title="การแสดงผล" description="เลือกโหมดสว่างหรือมืด หรือให้เปลี่ยนตามการตั้งค่าของเครื่อง" className="md:col-span-2">
           <div className="mt-4">
             <ThemeSwitcher initial={theme} />
           </div>
@@ -70,11 +60,12 @@ export default async function AccountPage() {
           <div className="mt-2">
             <TextSizeSwitcher initial={textSize} />
           </div>
-        </section>
+        </Card>
+      </BentoGrid>
 
+      <div className="mt-6 flex md:justify-end">
         <LogoutButton />
       </div>
     </PageShell>
   );
 }
-
