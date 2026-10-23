@@ -31,6 +31,7 @@ export function AdminCertificateCard({
           {c.email && <p className="text-sm break-all text-muted">{c.email}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
+          {c.kind === 'supplementary' && <Tag>ใบรับรองเสริม</Tag>}
           {c.source === 'imported' && <Tag>นำเข้าจากระบบเดิม</Tag>}
           {c.hasKeyEscrow && <Tag>มี key สำรอง</Tag>}
           <CertificateStatusBadge status={c.status} />

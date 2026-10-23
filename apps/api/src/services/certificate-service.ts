@@ -5,13 +5,13 @@ import { lockManagedUser } from '../repositories/admin-user-repository.js';
 import { AppError } from '../errors.js';
 import { logger } from '../middlewares/logger.js';
 import {
-  countActiveCertificatesByUser,
   findCertificateForUpdate,
   findCertificateOwnerId,
   findCertificateWithEscrow,
   insertCertificate,
   insertCertificateAuditLog,
   insertKeyEscrow,
+  listActiveCertificateExpiries,
   listCertificatesByUser,
   lockUserForCertificate,
   revokeActiveCertificatesByUser,
@@ -22,14 +22,14 @@ import {
   type CertificateStatus,
   type RevocationReason,
 } from '../repositories/certificate-repository.js';
+import { getCertificatePolicy } from '../repositories/certificate-policy-repository.js';
 import { canManageUser, type AuthUser } from './authorization-service.js';
+import { DAY_MS, primaryExpiryPreview, primaryValidityDays } from './certificate-policy-service.js';
 import { issueCrlSafely } from './crl-service.js';
 import { SignerError, signer } from './signer-client.js';
 
 // ใบรับรอง S/MIME แบบบริการตนเอง (docs/design/certificates.md)
 
-/** ใบที่ใช้งานอยู่พร้อมกันได้ต่อคน — ขอใบใหม่ได้ก่อนใบเดิมหมดอายุ (ตัดสินใจ 2026-10-08) */
-export const MAX_ACTIVE_CERTIFICATES = 2;
 /** X.509 จำกัด commonName ไม่เกิน 64 ตัวอักษร (ub-common-name) */
 const MAX_COMMON_NAME_LENGTH = 64;
 const LIST_LIMIT = 50;
@@ -41,13 +41,50 @@ export async function listMyCertificates(user: AuthUser): Promise<Certificate[]>
   return listCertificatesByUser(pool, user.id, LIST_LIMIT);
 }
 
+/**
+ * กฎใบหลัก (ตัดสินใจ 2026-10-24): มีใบหลักที่ใช้งานอยู่ได้ 1 ใบ — ขอใบใหม่ได้เมื่อใบหลักทุกใบที่ใช้งานอยู่
+ * เหลืออายุไม่เกิน renewalWindowDays (ใบเดิมใช้ต่อจนหมดอายุ) คืนวันที่เริ่มขอได้ หรือ null = ขอได้ทันที
+ * ผู้ที่มีใบที่ใช้งานอยู่ 2 ใบจากกฎเดิมยังใช้ต่อได้ — กฎนี้ตรวจเฉพาะตอนขอใบใหม่
+ */
+function primaryRenewableFrom(activeExpiries: Date[], renewalWindowDays: number, now: Date): Date | null {
+  if (activeExpiries.length === 0) return null;
+  const latest = Math.max(...activeExpiries.map((d) => d.getTime()));
+  const from = latest - renewalWindowDays * DAY_MS;
+  return from > now.getTime() ? new Date(from) : null;
+}
+
+export type PrimaryRequestStatus = {
+  /** วันที่เริ่มขอใบหลักใหม่ได้ (null = ขอได้ตอนนี้) */
+  renewableFrom: Date | null;
+  /** วันหมดอายุโดยประมาณถ้าขอตอนนี้ (ตามนโยบาย ไม่เกินอายุของ CA) */
+  expiresAtIfRequested: Date;
+  renewalWindowDays: number;
+};
+
+/** สถานะการขอใบหลักของผู้ใช้ — ให้หน้าเว็บแสดงวันหมดอายุล่วงหน้าและวันที่ต่ออายุได้ (API ตรวจซ้ำตอนขอเสมอ) */
+export async function getMyPrimaryRequestStatus(user: AuthUser): Promise<PrimaryRequestStatus> {
+  const now = new Date();
+  const [policy, expiries] = await Promise.all([
+    getCertificatePolicy(pool),
+    listActiveCertificateExpiries(pool, user.id, 'primary'),
+  ]);
+  return {
+    renewableFrom: primaryRenewableFrom(expiries, policy.renewalWindowDays, now),
+    expiresAtIfRequested: primaryExpiryPreview(policy, now),
+    renewalWindowDays: policy.renewalWindowDays,
+  };
+}
+
+const thaiDate = (date: Date) =>
+  date.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' });
+
 export type RequestCertificateInput = {
   p12Password: string;
   legacyP12: boolean;
 };
 
 /**
- * ออกใบรับรองให้ผู้ใช้ปัจจุบัน — subject มาจากฐานข้อมูลเท่านั้น (CN = ชื่อแสดง, อีเมลของบัญชี) ผู้ใช้กำหนดเองไม่ได้
+ * ออกใบรับรองหลักให้ผู้ใช้ปัจจุบัน (อายุตามนโยบาย, 1 ใบ + ช่วงต่ออายุ) — subject มาจากฐานข้อมูลเท่านั้น (CN = ชื่อแสดง, อีเมลของบัญชี) ผู้ใช้กำหนดเองไม่ได้
  * คืนไฟล์ .p12 ครั้งเดียว ระบบไม่เก็บไฟล์และรหัสผ่าน (กู้ได้จาก key สำรอง)
  *
  * ทำทั้งหมดใน transaction ที่ล็อกแถวผู้ใช้ไว้ รวมถึงช่วงที่รอ signer (ไม่กี่วินาที):
@@ -70,12 +107,18 @@ export async function requestCertificate(
     if (!(await lockUserForCertificate(client, user.id))) {
       throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
     }
-    const active = await countActiveCertificatesByUser(client, user.id);
-    if (active >= MAX_ACTIVE_CERTIFICATES) {
+    const now = new Date();
+    const policy = await getCertificatePolicy(client);
+    const renewableFrom = primaryRenewableFrom(
+      await listActiveCertificateExpiries(client, user.id, 'primary'),
+      policy.renewalWindowDays,
+      now,
+    );
+    if (renewableFrom) {
       throw new AppError(
         409,
-        'CERTIFICATE_LIMIT_REACHED',
-        `คุณมีใบรับรองที่ใช้งานอยู่ครบ ${MAX_ACTIVE_CERTIFICATES} ใบแล้ว ต้องเพิกถอนหรือรอให้ใบเดิมหมดอายุก่อนจึงจะขอใบใหม่ได้`,
+        'PRIMARY_CERTIFICATE_EXISTS',
+        `คุณมีใบรับรองหลักที่ใช้งานอยู่แล้ว ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ ${thaiDate(renewableFrom)} หรือเพิกถอนใบเดิมก่อน`,
       );
     }
 
@@ -86,6 +129,7 @@ export async function requestCertificate(
         email: user.email,
         p12Password: input.p12Password,
         legacyP12: input.legacyP12,
+        validityDays: primaryValidityDays(policy, now),
       });
     } catch (err) {
       if (!(err instanceof SignerError)) throw err;
@@ -102,6 +146,7 @@ export async function requestCertificate(
         notBefore: issued.notBefore,
         notAfter: issued.notAfter,
         source: 'issued',
+        kind: 'primary',
         certificatePem: issued.certificatePem,
         fingerprintSha256: issued.fingerprintSha256,
       });
@@ -120,6 +165,7 @@ export async function requestCertificate(
           revokedAt: null,
           revocationReason: null,
           source: 'issued',
+          kind: 'primary',
           fingerprintSha256: issued.fingerprintSha256,
           hasKeyEscrow: true,
           createdAt: new Date(),

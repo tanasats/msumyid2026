@@ -21,6 +21,8 @@ export type IssueInput = {
   p12Password: string;
   /** true = เข้ารหัส .p12 แบบ 3DES/SHA-1 ให้โปรแกรมรุ่นเก่าเปิดได้ (ค่าเริ่มต้นของ OpenSSL 3 คือ AES-256) */
   legacyP12: boolean;
+  /** อายุใบ (วัน) ตามนโยบายของ API — ไม่ส่ง = ใช้เพดาน CERT_VALIDITY_DAYS; ไม่เกินเพดานและอายุ CA เสมอ */
+  validityDays?: number;
 };
 
 export type IssuedCertificate = {
@@ -112,11 +114,11 @@ async function writeEncryptedKey(file: string, privateKey: KeyObject): Promise<s
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * อายุใบ (วัน) = CERT_VALIDITY_DAYS แต่ไม่เกินวันหมดอายุที่เร็วที่สุดในสายของ CA
+ * อายุใบ (วัน) = ค่าที่ขอ (ไม่เกินเพดาน CERT_VALIDITY_DAYS) แต่ไม่เกินวันหมดอายุที่เร็วที่สุดในสายของ CA
  * (ใบที่หมดอายุช้ากว่า CA/root จะตรวจสายไม่ผ่านตั้งแต่วันที่ CA หมดอายุ) — เหลือไม่ถึง 1 วัน = ออกใบไม่ได้
  */
-export function validityDays(caNotAfter: Date, now: Date, configuredDays: number): number {
-  const days = Math.min(configuredDays, Math.floor((caNotAfter.getTime() - now.getTime()) / DAY_MS));
+export function validityDays(caNotAfter: Date, now: Date, maxDays: number, requestedDays = maxDays): number {
+  const days = Math.min(requestedDays, maxDays, Math.floor((caNotAfter.getTime() - now.getTime()) / DAY_MS));
   if (days < 1) {
     throw new AppError(503, 'CA_EXPIRING', 'ใบรับรองของ CA หมดอายุหรือใกล้หมดอายุ ออกใบรับรองใหม่ไม่ได้');
   }
@@ -153,7 +155,7 @@ export async function buildP12(input: {
 /** สร้าง key ใหม่ → CSR → CA เซ็น → .p12 + key สำรองที่เข้ารหัสแล้ว */
 export async function issueCertificate(input: IssueInput): Promise<IssuedCertificate> {
   const ca = await loadCa();
-  const days = validityDays(ca.notAfter, new Date(), config.certValidityDays);
+  const days = validityDays(ca.notAfter, new Date(), config.certValidityDays, input.validityDays);
   const { privateKey } = await generateKeyPairAsync('rsa', { modulusLength: config.userKeyBits });
   const serial = randomSerial();
 

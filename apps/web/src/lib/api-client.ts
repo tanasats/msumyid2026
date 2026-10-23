@@ -86,7 +86,7 @@ export function apiUpload<T>(
 /** ส่งคำขอเปลี่ยนข้อมูล — คืน JSON ที่ API ตอบ (204 No Content = undefined) */
 export async function apiMutate<T = void>(
   path: string,
-  method: 'POST' | 'PATCH' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body: object = {},
 ): Promise<T> {
   let res: Response;

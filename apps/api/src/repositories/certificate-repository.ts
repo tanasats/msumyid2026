@@ -2,6 +2,9 @@ import type { Queryable } from '../db/types.js';
 
 export type CertificateStatus = 'active' | 'expired' | 'revoked';
 
+/** primary = ใบหลัก (ขอเองได้), supplementary = ใบเสริม (ออกเมื่อคำขอได้รับอนุมัติ) */
+export type CertificateKind = 'primary' | 'supplementary';
+
 export type RevocationReason =
   | 'unspecified'
   | 'keyCompromise'
@@ -21,6 +24,7 @@ export type CertificateRow = {
   revokedAt: Date | null;
   revocationReason: RevocationReason | null;
   source: 'issued' | 'imported';
+  kind: CertificateKind;
   fingerprintSha256: string;
   /** มี key สำรอง = กู้ key / ดาวน์โหลด .p12 ใหม่ได้ (ใบที่นำเข้าโดยไม่มี key เดิมจะไม่มี) */
   hasKeyEscrow: boolean;
@@ -51,6 +55,7 @@ export async function listCertificatesByUser(db: Queryable, userId: string, limi
             c.revoked_at          AS "revokedAt",
             c.revocation_reason   AS "revocationReason",
             c.source,
+            c.kind,
             c.fingerprint_sha256  AS "fingerprintSha256",
             EXISTS (SELECT 1 FROM certificate_key_escrows e WHERE e.certificate_id = c.id) AS "hasKeyEscrow",
             c.created_at          AS "createdAt"
@@ -64,19 +69,27 @@ export async function listCertificatesByUser(db: Queryable, userId: string, limi
 }
 
 /**
- * นับใบที่ใช้งานอยู่ (ยังไม่เพิกถอนและยังไม่หมดอายุ) ของผู้ใช้ — ใช้บังคับจำนวนใบสูงสุดต่อคน
- * ต้องเรียกหลัง lockUserForCertificate ใน transaction เดียวกัน จึงจะนับได้ถูกต้องเมื่อขอพร้อมกันหลายคำขอ
+ * วันหมดอายุของใบที่ใช้งานอยู่ (ยังไม่เพิกถอนและยังไม่หมดอายุ) ของผู้ใช้ตามประเภท — ใช้ตรวจกฎใบหลัก 1 ใบ/ช่วงต่ออายุ
+ * ต้องเรียกหลัง lockUserForCertificate ใน transaction เดียวกัน จึงจะตรวจได้ถูกต้องเมื่อขอพร้อมกันหลายคำขอ
+ * ใช้ index certificates_user_id_kind_idx — ผู้ใช้มีใบที่ใช้งานอยู่ไม่กี่ใบ แต่ยังจำกัดจำนวนไว้
  */
-export async function countActiveCertificatesByUser(db: Queryable, userId: string): Promise<number> {
-  const result = await db.query<{ count: number }>(
-    `SELECT count(*)::int AS count
+export async function listActiveCertificateExpiries(
+  db: Queryable,
+  userId: string,
+  kind: CertificateKind,
+): Promise<Date[]> {
+  const result = await db.query<{ notAfter: Date }>(
+    `SELECT not_after AS "notAfter"
      FROM certificates
      WHERE user_id = $1
+       AND kind = $2
        AND revoked_at IS NULL
-       AND not_after > now()`,
-    [userId],
+       AND not_after > now()
+     ORDER BY not_after DESC
+     LIMIT 50`,
+    [userId, kind],
   );
-  return result.rows[0]!.count;
+  return result.rows.map((r) => r.notAfter);
 }
 
 /**
@@ -103,6 +116,8 @@ export type InsertCertificateInput = {
   notBefore: Date;
   notAfter: Date;
   source: 'issued' | 'imported';
+  /** ไม่ระบุ = ใบหลัก (ใบที่นำเข้าจากระบบเดิมเป็นใบหลักเสมอ) */
+  kind?: CertificateKind;
   certificatePem: string;
   fingerprintSha256: string;
   /** ใบที่นำเข้าซึ่งถูกเพิกถอนในระบบเดิมแล้ว (ระบบออกใบใหม่ไม่ใช้) */
@@ -113,8 +128,8 @@ export type InsertCertificateInput = {
 export async function insertCertificate(db: Queryable, input: InsertCertificateInput): Promise<{ id: string }> {
   const result = await db.query<{ id: string }>(
     `INSERT INTO certificates (user_id, serial_number, subject_cn, email, not_before, not_after,
-                               source, certificate_pem, fingerprint_sha256, revoked_at, revocation_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                               source, certificate_pem, fingerprint_sha256, revoked_at, revocation_reason, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       input.userId,
@@ -128,6 +143,7 @@ export async function insertCertificate(db: Queryable, input: InsertCertificateI
       input.fingerprintSha256,
       input.revokedAt ?? null,
       input.revocationReason ?? null,
+      input.kind ?? 'primary',
     ],
   );
   return result.rows[0]!;
@@ -369,6 +385,7 @@ export async function searchCertificates(
             c.revoked_at          AS "revokedAt",
             c.revocation_reason   AS "revocationReason",
             c.source,
+            c.kind,
             c.fingerprint_sha256  AS "fingerprintSha256",
             EXISTS (SELECT 1 FROM certificate_key_escrows e WHERE e.certificate_id = c.id) AS "hasKeyEscrow",
             c.created_at          AS "createdAt",

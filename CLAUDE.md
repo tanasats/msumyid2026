@@ -236,6 +236,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `certificate:request` | ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง |
 | `certificate:read` | ดูใบรับรองของผู้อื่น |
 | `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองหลักและเพดานของใบรับรองเสริม |
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
 
 ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`

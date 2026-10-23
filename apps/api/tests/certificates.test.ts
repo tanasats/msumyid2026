@@ -102,7 +102,10 @@ describe('GET /me/certificates (ต้อง login เท่านั้น)', (
 
     const res = await request(app).get('/me/certificates').set('Cookie', await loginAs(me.id));
     expect(res.status).toBe(200);
-    expect(res.body.maxActive).toBe(2);
+    // มีใบหลักที่ใช้งานอยู่ (หมดอายุอีก 365 วัน) → ขอใหม่ได้เมื่อเหลือ 30 วัน (ช่วงต่ออายุตามค่าเริ่มต้น)
+    expect(res.body.primaryRequest.renewalWindowDays).toBe(30);
+    expect(Date.parse(res.body.primaryRequest.renewableFrom)).toBeGreaterThan(Date.now() + 330 * DAY);
+    expect(Date.parse(res.body.primaryRequest.expiresAtIfRequested)).toBeGreaterThan(Date.now() + 364 * DAY);
     expect(res.body.certificates.map((c: { id: string }) => c.id)).toEqual([mine]);
   });
 
@@ -167,13 +170,14 @@ describe('POST /me/certificates (certificate:request)', () => {
       email: 'somying.r@msu.ac.th',
       p12Password: PASSWORD,
       legacyP12: true,
+      validityDays: 365,
     });
     expect(Buffer.from(res.body.p12, 'base64').toString()).toBe('fake-p12-content');
     expect(res.body.fileName).toBe('somying.r@msu.ac.th.p12');
     expect(res.body.certificate).toMatchObject({ status: 'active', source: 'issued', subjectCn: 'สมหญิง รักเรียน' });
 
     const { rows } = await pool.query(
-      `SELECT c.user_id, c.subject_cn, c.email, c.source, e.kek_id,
+      `SELECT c.user_id, c.subject_cn, c.email, c.source, c.kind, e.kek_id,
               length(e.encrypted_key) AS key_length, a.action, a.actor_id
        FROM certificates c
        JOIN certificate_key_escrows e ON e.certificate_id = c.id
@@ -187,6 +191,7 @@ describe('POST /me/certificates (certificate:request)', () => {
         subject_cn: 'สมหญิง รักเรียน',
         email: 'somying.r@msu.ac.th',
         source: 'issued',
+        kind: 'primary',
         kek_id: 'test-1',
         key_length: 64,
         action: 'issue',
@@ -219,21 +224,54 @@ describe('POST /me/certificates (certificate:request)', () => {
     expect(issue).not.toHaveBeenCalled();
   });
 
-  it('มีใบที่ใช้งานอยู่ครบ 2 ใบ → 409 แต่ใบที่หมดอายุ/เพิกถอนไม่นับ', async () => {
+  it('มีใบหลักที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ → 409 PRIMARY_CERTIFICATE_EXISTS แต่ใบที่หมดอายุ/เพิกถอนไม่นับ', async () => {
     const issue = mockSigner();
     const user = await requester();
     await insertCertificate(user.id, { notAfter: new Date(Date.now() - DAY) });
     await insertCertificate(user.id, { revoked: true });
-    await insertCertificate(user.id);
 
     expect((await postRequest(user.cookie)).status).toBe(201);
     const res = await postRequest(user.cookie);
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CERTIFICATE_LIMIT_REACHED');
+    expect(res.body.error.code).toBe('PRIMARY_CERTIFICATE_EXISTS');
+    expect(res.body.error.message).toContain('ต่ออายุได้ตั้งแต่วันที่');
     expect(issue).toHaveBeenCalledTimes(1);
   });
 
-  it('ขอพร้อมกันหลายคำขอ → ได้ไม่เกิน 2 ใบ (ล็อกแถวผู้ใช้)', async () => {
+  it('ใบหลักเหลือไม่เกินช่วงต่ออายุ (30 วัน) → ขอใบใหม่ได้ 1 ใบ ใบเดิมยังใช้งานอยู่ แต่ขอใบที่ 3 ไม่ได้', async () => {
+    mockSigner();
+    const user = await requester();
+    const old = await insertCertificate(user.id, { notAfter: new Date(Date.now() + 10 * DAY) });
+
+    expect((await postRequest(user.cookie)).status).toBe(201);
+    expect((await postRequest(user.cookie)).status).toBe(409);
+    const { rows } = await pool.query('SELECT revoked_at FROM certificates WHERE id = $1', [old]);
+    expect(rows[0].revoked_at).toBeNull();
+  });
+
+  it('ใบเสริมที่ใช้งานอยู่ไม่นับเป็นใบหลัก', async () => {
+    mockSigner();
+    const user = await requester();
+    const supplementary = await insertCertificate(user.id);
+    await pool.query("UPDATE certificates SET kind = 'supplementary' WHERE id = $1", [supplementary]);
+    expect((await postRequest(user.cookie)).status).toBe(201);
+  });
+
+  it('อายุใบตามนโยบาย: โหมดหมดอายุวันที่กำหนด ส่งจำนวนวันที่คำนวณได้ให้ signer', async () => {
+    const issue = mockSigner();
+    await pool.query(
+      "UPDATE certificate_policies SET primary_mode = 'fixed_date', primary_expiry_month = 12, primary_expiry_day = 31, primary_min_days = 0",
+    );
+    const user = await requester();
+    expect((await postRequest(user.cookie)).status).toBe(201);
+
+    const days = issue.mock.calls[0]![0].validityDays;
+    const expires = new Date(Date.now() + days * DAY);
+    // วันหมดอายุตกวันที่ 31 ธ.ค. ตามเวลาประเทศไทย
+    expect(expires.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })).toMatch(/-12-31$/);
+  });
+
+  it('ขอพร้อมกันหลายคำขอ → ได้ใบหลักใบเดียว (ล็อกแถวผู้ใช้)', async () => {
     // signer ช้าเล็กน้อย ให้คำขอซ้อนกันจริง
     vi.spyOn(signer, 'issueCertificate').mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -242,9 +280,9 @@ describe('POST /me/certificates (certificate:request)', () => {
     const user = await requester();
 
     const results = await Promise.all([1, 2, 3, 4].map(() => postRequest(user.cookie)));
-    expect(results.map((r) => r.status).sort()).toEqual([201, 201, 409, 409]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409, 409]);
     const { rows } = await pool.query('SELECT count(*)::int AS n FROM certificates WHERE user_id = $1', [user.id]);
-    expect(rows[0].n).toBe(2);
+    expect(rows[0].n).toBe(1);
   });
 
   it('signer ล่ม → 503 และไม่บันทึกอะไร', async () => {

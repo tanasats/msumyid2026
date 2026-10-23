@@ -4,9 +4,9 @@ import { config } from '../config/index.js';
 import { AppError } from '../errors.js';
 import { requireAuth, requirePermission } from '../middlewares/auth.js';
 import {
-  MAX_ACTIVE_CERTIFICATES,
   SELF_REVOCATION_REASONS,
   downloadMyCertificateP12,
+  getMyPrimaryRequestStatus,
   listMyCertificates,
   requestCertificate,
   revokeMyCertificate,
@@ -25,8 +25,11 @@ const requestBody = z.object({
 // สิทธิ์: ต้อง login เท่านั้น (ไม่ต้องมี permission) — ดูได้เฉพาะใบรับรองของตัวเอง
 // รวมใบที่นำเข้าจากระบบเดิม ผู้ใช้จึงเห็นใบของตัวเองแม้ยังไม่ได้รับสิทธิ์ขอใบใหม่
 certificatesRouter.get('/me/certificates', requireAuth, async (req, res) => {
-  const certificates = await listMyCertificates(req.user!);
-  res.json({ certificates, maxActive: MAX_ACTIVE_CERTIFICATES });
+  const [certificates, primaryRequest] = await Promise.all([
+    listMyCertificates(req.user!),
+    getMyPrimaryRequestStatus(req.user!),
+  ]);
+  res.json({ certificates, primaryRequest });
 });
 
 // สิทธิ์: certificate:request — ขอใบรับรองใหม่ได้ไฟล์ .p12 กลับไปครั้งเดียว (ระบบไม่เก็บไฟล์และรหัสผ่าน)
