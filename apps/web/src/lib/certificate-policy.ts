@@ -12,6 +12,8 @@ export type CertificatePolicySettings = {
   renewalWindowDays: number;
   supplementaryMaxDays: number;
   supplementaryMaxActive: number;
+  /** ใบเสริม: วันเริ่มของคำขอล่วงหน้าได้ไม่เกินกี่วัน */
+  supplementaryMaxLeadDays: number;
 };
 
 export type CertificatePolicy = CertificatePolicySettings & {
@@ -78,6 +80,7 @@ const FIELD_LABELS: Record<keyof CertificatePolicySettings, string> = {
   renewalWindowDays: 'ช่วงต่ออายุ (วัน)',
   supplementaryMaxDays: 'อายุสูงสุดของใบเสริม (วัน)',
   supplementaryMaxActive: 'ใบเสริมพร้อมกันต่อคน',
+  supplementaryMaxLeadDays: 'วันเริ่มของใบเสริมล่วงหน้าได้ (วัน)',
 };
 
 const MODE_LABELS: Record<PrimaryValidityMode, string> = {
@@ -91,9 +94,12 @@ function formatValue(key: keyof CertificatePolicySettings, value: CertificatePol
   return String(value);
 }
 
-/** รายการค่าที่เปลี่ยนในประวัติการแก้ เช่น "อายุใบประจำตัว (วัน): 365 → 180" */
+/**
+ * รายการค่าที่เปลี่ยนในประวัติการแก้ เช่น "อายุใบประจำตัว (วัน): 365 → 180"
+ * ประวัติก่อนมีช่องใหม่ไม่มีค่านั้นทั้งก่อน/หลัง (log เก็บค่าทั้งชุด ณ ตอนนั้น) จึงข้ามช่องที่ไม่มีค่า
+ */
 export function describePolicyChanges(log: Pick<CertificatePolicyLog, 'before' | 'after'>): string[] {
   return (Object.keys(FIELD_LABELS) as (keyof CertificatePolicySettings)[])
-    .filter((key) => log.before[key] !== log.after[key])
+    .filter((key) => log.before[key] !== undefined && log.after[key] !== undefined && log.before[key] !== log.after[key])
     .map((key) => `${FIELD_LABELS[key]}: ${formatValue(key, log.before[key])} → ${formatValue(key, log.after[key])}`);
 }

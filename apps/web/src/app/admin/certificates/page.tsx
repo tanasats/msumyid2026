@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { CalendarClock, Search, SearchX } from 'lucide-react';
+import { CalendarClock, ClipboardCheck, Search, SearchX } from 'lucide-react';
 import { buttonClasses } from '@/components/Button';
 import { AdminCertificateCard } from '@/components/certificates/AdminCertificateCard';
 import { PageShell } from '@/components/PageShell';
@@ -53,12 +53,20 @@ export default async function AdminCertificatesPage({
   return (
     <PageShell title="ใบรับรองทั้งหมด" backHref={canViewOwner ? '/admin/users' : undefined} user={user}>
       <div className="space-y-4">
-        {user.permissions.includes('certificate_policy:manage') && (
-          <div className="flex justify-end">
-            <Link href="/admin/certificate-policy" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
-              <CalendarClock className="size-5" aria-hidden />
-              นโยบายอายุใบรับรอง
-            </Link>
+        {(user.permissions.includes('certificate_policy:manage') || user.permissions.includes('certificate:approve')) && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            {user.permissions.includes('certificate:approve') && (
+              <Link href="/admin/certificate-requests" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+                <ClipboardCheck className="size-5" aria-hidden />
+                คำขอใบรับรองเสริม
+              </Link>
+            )}
+            {user.permissions.includes('certificate_policy:manage') && (
+              <Link href="/admin/certificate-policy" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+                <CalendarClock className="size-5" aria-hidden />
+                นโยบายอายุใบรับรอง
+              </Link>
+            )}
           </div>
         )}
         {/* ฟอร์มค้นหาแบบ GET — ทำงานได้โดยไม่ต้องใช้ JavaScript และแชร์ลิงก์ผลค้นหาได้ */}

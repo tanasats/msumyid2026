@@ -248,20 +248,33 @@ export async function claimSupplementaryCertificate(
 /** pending = คิวรออนุมัติ (เก่าก่อน ไม่แบ่งหน้า), all = ประวัติที่ตัดสินแล้วทั้งหมด, อื่น ๆ = ประวัติตามสถานะ */
 export type AdminRequestView = 'pending' | 'all' | Exclude<RequestStatus, 'pending'>;
 
+/** เพดานช่วงวันที่ให้หน้าผู้อนุมัติตรวจล่วงหน้า (ผู้อนุมัติอาจไม่มีสิทธิ์ดูนโยบายทั้งชุด) */
+export type ApprovalLimits = Pick<SupplementaryOverview['limits'], 'maxDays' | 'maxLeadDays' | 'today'>;
+
 export async function listSupplementaryRequestsForAdmin(filter: {
   view: AdminRequestView;
   cursor: string | null;
-}): Promise<{ requests: AdminSupplementaryRequest[]; nextCursor: string | null; pendingCount: number }> {
-  const pendingCount = await countPendingRequests(pool);
+}): Promise<{
+  requests: AdminSupplementaryRequest[];
+  nextCursor: string | null;
+  pendingCount: number;
+  limits: ApprovalLimits;
+}> {
+  const [pendingCount, policy] = await Promise.all([countPendingRequests(pool), getCertificatePolicy(pool)]);
+  const limits = {
+    maxDays: policy.supplementaryMaxDays,
+    maxLeadDays: policy.supplementaryMaxLeadDays,
+    today: bangkokToday(new Date()),
+  };
   if (filter.view === 'pending') {
-    return { requests: await listPendingRequests(pool, PENDING_LIMIT), nextCursor: null, pendingCount };
+    return { requests: await listPendingRequests(pool, PENDING_LIMIT), nextCursor: null, pendingCount, limits };
   }
   const { rows, nextCursor } = await searchDecidedRequests(pool, {
     status: filter.view === 'all' ? null : filter.view,
     afterId: filter.cursor,
     limit: ADMIN_PAGE_SIZE,
   });
-  return { requests: rows, nextCursor, pendingCount };
+  return { requests: rows, nextCursor, pendingCount, limits };
 }
 
 /**

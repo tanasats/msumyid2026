@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileBadge, House, UserRound, Users, type LucideIcon } from 'lucide-react';
+import { ClipboardCheck, FileBadge, House, UserRound, Users, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   href: string;
@@ -21,6 +21,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'หน้าหลัก', icon: House },
   { href: '/certificates', label: 'ใบรับรอง', icon: FileBadge },
   { href: '/admin/users', label: 'ผู้ใช้ระบบ', icon: Users, permission: 'user:read' },
+  // คำขอใบรับรองเสริมที่รออนุมัติ — ผู้อนุมัติอาจไม่มีสิทธิ์ดูผู้ใช้/ใบรับรองทั้งหมด จึงต้องมีทางเข้าของตัวเอง
+  { href: '/admin/certificate-requests', label: 'อนุมัติ', icon: ClipboardCheck, permission: 'certificate:approve' },
   { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];
 

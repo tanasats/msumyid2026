@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { KeyRound, ShieldAlert } from 'lucide-react';
+import { KeyRound, ShieldAlert, TimerOff } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
@@ -17,17 +17,21 @@ export const metadata: Metadata = { title: 'ดาวน์โหลดไฟล
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' });
 
-// ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ต้องมี certificate:request — API ตรวจเจ้าของใบอีกครั้งตอนส่ง)
+// ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ — สิทธิ์ตามประเภทใบ: ใบประจำตัว = certificate:request,
+// ใบเสริม = supplementary_certificate:request (API ตรวจเจ้าของและสิทธิ์อีกครั้งตอนส่ง)
 export default async function DownloadCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   if (user.approvalStatus !== 'approved') redirect('/pending');
-  if (!user.permissions.includes('certificate:request')) redirect('/forbidden');
 
   const { id } = await params;
   const { certificates } = await getMyCertificates();
   const certificate = certificates.find((c) => c.id === id);
   if (!certificate) notFound();
+  const supplementary = certificate.kind === 'supplementary';
+  if (!user.permissions.includes(supplementary ? 'supplementary_certificate:request' : 'certificate:request')) {
+    redirect('/forbidden');
+  }
 
   return (
     <PageShell title="ดาวน์โหลดไฟล์ใบรับรองใหม่" backHref="/certificates" user={user} width="form">
@@ -42,6 +46,19 @@ export default async function DownloadCertificatePage({ params }: { params: Prom
           }
         >
           ระบบจึงไม่สร้างไฟล์ที่มี key นี้ออกไปอีก
+        </StatusState>
+      ) : supplementary && certificate.status !== 'active' ? (
+        // ใบเสริมใช้ลงนามอย่างเดียว ใบที่ใช้ไม่ได้แล้วจึงไม่มีประโยชน์ (ไม่มีอีเมลเก่าให้เปิด)
+        <StatusState
+          icon={TimerOff}
+          title="ใบรับรองเสริมนี้ใช้งานไม่ได้แล้ว"
+          action={
+            <Link href="/certificates" className={buttonClasses({ fullWidth: true })}>
+              กลับไปที่ใบรับรองของฉัน
+            </Link>
+          }
+        >
+          ใบรับรองเสริมใช้ลงนามเอกสารเท่านั้น ถ้ายังต้องใช้ กรุณาส่งคำขอใหม่
         </StatusState>
       ) : !certificate.hasKeyEscrow ? (
         <StatusState

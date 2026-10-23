@@ -265,6 +265,7 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
 
     const res = await request(app).get('/admin/supplementary-certificate-requests').set('Cookie', cookie);
     expect(res.body.pendingCount).toBe(2);
+    expect(res.body.limits).toEqual({ maxDays: 90, maxLeadDays: 90, today: day(0) });
     expect(res.body.requests.map((r: { requester: { displayName: string } }) => r.requester.displayName)).toEqual([
       'ผู้ขอ ก',
       'ผู้ขอ ข',
