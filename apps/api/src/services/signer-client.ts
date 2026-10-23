@@ -9,6 +9,8 @@ export type IssueCertificateInput = {
   email: string;
   p12Password: string;
   legacyP12: boolean;
+  /** อายุใบ (วัน) ตามนโยบาย — signer ตัดให้ไม่เกินเพดานและอายุ CA */
+  validityDays: number;
 };
 
 export type IssuedCertificate = {

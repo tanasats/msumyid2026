@@ -10,6 +10,9 @@ import { createSession } from '../../src/services/session-service.js';
  */
 export async function resetDatabase(): Promise<void> {
   await withTransaction(async (client) => {
+    // ล้างประวัติการแก้นโยบายก่อน และปิด trigger ไว้จนจบ — TRUNCATE users CASCADE ไปถึงตารางนี้ผ่าน FK actor_id
+    await client.query('ALTER TABLE certificate_policy_logs DISABLE TRIGGER trg_certificate_policy_logs_no_truncate');
+    await client.query('TRUNCATE certificate_policy_logs');
     await client.query('ALTER TABLE role_change_logs DISABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query('ALTER TABLE user_audit_logs DISABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE certificate_audit_logs DISABLE TRIGGER trg_certificate_audit_logs_no_truncate');
@@ -17,6 +20,10 @@ export async function resetDatabase(): Promise<void> {
       `TRUNCATE users, sessions, user_roles, role_change_logs, user_audit_logs, erp_org_units,
                 certificates, certificate_key_escrows, certificate_audit_logs, crls CASCADE`,
     );
+    // นโยบายใบรับรองมีแถวเดียว: คืนค่าเริ่มต้น (DEFAULT ของ migration) — TRUNCATE users CASCADE ลบแถวไปด้วย (FK updated_by)
+    await client.query('DELETE FROM certificate_policies');
+    await client.query('INSERT INTO certificate_policies (id) VALUES (true)');
+    await client.query('ALTER TABLE certificate_policy_logs ENABLE TRIGGER trg_certificate_policy_logs_no_truncate');
     await client.query('ALTER TABLE certificate_audit_logs ENABLE TRIGGER trg_certificate_audit_logs_no_truncate');
     await client.query('ALTER TABLE user_audit_logs ENABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');

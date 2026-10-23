@@ -55,7 +55,7 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 - **สายใบรับรองใน `.p12`:** ใบผู้ใช้ + Intermediate + ใบใน `CA_CHAIN_PATH` (root) — signer ตรวจตอนเริ่มระบบว่าทุกใบเป็น CA และเซ็นใบที่อยู่ถัดลงมาจริง ไม่ผ่าน = ไม่เริ่มทำงาน
 - **ให้ผู้ตรวจลายเซ็นเชื่อถือ root:** หน้า `/root-ca` (public ไม่ต้อง login) แจก `tuc-root-ca.cer` (DER) พร้อม fingerprint และวิธีตั้งค่า trust ใน Acrobat/Foxit — สำเนา root อยู่ที่ `apps/web/src/lib/root-ca.ts` ต้องตรงกับ `apps/signer/ca/root.cert.pem` (test ใน signer ตรวจ) ใช้แทนไฟล์ `TUCTrustedCert.fdf` เดิมที่ลายเซ็นของไฟล์หมดอายุแล้ว
   - หน้าเดียวกันแนะนำให้ผู้ลงนามตั้ง Timestamp Server ใน Acrobat/Foxit (ตอนนี้ใช้ TSA สาธารณะ `http://timestamp.digicert.com` ใน `apps/web/src/app/root-ca/page.tsx`) — ไม่มี timestamp ลายเซ็นจะใช้เวลาจากนาฬิกาเครื่องผู้ลงนาม และตรวจไม่ผ่านหลังใบหมดอายุ/ถูกเพิกถอน เมื่อ TSA ของมหาวิทยาลัยพร้อม (ระยะ S4 ใน `document-signing.md`) ให้เปลี่ยน URL
-- **อายุใบไม่เกินอายุ CA:** อายุใบ = `CERT_VALIDITY_DAYS` แต่ไม่เกินวันหมดอายุที่เร็วที่สุดของ Intermediate/root (ใบที่ออกหลัง 2029-03-25 จะสั้นกว่า 365 วัน) เหลือไม่ถึง 1 วัน = signer ปฏิเสธ (`CA_EXPIRING`) — ต้องติดตามการต่ออายุ root ของ TUC ก่อน 2030-03-25 แล้วเปลี่ยนไฟล์ `CA_CHAIN_PATH`
+- **อายุใบไม่เกินอายุ CA:** อายุใบ = ตามนโยบาย (ไม่เกินเพดาน `CERT_VALIDITY_DAYS`) แต่ไม่เกินวันหมดอายุที่เร็วที่สุดของ Intermediate/root (ใบที่ออกหลัง 2029-03-25 จะสั้นกว่า 365 วัน) เหลือไม่ถึง 1 วัน = signer ปฏิเสธ (`CA_EXPIRING`) — ต้องติดตามการต่ออายุ root ของ TUC ก่อน 2030-03-25 แล้วเปลี่ยนไฟล์ `CA_CHAIN_PATH`
 - **การนำ CRL ขึ้น cdp:** ระบบเปิด `GET /crl/msu-ca.crl` (public) แล้วเครื่อง `cdp.msu.ac.th` ใช้ cron ดึงทุก 5–15 นาที — ผู้พัฒนาดูแล cdp เอง จึงไม่ต้องให้ระบบมีสิทธิ์เขียนเข้า cdp
 
 ## ขั้นตอนหลัก
@@ -91,19 +91,22 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง (ดู `document-signing.md`) |
 | `certificate:read` | ดูรายการใบรับรองของผู้อื่น |
 | `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองหลักและเพดานของใบรับรองเสริม (ยืนยัน 2026-10-24) |
 
 - ใช้ permission แทนการเปิดให้ "login เท่านั้น" เพราะยังไม่ชัดว่าทุกประเภทบัญชี (เช่น นิสิต) ได้ใบรับรอง — `super_admin` ผูกกับ role `staff`/`student`/... ได้เองภายหลัง ระหว่างนี้ใช้ได้เฉพาะ `super_admin` (ค่าเริ่มต้นคือปฏิเสธ)
 - การนำเข้าใบเดิมทำผ่านสคริปต์ (`pnpm --filter api cert:import`) ไม่มีหน้าเว็บ จึงไม่ต้องมี permission
-- ใบที่ใช้งานอยู่พร้อมกันได้ไม่เกิน 2 ใบต่อคน (ขอใบใหม่ได้ก่อนใบเดิมหมดอายุ)
+- ใบหลักที่ใช้งานอยู่ 1 ใบต่อคน ขอใบใหม่ได้ในช่วงต่ออายุ (ดูหัวข้อถัดไป) — แทนกฎเดิม "ใช้งานพร้อมกันได้ไม่เกิน 2 ใบ"
 - ปิดบัญชี/ลบข้อมูลส่วนบุคคล/บัญชีหมดอายุ → เพิกถอนใบที่ใช้งานอยู่อัตโนมัติ (`cessationOfOperation`, audit ผู้ทำ = ผู้ดูแล หรือ NULL เมื่อระบบทำ) แล้วออก CRL; เปิดบัญชีคืนไม่ย้อนการเพิกถอน
 - ลบข้อมูลส่วนบุคคล (PDPA): นอกจากเพิกถอนแล้ว ลบ key สำรอง และล้าง `subject_cn`, `email`, `certificate_pem` — คงแถวพร้อม serial/วันหมดอายุ/การเพิกถอนไว้ให้ CRL
 
 ## ตาราง
 
-- `certificates`: `id`, `user_id` (NULL ได้ถ้านำเข้าแล้วยังไม่พบผู้ใช้), `serial_number` (hex, UNIQUE), `subject_cn`, `email`, `not_before`, `not_after`, `revoked_at`, `revocation_reason`, `revoked_by`, `source` (`issued`/`imported`), `certificate_pem`, `fingerprint_sha256`, `created_at`, `updated_at` — ไม่มี soft delete (ใบรับรองลบไม่ได้ ต้องอยู่ใน CRL)
+- `certificates`: `id`, `user_id` (NULL ได้ถ้านำเข้าแล้วยังไม่พบผู้ใช้), `serial_number` (hex, UNIQUE), `subject_cn`, `email`, `not_before`, `not_after`, `revoked_at`, `revocation_reason`, `revoked_by`, `source` (`issued`/`imported`), `kind` (`primary`/`supplementary`, ค่าเริ่มต้น primary), `certificate_pem`, `fingerprint_sha256`, `created_at`, `updated_at` — ไม่มี soft delete (ใบรับรองลบไม่ได้ ต้องอยู่ใน CRL)
 - `certificate_key_escrows`: `certificate_id` (PK), `encrypted_key`, `wrapped_data_key`, `kek_id`, `created_at`, `updated_at` — แยกตารางเพื่อให้ query รายการใบรับรองไม่แตะ blob
 - `crls`: `crl_number` (bigint UNIQUE), `this_update`, `next_update`, `revoked_count` (จำนวนใบที่เพิกถอนตอนออก — จำนวนปัจจุบันมากกว่า = ต้องออกใหม่), `crl_der`, `created_at`, `updated_at` — เก็บทุกฉบับ
 - `certificate_audit_logs`: `certificate_id`, `actor_id`, `action` (`issue`/`recover`/`revoke`/`import`/`sign`), `reason`, `created_at` — แก้/ลบไม่ได้
+- `certificate_policies`: แถวเดียว (`id` = true) — `primary_mode`, `primary_days`, `primary_expiry_month`, `primary_expiry_day`, `primary_min_days`, `renewal_window_days`, `supplementary_max_days`, `supplementary_max_active`, `updated_by`
+- `certificate_policy_logs`: `actor_id`, `before`, `after` (jsonb ค่าทั้งชุด), `created_at` — แก้/ลบไม่ได้
 
 ## นำเข้าใบเดิม
 
@@ -125,20 +128,37 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 4. ตรวจ `/crl/msu-ca.crl` ว่ามีใบที่เพิกถอนเดิมครบ (`openssl crl -noout -text`) แล้วจึงตั้ง cron บน cdp — ถ้าตั้ง cron ก่อนนำเข้า CRL ว่างจะทับฉบับเดิม ใบที่เคยเพิกถอนจะกลับมาใช้ได้
 5. ลบสำเนาโฟลเดอร์ CA และทำลาย `private/` + `pkcs12-files.csv` บน Ubuntu (key และรหัสผ่านอยู่ใน key สำรองที่เข้ารหัสแล้ว)
 
+## ใบหลัก / ใบเสริม / นโยบายอายุ (ตัดสินใจ 2026-10-24)
+
+| ประเภท (`certificates.kind`) | ใครขอ | จำนวน | อายุ | การใช้งาน |
+|---|---|---|---|---|
+| `primary` ใบหลัก | ผู้ใช้ขอเอง (`certificate:request`) | ใช้งานอยู่ 1 ใบ — ขอใบใหม่ได้เมื่อใบเดิมเหลือ ≤ `renewal_window_days` (ใบเดิมใช้ต่อจนหมดอายุ) | ตามนโยบาย | S/MIME (ลงนาม + เข้ารหัสอีเมล) |
+| `supplementary` ใบเสริม | ผู้ใช้ส่งคำขอ (เหตุผล + อายุ) → ผู้มี `certificate:approve` อนุมัติ (แก้อายุได้) | ≤ `supplementary_max_active` | ≤ `supplementary_max_days` | ลงนามเอกสารเท่านั้น — **ยังไม่ได้สร้าง (PR ถัดไป)** |
+
+- ใบเดิมทั้งหมด (รวมที่นำเข้า) เป็นใบหลัก ผู้ที่มีใบที่ใช้งานอยู่ 2 ใบจากกฎเดิมใช้ต่อได้ — กฎใหม่ตรวจเฉพาะตอนขอใบใหม่
+- **นโยบายอายุ** (`certificate_policies` แถวเดียว, หน้า `/admin/certificate-policy`, ประวัติใน `certificate_policy_logs` แก้/ลบไม่ได้) มีผลกับใบที่ออกหลังแก้เท่านั้น
+  - `days`: อายุ `primary_days` วันนับจากวันที่ออก (ค่าเริ่มต้น 365)
+  - `fixed_date`: หมดอายุวัน/เดือนที่กำหนดของทุกปี เช่น 31 ธ.ค. (เวลาประเทศไทย) ถ้าเหลือน้อยกว่า `primary_min_days` (ค่าเริ่มต้น 60) ใช้ปีถัดไป — ปัดลงเป็นวันเต็ม ใบจึงหมดอายุวันที่กำหนด ณ เวลาเดียวกับที่ออก
+  - ช่วงต่ออายุต้องสั้นกว่าอายุสั้นสุดของใบหลัก (`POLICY_INVALID`) ไม่เช่นนั้นผู้ใช้ขอใบหลักใหม่ได้ตลอด
+- API คำนวณจำนวนวันแล้วส่ง `validityDays` ให้ signer ซึ่งยังตัดให้ไม่เกิน **เพดาน** `CERT_VALIDITY_DAYS` (ค่าเริ่มต้น 825) และอายุของ CA — API ถูกเจาะก็ขอใบอายุยาวผิดปกติไม่ได้; เพดานต้อง ≥ อายุที่นโยบายให้ได้ (โหมด 31 ธ.ค. ได้สูงสุดราว 365 + `primary_min_days` วัน)
+- ใบเสริมระยะสั้นต้องประทับเวลา (TSA) ตอนลงนาม ไม่เช่นนั้นหลังใบหมดอายุ ลายมือชื่อจะตรวจได้แค่ "ไม่ทราบความถูกต้อง"
+
 ## API
 
 | Method | Path | สิทธิ์ |
 |---|---|---|
-| GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า) + `maxActive` |
-| POST | `/me/certificates` | `certificate:request` — ออกใบใหม่ คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store` |
+| GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า, มี `kind`) + `primaryRequest` (`renewableFrom` = วันที่เริ่มขอใบหลักใหม่ได้ / null = ขอได้, `expiresAtIfRequested`, `renewalWindowDays`) |
+| POST | `/me/certificates` | `certificate:request` — ออกใบหลัก (อายุตามนโยบาย) คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store`; มีใบหลักที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
 | POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
 | POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า) ยกเว้นเพิกถอนด้วย `keyCompromise` = 409 `KEY_COMPROMISED`, ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
 | GET | `/admin/certificates` | `certificate:read` — ค้นหาทั้งระบบ (ชื่อ/อีเมลบางส่วนด้วย trigram, serial ตรงตัว รับ `:`/ตัวพิมพ์ใหญ่), กรองสถานะ, cursor หน้าละ 20, แสดงเจ้าของ |
 | GET | `/admin/users/:id/certificates` | `certificate:read` — ใบของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) |
+| GET | `/admin/certificate-policy` | `certificate_policy:manage` — นโยบาย + ประวัติ 20 รายการล่าสุด + ตัวอย่างวันหมดอายุของใบหลัก |
+| PUT | `/admin/certificate-policy` | `certificate_policy:manage` — แก้นโยบาย (ส่งครบทุกช่อง) ล็อกแถว + log ค่าก่อน/หลัง ใน transaction เดียว |
 | POST | `/admin/certificates/:id/revoke` | `certificate:revoke` — เหตุผล (`unspecified`/`keyCompromise`/`affiliationChanged`/`superseded`/`cessationOfOperation`) + บันทึกประกอบ (บังคับ, เก็บใน audit) ใช้กฎ `canManageUser`: ใบของตัวเองไม่ได้ ใบของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin; ล็อก ผู้ใช้ → ใบ (ลำดับเดียวกับการปิดบัญชี) |
 
-บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ, `POST /certificates/legacy-key` นำ key เดิมเข้าเป็น key สำรอง (ถอดด้วยรหัสผ่าน + จับคู่ใบด้วย public key), `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
+บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ (`validityDays` ไม่บังคับ — ตัดตามเพดานและอายุ CA), `POST /certificates/legacy-key` นำ key เดิมเข้าเป็น key สำรอง (ถอดด้วยรหัสผ่าน + จับคู่ใบด้วย public key), `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
 
 ตั้งค่าบน `cdp.msu.ac.th` (ผู้พัฒนาดูแล): cron ทุก 5–15 นาที ดึง `https://<API>/crl/msu-ca.crl` ลงไฟล์ชั่วคราว ตรวจด้วย `openssl crl -noout` แล้วจึงย้ายทับ `msu-ca.crl` (กันไฟล์เสียเมื่อดึงไม่สำเร็จ)
 
@@ -151,4 +171,6 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | 3 | กู้ key / ดาวน์โหลดใหม่ | เสร็จ |
 | 4 | สคริปต์นำเข้าใบเดิม + key เดิม | เสร็จ |
 | 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | เสร็จ |
+| 6 | ใบหลัก 1 ใบ + ช่วงต่ออายุ + นโยบายอายุใบ (`/admin/certificate-policy`) | เสร็จ |
+| 7 | ใบเสริม: คำขอ + อนุมัติ (`certificate:approve`) + โปรไฟล์ลงนามเอกสารอย่างเดียว | |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

@@ -15,7 +15,7 @@ import { getMyCertificates } from '@/lib/certificates';
 
 export const metadata: Metadata = { title: 'ใบรับรองของฉัน' };
 
-const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' });
+const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' });
 
 // ใบรับรองของผู้ใช้ปัจจุบัน (ต้อง login เท่านั้น — ดูใบของตัวเองได้เสมอ)
 // ปุ่มขอใบใหม่/เพิกถอนแสดงเมื่อมี certificate:request (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์อีกครั้ง)
@@ -24,15 +24,17 @@ export default async function CertificatesPage() {
   if (!user) redirect('/login');
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
-  const { certificates, maxActive } = await getMyCertificates();
+  const { certificates, primaryRequest } = await getMyCertificates();
   const canRequest = user.permissions.includes('certificate:request');
-  const activeCount = certificates.filter((c) => c.status === 'active').length;
-  const atLimit = activeCount >= maxActive;
+  // มีใบหลักที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
+  const renewableFrom = primaryRequest.renewableFrom ? new Date(primaryRequest.renewableFrom) : null;
 
   const requestButton = (
     <Link href="/certificates/new" className={buttonClasses({ fullWidth: true })}>
       <FilePlus className="size-5" aria-hidden />
-      ขอใบรับรองใหม่
+      {renewableFrom === null && certificates.some((c) => c.kind === 'primary' && c.status === 'active')
+        ? 'ต่ออายุใบรับรอง'
+        : 'ขอใบรับรองใหม่'}
     </Link>
   );
 
@@ -44,12 +46,13 @@ export default async function CertificatesPage() {
             บัญชีของคุณยังไม่ได้รับสิทธิ์ขอใบรับรอง หากต้องการใช้งาน กรุณาติดต่อผู้ดูแลระบบ
           </Alert>
         )}
-        {canRequest && atLimit && (
-          <Alert tone="info" title={`มีใบรับรองที่ใช้งานอยู่ครบ ${maxActive} ใบแล้ว`}>
-            ขอใบใหม่ได้เมื่อใบเดิมหมดอายุหรือถูกเพิกถอน
+        {canRequest && renewableFrom && (
+          <Alert tone="info" title="คุณมีใบรับรองหลักที่ใช้งานอยู่แล้ว">
+            ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ {dateFormatter.format(renewableFrom)} (ก่อนใบเดิมหมดอายุ{' '}
+            {primaryRequest.renewalWindowDays} วัน) ใบเดิมใช้ได้ต่อจนหมดอายุ
           </Alert>
         )}
-        {canRequest && !atLimit && certificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
+        {canRequest && !renewableFrom && certificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
 
         {certificates.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface shadow-card">
@@ -72,6 +75,7 @@ export default async function CertificatesPage() {
                     <p className="text-sm break-all text-muted">{c.email}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {c.kind === 'supplementary' && <Tag>ใบรับรองเสริม</Tag>}
                     {c.source === 'imported' && <Tag>นำเข้าจากระบบเดิม</Tag>}
                     <CertificateStatusBadge status={c.status} />
                   </div>

@@ -11,32 +11,38 @@ import { getMyCertificates } from '@/lib/certificates';
 
 export const metadata: Metadata = { title: 'ขอใบรับรองใหม่' };
 
-// ขอใบรับรองใหม่ (ต้องมี certificate:request — API ตรวจสิทธิ์และจำนวนใบอีกครั้งตอนส่ง)
+const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', timeZone: 'Asia/Bangkok' });
+
+// ขอใบรับรองหลัก (ต้องมี certificate:request — API ตรวจสิทธิ์และกฎใบหลัก 1 ใบ/ช่วงต่ออายุอีกครั้งตอนส่ง)
 export default async function NewCertificatePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   if (user.approvalStatus !== 'approved') redirect('/pending');
   if (!user.permissions.includes('certificate:request')) redirect('/forbidden');
 
-  const { certificates, maxActive } = await getMyCertificates();
-  const atLimit = certificates.filter((c) => c.status === 'active').length >= maxActive;
+  const { primaryRequest } = await getMyCertificates();
+  const renewableFrom = primaryRequest.renewableFrom ? new Date(primaryRequest.renewableFrom) : null;
 
   return (
     <PageShell title="ขอใบรับรองใหม่" backHref="/certificates" user={user} width="form">
-      {atLimit ? (
+      {renewableFrom ? (
         <StatusState
           icon={FileBadge}
-          title={`มีใบรับรองที่ใช้งานอยู่ครบ ${maxActive} ใบแล้ว`}
+          title="คุณมีใบรับรองหลักที่ใช้งานอยู่แล้ว"
           action={
             <Link href="/certificates" className={buttonClasses({ fullWidth: true })}>
               กลับไปที่ใบรับรองของฉัน
             </Link>
           }
         >
-          ขอใบใหม่ได้เมื่อใบเดิมหมดอายุหรือถูกเพิกถอน
+          ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ {dateFormatter.format(renewableFrom)}
         </StatusState>
       ) : (
-        <RequestCertificateForm name={user.name} email={user.email} />
+        <RequestCertificateForm
+          name={user.name}
+          email={user.email}
+          expiresAt={dateFormatter.format(new Date(primaryRequest.expiresAtIfRequested))}
+        />
       )}
     </PageShell>
   );

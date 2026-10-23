@@ -101,6 +101,16 @@ describe('อายุใบรับรองไม่เกินวันห�
     expect(now.getTime() + days * DAY_MS).toBeLessThanOrEqual(caNotAfter.getTime());
   });
 
+  it('อายุที่ขอ (นโยบาย) ใช้ได้ถ้าไม่เกินเพดาน — เกินเพดานถูกตัดเหลือเพดาน', () => {
+    const caNotAfter = new Date(now.getTime() + 1000 * DAY_MS);
+    expect(validityDays(caNotAfter, now, 825, 90)).toBe(90);
+    expect(validityDays(caNotAfter, now, 365, 500)).toBe(365);
+  });
+
+  it('อายุที่ขอเกินอายุ CA → ตัดให้ไม่เกิน CA', () => {
+    expect(validityDays(new Date(now.getTime() + 100.2 * DAY_MS), now, 825, 400)).toBe(100);
+  });
+
   it('CA เหลือไม่ถึง 1 วัน หรือหมดแล้ว → CA_EXPIRING', () => {
     for (const caNotAfter of [new Date(now.getTime() + 0.5 * DAY_MS), new Date(now.getTime() - DAY_MS)]) {
       const err = (() => {

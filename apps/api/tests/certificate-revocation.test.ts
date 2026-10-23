@@ -171,7 +171,7 @@ describe('POST /me/certificates/:id/revoke (certificate:request)', () => {
     expect(await isCrlOutdated()).toBe(true);
   });
 
-  it('เพิกถอนแล้วจำนวนใบที่ใช้งานอยู่ลดลง จึงขอใบใหม่ได้อีก', async () => {
+  it('เพิกถอนใบหลักที่ใช้งานอยู่แล้ว จึงขอใบหลักใหม่ได้ก่อนถึงช่วงต่ออายุ', async () => {
     mockCrl();
     vi.spyOn(signer, 'issueCertificate').mockImplementation(async () => ({
       certificatePem: '-----BEGIN CERTIFICATE-----\n',
@@ -184,7 +184,6 @@ describe('POST /me/certificates/:id/revoke (certificate:request)', () => {
     }));
     const user = await requester();
     const first = await insertCertificate(user.id);
-    await insertCertificate(user.id);
     const ask = () =>
       request(app).post('/me/certificates').set('Cookie', user.cookie).set('Origin', ORIGIN).send({ p12Password: 'password1' });
 

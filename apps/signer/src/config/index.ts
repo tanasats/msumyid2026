@@ -31,8 +31,9 @@ const envSchema = z.object({
   ESCROW_KEK_ID: z.string().regex(/^[a-z0-9-]{1,32}$/),
   // URL ของ CRL ที่ฝังในใบรับรองทุกใบ (ใบเดิมใช้ค่านี้อยู่แล้ว เปลี่ยนไม่ได้)
   CRL_DISTRIBUTION_URL: z.url(),
-  // อายุใบรับรอง (ระบบเดิมใช้ default_days = 365)
-  CERT_VALIDITY_DAYS: z.coerce.number().int().min(1).max(825).default(365),
+  // เพดานอายุใบรับรอง (วัน) — อายุจริงกำหนดโดยนโยบายใน API (certificate_policies) แต่ไม่เกินค่านี้และอายุของ CA
+  // ต้อง ≥ อายุที่นโยบายให้ได้ เช่น โหมดหมดอายุ 31 ธ.ค. ได้สูงสุดราว 365 + primary_min_days วัน
+  CERT_VALIDITY_DAYS: z.coerce.number().int().min(1).max(825).default(825),
   // ขนาด RSA key ของผู้ใช้ (ระบบเดิมใช้ 4096) — test ใช้ 2048 เพื่อให้เร็ว
   USER_KEY_BITS: z.coerce.number().int().min(2048).max(8192).default(4096),
 });

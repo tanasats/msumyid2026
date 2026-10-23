@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Search, SearchX } from 'lucide-react';
+import { CalendarClock, Search, SearchX } from 'lucide-react';
 import { buttonClasses } from '@/components/Button';
 import { AdminCertificateCard } from '@/components/certificates/AdminCertificateCard';
 import { PageShell } from '@/components/PageShell';
@@ -53,6 +53,14 @@ export default async function AdminCertificatesPage({
   return (
     <PageShell title="ใบรับรองทั้งหมด" backHref={canViewOwner ? '/admin/users' : undefined} user={user}>
       <div className="space-y-4">
+        {user.permissions.includes('certificate_policy:manage') && (
+          <div className="flex justify-end">
+            <Link href="/admin/certificate-policy" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+              <CalendarClock className="size-5" aria-hidden />
+              นโยบายอายุใบรับรอง
+            </Link>
+          </div>
+        )}
         {/* ฟอร์มค้นหาแบบ GET — ทำงานได้โดยไม่ต้องใช้ JavaScript และแชร์ลิงก์ผลค้นหาได้ */}
         <form method="get" className="space-y-3 rounded-xl border border-line bg-surface shadow-card p-4 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
           <div className="flex-1 space-y-1.5">

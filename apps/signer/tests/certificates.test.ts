@@ -142,6 +142,18 @@ describe('ออกใบรับรอง', () => {
     expect(body.fingerprintSha256).toBe(cert.fingerprint256.replaceAll(':', '').toLowerCase());
   });
 
+  it('อายุตาม validityDays ที่ API ส่งมา (นโยบายอายุใบ)', async () => {
+    const body = await issueOk({ validityDays: 30 });
+    expect((Date.parse(body.notAfter) - Date.parse(body.notBefore)) / 86_400_000).toBe(30);
+  });
+
+  it('validityDays นอกช่วง 1-825 → 400', async () => {
+    for (const validityDays of [0, 826, 1.5]) {
+      const res = await issue({ commonName: NAME, email: EMAIL, p12Password: PASSWORD, validityDays });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it('serial ไม่ซ้ำกันระหว่างใบ', async () => {
     const [a, b] = await Promise.all([issueOk(), issueOk()]);
     expect(a.serialNumber).not.toBe(b.serialNumber);

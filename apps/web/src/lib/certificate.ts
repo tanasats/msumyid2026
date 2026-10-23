@@ -2,6 +2,9 @@
 
 export type CertificateStatus = 'active' | 'expired' | 'revoked';
 
+/** primary = ใบหลัก (ขอเองได้), supplementary = ใบเสริม เฉพาะกิจ/ระยะสั้น (ออกเมื่อคำขอได้รับอนุมัติ) */
+export type CertificateKind = 'primary' | 'supplementary';
+
 /** ใบรับรองตามที่ API GET /me/certificates ส่งมา */
 export type Certificate = {
   id: string;
@@ -15,6 +18,7 @@ export type Certificate = {
   revocationReason: string | null;
   /** imported = ใบที่ออกด้วยสคริปต์ของระบบเดิมแล้วนำเข้ามา */
   source: 'issued' | 'imported';
+  kind: CertificateKind;
   fingerprintSha256: string;
   /** มี key สำรอง = ดาวน์โหลดไฟล์ .p12 ใหม่ได้ */
   hasKeyEscrow: boolean;

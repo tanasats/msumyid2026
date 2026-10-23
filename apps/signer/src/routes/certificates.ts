@@ -13,6 +13,8 @@ const issueBody = z.object({
   email: z.email().max(255),
   p12Password: z.string().min(8).max(128).refine(noControlChars),
   legacyP12: z.boolean().default(false),
+  // อายุใบตามนโยบายของ API — signer ตัดให้ไม่เกินเพดาน CERT_VALIDITY_DAYS และอายุของ CA
+  validityDays: z.number().int().min(1).max(825).optional(),
 });
 
 // สิทธิ์: เฉพาะ API ของระบบ (requireApiToken ใน app.ts) — API ตรวจสิทธิ์ของผู้ใช้และกำหนด subject จากฐานข้อมูลก่อนเรียก

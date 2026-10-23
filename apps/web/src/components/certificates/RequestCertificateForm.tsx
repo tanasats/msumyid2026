@@ -4,10 +4,19 @@ import { InfoList, InfoRow } from '@/components/InfoList';
 import { P12PasswordForm } from './P12PasswordForm';
 
 /**
- * ฟอร์มขอใบรับรองใหม่: ผู้ใช้ตั้งรหัสผ่านของไฟล์ .p12 เอง
+ * ฟอร์มขอใบรับรองหลัก: ผู้ใช้ตั้งรหัสผ่านของไฟล์ .p12 เอง อายุใบตามนโยบายที่ผู้ดูแลกำหนด
  * ชื่อและอีเมลในใบรับรองมาจากบัญชี (API กำหนดเอง แก้ที่นี่ไม่ได้)
  */
-export function RequestCertificateForm({ name, email }: { name: string; email: string }) {
+export function RequestCertificateForm({
+  name,
+  email,
+  expiresAt,
+}: {
+  name: string;
+  email: string;
+  /** วันหมดอายุโดยประมาณตามนโยบายอายุใบ (จัดรูปแบบแล้ว) */
+  expiresAt: string;
+}) {
   return (
     <P12PasswordForm endpoint="/me/certificates" submitLabel="ขอใบรับรอง" successTitle="ออกใบรับรองเรียบร้อยแล้ว">
       <section className="rounded-xl border border-line bg-surface shadow-card p-5 sm:p-6">
@@ -18,6 +27,7 @@ export function RequestCertificateForm({ name, email }: { name: string; email: s
           <InfoRow label="อีเมล">
             <span className="break-all">{email}</span>
           </InfoRow>
+          <InfoRow label="หมดอายุ">{expiresAt}</InfoRow>
         </InfoList>
       </section>
     </P12PasswordForm>
