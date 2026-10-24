@@ -25,7 +25,7 @@ import {
   type RequestStatus,
   type SupplementaryRequestRow,
 } from '../repositories/supplementary-certificate-request-repository.js';
-import { canManageUser, type AuthUser } from './authorization-service.js';
+import { canDecideSupplementaryRequest, type AuthUser } from './authorization-service.js';
 import { BANGKOK_OFFSET_MS, DAY_MS } from './certificate-policy-service.js';
 import {
   certificateCommonName,
@@ -278,7 +278,7 @@ export async function listSupplementaryRequestsForAdmin(filter: {
 }
 
 /**
- * ล็อกผู้ขอแล้วตรวจกฎ canManageUser (เหมือนการเพิกถอนใบของผู้อื่น): คำขอของตัวเองไม่ได้,
+ * ล็อกผู้ขอแล้วตรวจกฎ canDecideSupplementaryRequest: คำขอของตัวเองไม่ได้ (ยกเว้น super_admin),
  * คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin — แล้วจึงล็อกคำขอ (ลำดับ ผู้ใช้ → คำขอ เหมือนตอนรับใบ กัน deadlock)
  */
 async function lockPendingRequestForDecision(client: Queryable, actor: AuthUser, requestId: string) {
@@ -286,7 +286,7 @@ async function lockPendingRequestForDecision(client: Queryable, actor: AuthUser,
   if (!ownerId) throw new AppError(404, 'REQUEST_NOT_FOUND', 'ไม่พบคำขอนี้');
   const target = await lockManagedUser(client, ownerId);
   // ผู้ขอถูกลบบัญชี = คำขอถูกยกเลิกไปพร้อมกันแล้ว (ตรวจสถานะด้านล่าง)
-  const denial = target ? canManageUser(actor, target) : null;
+  const denial = target ? canDecideSupplementaryRequest(actor, target) : null;
   if (denial === 'SELF') {
     throw new AppError(403, 'CANNOT_MANAGE_SELF', 'อนุมัติหรือปฏิเสธคำขอของตัวเองไม่ได้');
   }

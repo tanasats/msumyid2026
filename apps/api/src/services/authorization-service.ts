@@ -64,3 +64,17 @@ export function canManageUser(
   if (target.hasPrivilegedRole && !isSuperAdmin(actor)) return 'PRIVILEGED_TARGET';
   return null;
 }
+
+/**
+ * กฎการอนุมัติ/ปฏิเสธคำขอใบรับรองเสริม (ใช้คู่กับ certificate:approve) — เหมือน canManageUser
+ * ยกเว้น super_admin ตัดสินคำขอได้ทุกคำขอ รวมคำขอของตัวเอง (ตัดสินใจ 2026-10-24)
+ * ผู้อนุมัติอื่นยังอนุมัติคำขอของตัวเองไม่ได้ และคำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin
+ * คืน null = อนุญาต
+ */
+export function canDecideSupplementaryRequest(
+  actor: AuthUser,
+  requester: { id: string; hasPrivilegedRole: boolean },
+): UserManageDenial | null {
+  if (isSuperAdmin(actor)) return null;
+  return canManageUser(actor, requester);
+}

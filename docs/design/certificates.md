@@ -151,7 +151,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 ## ใบรับรองเสริม (ตัดสินใจ 2026-10-24)
 
 1. **ส่งคำขอ:** วัตถุประสงค์ + วันเริ่ม/วันสิ้นสุด (วันตามเวลาไทย) — วันเริ่มไม่ย้อนหลังและล่วงหน้าไม่เกิน `supplementary_max_lead_days` (ค่าเริ่มต้น 90), ยาวไม่เกิน `supplementary_max_days` (นับวันแรกและวันสุดท้าย), ชื่อแสดงยาวเกิน 64 ตัวปฏิเสธตั้งแต่ตอนนี้
-2. **อนุมัติ/ปฏิเสธ:** กฎ `canManageUser` เหมือนการเพิกถอน (คำขอของตัวเองไม่ได้, คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin) ล็อก ผู้ใช้ → คำขอ; อนุมัติแก้ช่วงได้ภายในเพดาน (วันเริ่มผ่านไปแล้วได้ แต่ต้องยังไม่สิ้นสุด) บันทึกถึงผู้ขอไม่บังคับ; ปฏิเสธต้องมีเหตุผล (ผู้ขอเห็น)
+2. **อนุมัติ/ปฏิเสธ:** กฎ `canDecideSupplementaryRequest` = `canManageUser` (คำขอของตัวเองไม่ได้, คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin) ยกเว้น super_admin ตัดสินได้ทุกคำขอรวมของตัวเอง (ตัดสินใจ 2026-10-24) ล็อก ผู้ใช้ → คำขอ; อนุมัติแก้ช่วงได้ภายในเพดาน (วันเริ่มผ่านไปแล้วได้ แต่ต้องยังไม่สิ้นสุด) บันทึกถึงผู้ขอไม่บังคับ; ปฏิเสธต้องมีเหตุผล (ผู้ขอเห็น)
 3. **รับใบ:** ผู้ขอตั้งรหัส `.p12` เอง แล้วระบบออกใบตอนนั้น (ระบบไม่เก็บรหัส จึงออกตอนอนุมัติไม่ได้) — ได้ตั้งแต่อนุมัติจนสิ้นวันสุดท้าย; ใบเริ่ม 00:00 ของวันแรก (หรือเวลาที่รับ ถ้าช้ากว่า — ไม่ออกย้อนหลัง) ถึง 23:59:59 ของวันสุดท้าย; เก็บ key สำรองเหมือนใบประจำตัว
 - ผู้ขอยกเลิกได้ระหว่างรออนุมัติหรือก่อนรับใบ; ปิดบัญชี/ลบบัญชี/บัญชีหมดอายุ = ยกเลิกคำขอที่ค้างอัตโนมัติ (log `cancel` ผู้ทำ = ผู้ดูแล หรือ NULL); ลบข้อมูลส่วนบุคคลล้าง `purpose` และ `decision_note`
 - เพดานจำนวนนับคำขอที่ค้างด้วย กันส่งหลายคำขอแล้วได้ใบเกินเมื่ออนุมัติพร้อมกัน — ตรวจตอนส่ง (ต้องมีช่องว่าง), ตอนอนุมัติและตอนรับ (ไม่เกิน) โดยล็อกแถวผู้ใช้ก่อนนับ; `supplementary_max_active = 0` = ปิดรับคำขอ
@@ -172,8 +172,8 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | POST | `/me/supplementary-certificate-requests/:id/cancel` | `supplementary_certificate:request` — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ |
 | POST | `/me/supplementary-certificate-requests/:id/certificate` | `supplementary_certificate:request` — รับใบจากคำขอที่อนุมัติแล้ว คืน `.p12` ครั้งเดียว (`no-store`); ยังไม่อนุมัติ = 409 `REQUEST_NOT_APPROVED`, เลยวันสิ้นสุด = 409 `REQUEST_EXPIRED`, รับแล้ว = 409 `REQUEST_ALREADY_ISSUED` |
 | GET | `/admin/supplementary-certificate-requests` | `certificate:approve` — `view=pending` (ค่าเริ่มต้น: คิวเก่าก่อน ≤ 100) หรือประวัติ `all`/ตามสถานะ (ล่าสุดก่อน cursor หน้าละ 20) + `pendingCount` + `limits` |
-| POST | `/admin/supplementary-certificate-requests/:id/approve` | `certificate:approve` — `startDate`, `endDate`, `note` (ไม่บังคับ) ตามกฎ `canManageUser` |
-| POST | `/admin/supplementary-certificate-requests/:id/reject` | `certificate:approve` — `note` (บังคับ) ตามกฎ `canManageUser` |
+| POST | `/admin/supplementary-certificate-requests/:id/approve` | `certificate:approve` — `startDate`, `endDate`, `note` (ไม่บังคับ) ตามกฎ `canDecideSupplementaryRequest` |
+| POST | `/admin/supplementary-certificate-requests/:id/reject` | `certificate:approve` — `note` (บังคับ) ตามกฎ `canDecideSupplementaryRequest` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
 | GET | `/admin/certificates` | `certificate:read` — ค้นหาทั้งระบบ (ชื่อ/อีเมลบางส่วนด้วย trigram, serial ตรงตัว รับ `:`/ตัวพิมพ์ใหญ่), กรองสถานะ, cursor หน้าละ 20, แสดงเจ้าของ |
 | GET | `/admin/users/:id/certificates` | `certificate:read` — ใบของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) |
