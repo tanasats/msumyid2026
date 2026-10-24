@@ -59,7 +59,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 | ระยะ | งาน | สถานะ |
 |---|---|---|
 | D0a | เครื่องมือลงนาม: signer `signCms`, `preparePdf`/`embedSignature` (pdf-lib), MSU TSA + ฝัง token, ล็อก DocMDP, สคริปต์ `pnpm --filter api pdf:sign-sample` ทดลองกับ Acrobat | เสร็จ |
-| D0b | Garage บน production + storage wrapper + ตาราง `files` + PIN ลงนาม | |
+| D0b | Garage บน production (`deploy/compose.yml`, `scripts/init-garage.sh`, nginx `/msumyid-files/`) + storage wrapper `src/storage` + ตาราง `files` (`/me/files` ขอ URL อัปโหลด/ยืนยัน/ดาวน์โหลด, job ลบไฟล์หมดอายุ) + PIN ลงนาม (`/me/signing-pin`, ตั้งใหม่เมื่อลืม = login ใหม่ภายใน 10 นาที) | เสร็จ |
 | D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA | |
 | D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย | |
 | D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน | |

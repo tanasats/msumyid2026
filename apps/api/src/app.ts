@@ -20,6 +20,8 @@ import { certificatesRouter } from './routes/certificates.js';
 import { supplementaryCertificatesRouter } from './routes/supplementary-certificates.js';
 import { primaryCertificateRequestsRouter } from './routes/primary-certificate-requests.js';
 import { verifyRouter } from './routes/verify.js';
+import { filesRouter } from './routes/files.js';
+import { signingPinRouter } from './routes/signing-pin.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -53,6 +55,8 @@ export function createApp() {
   app.use(supplementaryCertificatesRouter);
   app.use(primaryCertificateRequestsRouter);
   app.use(verifyRouter);
+  app.use(filesRouter);
+  app.use(signingPinRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
