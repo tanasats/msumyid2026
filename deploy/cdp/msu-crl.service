@@ -1,0 +1,18 @@
+# อัปเดต msu-ca.crl จาก did.msu.ac.th (เรียกโดย msu-crl.timer) — ดู docs/deployment.md หัวข้อ 10
+[Unit]
+Description=Update msu-ca.crl from MSU Digital ID
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/msu-update-crl
+# ผู้ใช้ที่เขียน /var/www/cdp ได้ — เปลี่ยนให้ตรงกับเครื่อง cdp
+User=www-data
+# ค่าเริ่มต้นอยู่ในสคริปต์ แก้ได้ที่นี่ เช่น
+# Environment=TARGET=/var/www/cdp/msu-ca.crl
+# Environment=CA_CHAIN=/etc/msu-cdp/ca-chain.pem
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true

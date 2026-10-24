@@ -1,0 +1,11 @@
+# รัน msu-crl.service ทุก 10 นาที (และ 1 นาทีหลังเปิดเครื่อง)
+[Unit]
+Description=Update msu-ca.crl every 10 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
