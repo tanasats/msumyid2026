@@ -57,6 +57,8 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   if (!detail) notFound();
 
   const { user, staffProfile, history, manageable, isSelf } = detail;
+  // บัญชีของตัวเองจัดการได้เมื่อ API บอกว่า manageable (super_admin) — ผู้ดูแลอื่นจัดการตัวเองไม่ได้
+  const canActOnSelf = !isSelf || manageable;
   const can = (permission: string) => currentUser.permissions.includes(permission);
   // ใบรับรองแสดงเฉพาะผู้มี certificate:read (API ตรวจซ้ำ)
   const certificates = can('certificate:read') ? await getUserCertificates(user.id) : null;
@@ -72,7 +74,13 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   return (
     <PageShell title={user.displayName} backHref="/admin/users" user={currentUser}>
       <div className="space-y-6">
-        {isSelf && <Alert tone="info">นี่คือบัญชีของคุณ — แก้ไขบทบาทหรือปิดบัญชีของตัวเองไม่ได้</Alert>}
+        {isSelf && (
+          <Alert tone="info">
+            {manageable
+              ? 'นี่คือบัญชีของคุณ — ในฐานะผู้ดูแลระบบสูงสุด คุณจัดการบัญชีนี้ได้ทุกอย่าง ถ้าปิดหรือลบบัญชี คุณจะออกจากระบบทันที'
+              : 'นี่คือบัญชีของคุณ — แก้ไขบทบาทหรือปิดบัญชีของตัวเองไม่ได้'}
+          </Alert>
+        )}
         {!user.hasGoogleAccount && (
           <Alert tone="info" title="ลงทะเบียนล่วงหน้า — ยังไม่เคยเข้าสู่ระบบ">
             บัญชีจะผูกกับบัญชี Google อัตโนมัติเมื่อผู้ใช้เข้าสู่ระบบด้วยอีเมล {user.email} ครั้งแรก
@@ -168,6 +176,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
                 canApprove={can('user:approve')}
                 canDeactivate={can('user:deactivate')}
                 canDelete={can('user:delete')}
+                isSelf={isSelf}
               />
             )}
           </div>
@@ -178,7 +187,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
               roles={user.roles}
               allRoles={allRoles}
               assignableCodes={allRoles.filter((r) => r.assignable).map((r) => r.code)}
-              editable={!isSelf && can('user_role:assign')}
+              editable={canActOnSelf && can('user_role:assign')}
             />
 
             {staffProfile && <StaffProfileCard profile={staffProfile} description="ข้อมูลจากระบบบุคลากร (ERP)" />}
@@ -194,7 +203,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
                       <AdminCertificateCard
                         key={c.id}
                         certificate={c}
-                        canRevoke={!isSelf && can('certificate:revoke')}
+                        canRevoke={canActOnSelf && can('certificate:revoke')}
                         canViewOwner={false}
                       />
                     ))}
