@@ -12,6 +12,8 @@ export type CurrentUser = {
   roles: string[];
   /** ใช้ซ่อน/แสดงเมนูเท่านั้น การตรวจสิทธิ์จริงอยู่ที่ API */
   permissions: string[];
+  /** งานที่ไม่ได้คุมด้วย permission (เช่น super_admin เท่านั้น) — API คำนวณ web ไม่ต้องเช็คชื่อ role เอง */
+  capabilities: { manageRoles: boolean };
 };
 
 /**

@@ -27,8 +27,11 @@ function assertCanManageRoles(actor: AuthUser): void {
   if (!canManageRoles(actor)) throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
 }
 
+/** hasAllPermissions = ได้ทุกสิทธิ์อยู่แล้ว (super_admin) — web ไม่แสดงตัวแก้ไขสิทธิ์ (ไม่ต้องเช็คชื่อ role เอง) */
+export type RoleAdminRole = RoleWithAccess & { hasAllPermissions: boolean };
+
 export async function getRoleAdminOverview(actor: AuthUser): Promise<{
-  roles: RoleWithAccess[];
+  roles: RoleAdminRole[];
   permissions: Omit<PermissionRow, 'id'>[];
   logs: RolePermissionLog[];
 }> {
@@ -38,7 +41,11 @@ export async function getRoleAdminOverview(actor: AuthUser): Promise<{
     listPermissions(pool),
     listRolePermissionLogs(pool, LOG_LIMIT),
   ]);
-  return { roles, permissions: permissions.map((p) => ({ code: p.code, descriptionTh: p.descriptionTh })), logs };
+  return {
+    roles: roles.map((role) => ({ ...role, hasAllPermissions: roleHasAllPermissions(role) })),
+    permissions: permissions.map((p) => ({ code: p.code, descriptionTh: p.descriptionTh })),
+    logs,
+  };
 }
 
 /** สร้าง role ใหม่ (ไม่ใช่ role ระบบ) — is_privileged กำหนดตอนสร้างเท่านั้น (ผู้ถือ role สิทธิ์สูงจัดการได้เฉพาะ super_admin) */

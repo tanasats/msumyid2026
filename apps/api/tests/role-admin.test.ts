@@ -78,7 +78,8 @@ describe('ภาพรวม', () => {
     expect(res.status).toBe(200);
     const staff = res.body.roles.find((r: { code: string }) => r.code === 'staff');
     // admin เองถือ staff ด้วย
-    expect(staff).toMatchObject({ isSystem: true, holderCount: 2, permissionCodes: [] });
+    expect(staff).toMatchObject({ isSystem: true, holderCount: 2, permissionCodes: [], hasAllPermissions: false });
+    expect(res.body.roles.find((r: { code: string }) => r.code === 'super_admin').hasAllPermissions).toBe(true);
     expect(res.body.permissions).toEqual(
       expect.arrayContaining([{ code: 'user:read', descriptionTh: 'ดูรายชื่อ ค้นหา และดูรายละเอียดผู้ใช้' }]),
     );

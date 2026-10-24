@@ -24,6 +24,13 @@
 - ทุกการเปลี่ยนแปลงเขียน `user_audit_logs` หรือ `role_change_logs` ใน transaction เดียวกัน และ log แก้/ลบไม่ได้
 - **PDPA:** `user_audit_logs.changes` ห้ามเก็บค่าข้อมูลส่วนบุคคล (ชื่อ, อีเมล) เพราะ log ลบไม่ได้ — บันทึกแค่ว่าช่องนั้น "เปลี่ยน"
 
+## บทบาทและสิทธิ์ (ตัดสินใจ 2026-10-24)
+
+- นักพัฒนาประกาศ permission ผ่าน migration ส่วน super_admin สร้างบทบาทและผูก permission ที่หน้า `/admin/roles` (ไม่ต้องแก้ฐานข้อมูลเอง)
+- ใช้กฎ `canManageRoles` = super_admin เท่านั้น ไม่ใช้ permission เพราะผู้ถือ permission นั้นจะให้สิทธิ์ตัวเองเพิ่มได้
+- `/auth/me` ส่ง `capabilities.manageRoles` ให้เว็บซ่อน/แสดงเมนู — เว็บไม่เช็คชื่อ role เอง
+- ยังไม่มีการลบบทบาท: `role_change_logs`/`role_permission_logs` อ้างถึงบทบาทด้วย FK — บทบาทที่เลิกใช้ให้ถอนสิทธิ์และถอนจากผู้ใช้ออกให้หมด
+
 ## ระยะการพัฒนา
 
 | ระยะ | งาน | สถานะ |
@@ -34,6 +41,7 @@
 | 4 | ลงทะเบียนล่วงหน้าด้วยอีเมล + ผูกบัญชี Google ตอน login (โดเมน มมส. ต้องมี `hd` ตรง) | เสร็จ |
 | 5 | บัญชีหน่วยงาน (`service`): หน่วยงาน + ผู้รับผิดชอบก่อนอนุมัติ, วันหมดอายุ + ปิดอัตโนมัติ | เสร็จ |
 | 6 | บัญชีรอจำแนกประเภท (`unclassified`): บัญชี มมส. ใหม่ที่ ERP ไม่ยืนยัน (ไม่พบ/ล่ม) → รออนุมัติ, ผู้อนุมัติเลือกบุคลากรภายนอกหรือบัญชีหน่วยงาน (แก้ไขข้อมูล → ประเภทบัญชี) ก่อนอนุมัติ, login ครั้งถัดไป ERP พบ → บุคลากรอัตโนมัติ | เสร็จ |
+| 7 | หน้าบทบาทและสิทธิ์ `/admin/roles` (super_admin เท่านั้น): สร้างบทบาท, เปลี่ยนชื่อ, กำหนดชุดสิทธิ์ + ประวัติ `role_permission_logs` | เสร็จ |
 | แยก | บัญชีแบบรหัสผ่าน (ต้องมีระบบอีเมลก่อน) | ยังไม่ทำ |
 
 ## API
@@ -50,5 +58,9 @@
 | PATCH | `/admin/users/:id` (`displayNameOverride`, `accountType`, `orgUnitId`, `responsibleUserId`, `accountExpiresAt` + บังคับเหตุผล) | `user:update` |
 | GET | `/admin/org-units` | `user:read` |
 | DELETE | `/admin/users/:id` (`confirmEmail` + บังคับเหตุผล) — ลบข้อมูลส่วนบุคคล ย้อนกลับไม่ได้ | `user:delete` |
+| GET | `/admin/role-permissions` — บทบาททั้งหมด (จำนวนผู้ถือ, สิทธิ์, `hasAllPermissions`) + permission ทั้งหมด + ประวัติ 30 รายการ | super_admin (`canManageRoles`) |
+| POST | `/admin/role-permissions/roles` (`code`, `nameTh`, `isPrivileged`, `reason`) — สร้างบทบาท (ไม่ใช่บทบาทระบบ, `isPrivileged` เปลี่ยนภายหลังไม่ได้) | super_admin |
+| PATCH | `/admin/role-permissions/roles/:code` (`nameTh`, `reason`) — เปลี่ยนชื่อไทย (รวมบทบาทระบบ, code เปลี่ยนไม่ได้) | super_admin |
+| PUT | `/admin/role-permissions/roles/:code/permissions` (`permissions[]`, `reason`) — กำหนดชุดสิทธิ์ทั้งชุด ผูก/ถอนเฉพาะที่ต่าง log ทีละรายการ ล็อกแถว role; `super_admin` = 409 `SUPER_ADMIN_HAS_ALL` | super_admin |
 
 รายการผู้ใช้แบ่งหน้าแบบ keyset ด้วย `id` (uuidv7 เรียงตามเวลาสร้าง) และค้นหาบางส่วนด้วย index `pg_trgm`
