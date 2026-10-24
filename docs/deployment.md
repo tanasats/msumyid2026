@@ -86,6 +86,7 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
   scripts/init-secrets.sh     สร้าง signer_token / escrow_kek ครั้งแรก (ไม่สร้างทับ)
   scripts/recover-env.sh      กู้ env/*.env ที่หายจาก container ที่ยังอยู่
   scripts/update-cloudflare-realip.sh  ช่วง IP ของ Cloudflare ให้ nginx (nginx -t ไม่ผ่าน = คืนไฟล์เดิม)
+  cdp/                        ติดตั้งบนเครื่อง cdp.msu.ac.th (ไม่ใช้บน VM): update-crl.sh + systemd timer ดึง CRL (หัวข้อ 10)
 ```
 
 โครงบน VM (ไฟล์ที่ไม่อยู่ใน git ระบุไว้ใน `deploy/.gitignore`):
@@ -182,7 +183,7 @@ curl -s --resolve did.msu.ac.th:443:127.0.0.1 https://did.msu.ac.th/api/health  
 docker compose run --rm api node dist/scripts/seed-super-admin.js
 ```
 
-**5.8 ย้ายใบรับรองจากระบบเดิม** — หัวข้อ 11 (ก่อนตั้ง cron ของ CRL บน cdp)
+**5.8 ย้ายใบรับรองจากระบบเดิม** — หัวข้อ 11 (ก่อนตั้ง timer ดึง CRL บน cdp)
 
 **5.9 สำรองข้อมูลอัตโนมัติ** (`crontab -e` ของผู้ใช้ deploy)
 ```
@@ -274,17 +275,43 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 
 - ใบรับรองทุกใบฝัง `CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมใช้ค่านี้ เปลี่ยนไม่ได้)
 - ระบบออก CRL ใหม่ทันทีเมื่อเพิกถอน และทุก `CRL_REISSUE_HOURS` เผยแพร่ที่ `https://did.msu.ac.th/api/crl/msu-ca.crl`
-- บน `cdp.msu.ac.th` ตั้ง cron ดึงทุก 5–15 นาที เช่น
-  ```
-  */10 * * * * curl -fsS --max-time 30 -o /var/www/cdp/msu-ca.crl.tmp https://did.msu.ac.th/api/crl/msu-ca.crl && openssl crl -in /var/www/cdp/msu-ca.crl.tmp -noout && mv /var/www/cdp/msu-ca.crl.tmp /var/www/cdp/msu-ca.crl
-  ```
-  (ตรวจด้วย `openssl crl` ก่อนแทนที่ — ได้หน้า error มา = ไม่ทับฉบับเดิม; `CRL_PUBLISH_FORMAT=der` ต้องเพิ่ม `-inform DER`)
-- **ตั้ง cron หลังนำเข้าใบเดิมเสร็จเท่านั้น** (หัวข้อ 11)
+### อัปเดตไฟล์บน cdp.msu.ac.th (`deploy/cdp/`)
+
+cdp เป็นฝ่ายดึงทุก 10 นาที (ระบบไม่ต้องมีสิทธิ์เขียนเข้า cdp) — did ล่ม = cdp เผยแพร่ฉบับล่าสุดต่อจนครบอายุ CRL
+`update-crl.sh` แทนที่ไฟล์เฉพาะเมื่อผ่านทุกข้อ ไม่ผ่าน = คงฉบับเดิม + log `ERROR`:
+
+1. ดาวน์โหลดด้วย HTTPS เท่านั้น (ตรวจใบรับรองเว็บ, จำกัดเวลา/ขนาด)
+2. `openssl crl -CAfile ca-chain.pem` ต้อง `verify OK` — ได้หน้า error / ไฟล์เสีย / CA อื่น = ไม่ผ่าน (รับได้ทั้ง PEM และ DER)
+3. next update เหลืออย่างน้อย 24 ชั่วโมง (`MIN_REMAINING_HOURS`)
+4. เลข CRL มากกว่าฉบับที่เผยแพร่อยู่ (เท่ากัน = ไม่ทำอะไร) และจำนวนใบที่เพิกถอนไม่ลดลง — กัน CRL ว่าง/ฉบับเก่าทับ (ระบบไม่เคยลบใบที่เพิกถอนออกจาก CRL)
+
+แทนที่ด้วย `mv` ในโฟลเดอร์เดียวกัน (ไม่มีใครได้ไฟล์ครึ่ง ๆ), เก็บฉบับก่อนหน้าเป็น `msu-ca.crl.prev`, `flock` กันรอบซ้อน, เตือน `WARN` เมื่อฉบับที่เผยแพร่อยู่เหลืออายุไม่ถึง 72 ชั่วโมง (`STALE_WARN_HOURS`) แม้รอบนั้นดึงไม่สำเร็จ
+
+ติดตั้ง (บนเครื่อง cdp — ไม่ใช่ VM ของระบบ):
+```bash
+# ใบของ CA (ข้อมูลสาธารณะ) จาก apps/signer/ca/
+sudo mkdir -p /etc/msu-cdp
+cat univ-ca.cert.pem root.cert.pem | sudo tee /etc/msu-cdp/ca-chain.pem >/dev/null
+sudo install -m 755 update-crl.sh /usr/local/bin/msu-update-crl
+sudo install -m 644 msu-crl.service msu-crl.timer /etc/systemd/system/   # แก้ User= ให้เป็นผู้ที่เขียน /var/www/cdp ได้
+# ครั้งแรก: วาง CRL ฉบับปัจจุบันของระบบเดิมไว้ที่ /var/www/cdp/msu-ca.crl ก่อน (ข้อ 4 จะกันฉบับที่รายการน้อยกว่าทับ)
+sudo systemctl daemon-reload
+sudo systemctl start msu-crl.service && journalctl -t msu-crl -n 5    # ลองรัน 1 ครั้ง
+sudo systemctl enable --now msu-crl.timer
+```
+ไม่มี systemd: `*/10 * * * * /usr/local/bin/msu-update-crl` · ค่าอื่น (`SOURCE_URL`, `TARGET`, `CA_CHAIN`) ตั้งผ่าน env ได้
+
+เว็บเซิร์ฟเวอร์ของ cdp: `Content-Type: application/pkix-crl`, `Cache-Control: max-age=600` (ไม่นานกว่ารอบดึง) และ **ต่ออายุใบรับรอง HTTPS อัตโนมัติ** — URL ในใบทุกใบเป็น `https://` ใบของเว็บหมดอายุ = โปรแกรมตรวจลายเซ็นดึง CRL ไม่ได้
+
+ติดตาม: แจ้งเตือนเมื่อ `journalctl -t msu-crl` มี `ERROR`/`WARN` และตรวจจากภายนอกวันละครั้ง `curl -s https://cdp.msu.ac.th/msu-ca.crl | openssl crl -noout -nextupdate`
+เปลี่ยน CA (เช่น ต่ออายุ Intermediate) ต้องอัปเดต `/etc/msu-cdp/ca-chain.pem` บน cdp ด้วย ไม่เช่นนั้นข้อ 2 จะไม่ผ่าน
+
+- **ตั้ง timer หลังนำเข้าใบเดิมเสร็จเท่านั้น** (หัวข้อ 11)
 
 ## 11. ย้ายจาก CA เดิม (`openssl ca` บน Ubuntu)
 
 ลำดับตาม `docs/design/certificates.md` หัวข้อ "ลำดับการย้ายระบบ":
-1. deploy ตามหัวข้อ 5 (signer ใช้ key ของ Intermediate จริง) — ยัง **ไม่** ตั้ง cron บน cdp
+1. deploy ตามหัวข้อ 5 (signer ใช้ key ของ Intermediate จริง) — ยัง **ไม่** ตั้ง timer บน cdp
 2. หยุดใช้ `openssl ca` บนเครื่องเดิม แล้วคัดลอกโฟลเดอร์ CA (ไม่ต้องมี CA key) มาไว้ชั่วคราว เช่น `/opt/msumyid/legacy-ca` (chmod 700)
 3. ทดลองก่อน แล้วค่อยรันจริง
    ```bash
@@ -292,7 +319,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
      node dist/scripts/import-legacy-certificates.js --dir /legacy --passwords /legacy/pkcs12-files.csv --dry-run
    # ตรวจรายงาน แล้วรันซ้ำโดยไม่มี --dry-run
    ```
-4. `curl -s https://did.msu.ac.th/api/crl/msu-ca.crl | openssl crl -noout -text` ต้องมีใบที่เพิกถอนเดิมครบ แล้วจึงตั้ง cron บน cdp (หัวข้อ 10)
+4. `curl -s https://did.msu.ac.th/api/crl/msu-ca.crl | openssl crl -noout -text` ต้องมีใบที่เพิกถอนเดิมครบ แล้วจึงตั้ง timer บน cdp (หัวข้อ 10)
 5. ลบ `/opt/msumyid/legacy-ca` และทำลาย `private/` + `pkcs12-files.csv` บนเครื่องเดิม
 
 ## 12. Cloudflare
@@ -318,7 +345,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 - [ ] redirect URI ของ Google ตรงทุกตัวอักษร, OAuth consent screen เป็น Internal
 - [ ] `docker compose ps` — postgres และ signer ไม่มี port, web/api เป็น `127.0.0.1:` เท่านั้น
 - [ ] ใบรับรอง TLS รวม intermediate chain (`openssl s_client -connect did.msu.ac.th:443 -servername did.msu.ac.th`)
-- [ ] นำเข้าใบเดิมครบ และ CRL มีใบที่เพิกถอนเดิมครบ ก่อนตั้ง cron บน cdp
+- [ ] นำเข้าใบเดิมครบ และ CRL มีใบที่เพิกถอนเดิมครบ ก่อนตั้ง timer บน cdp
 - [ ] cron backup ทำงาน และกำหนด `BACKUP_REMOTE` แล้ว
 - [ ] ทดลอง restore อย่างน้อย 1 ครั้ง (รวมดาวน์โหลด `.p12` ซ้ำจาก key สำรองหลัง restore)
 - [ ] super_admin คนแรกเข้าใช้ได้
