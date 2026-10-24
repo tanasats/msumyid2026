@@ -10,12 +10,15 @@
     "seed:super-admin": "tsx scripts/seed-super-admin.ts",
     "cert:import": "tsx scripts/import-legacy-certificates.ts",
     "pdf:sign-sample": "tsx scripts/sign-sample-pdf.ts",
+    "storage:cors": "tsx scripts/storage-cors.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "node-pg-migrate --migrations-dir migrations --migration-file-language sql --envPath .env -d DATABASE_URL",
     "migrate:test": "node-pg-migrate --migrations-dir migrations --migration-file-language sql --envPath .env -d TEST_DATABASE_URL"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.913.0",
+    "@aws-sdk/s3-request-presigner": "3.913.0",
     "asn1js": "^3.0.10",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

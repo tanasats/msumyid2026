@@ -4,6 +4,7 @@ import { pool } from './db/pool.js';
 import { logger } from './middlewares/logger.js';
 import { startAccountExpiryJob } from './services/account-expiry-service.js';
 import { startCrlJob } from './services/crl-service.js';
+import { startFileCleanupJob } from './services/file-service.js';
 
 const app = createApp();
 
@@ -15,6 +16,8 @@ const server = app.listen(config.port, () => {
 const stopAccountExpiryJob = startAccountExpiryJob(config.accountExpiryCheckIntervalMs);
 // ออก CRL ใหม่ตามรอบ / ลองใหม่เมื่อ signer ล่มตอนเพิกถอน
 const stopCrlJob = startCrlJob(config.crl.checkIntervalMs);
+// ลบไฟล์ที่หมดอายุ (ไฟล์ของการลงนามเก็บ 7 วัน) ทั้ง object ใน storage และแถวในตาราง files
+const stopFileCleanupJob = startFileCleanupJob(config.s3.cleanupIntervalMs);
 
 server.on('error', (err) => {
   logger.fatal({ err }, 'เปิด HTTP server ไม่สำเร็จ');
@@ -30,6 +33,7 @@ function shutdown(signal: string) {
   logger.info(`ได้รับ ${signal} กำลังปิดระบบ...`);
   stopAccountExpiryJob();
   stopCrlJob();
+  stopFileCleanupJob();
 
   // กันค้าง: ถ้าปิดไม่เสร็จใน 10 วินาทีให้บังคับออก
   const forceExit = setTimeout(() => {

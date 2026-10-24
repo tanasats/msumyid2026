@@ -108,7 +108,7 @@ describe('DELETE /admin/users/:id', () => {
       target.id,
     ]);
     expect(audit.rows).toEqual([
-      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, deletedKeyEscrows: 0 } },
+      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, expiredFiles: 0, deletedKeyEscrows: 0 } },
     ]);
     expect(JSON.stringify(audit.rows)).not.toMatch(/somchai|สมชาย/i);
   });

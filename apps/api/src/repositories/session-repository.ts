@@ -98,3 +98,11 @@ export async function deleteSessionsByUser(db: Queryable, userId: string): Promi
   const result = await db.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
   return result.rowCount ?? 0;
 }
+
+/** เวลาที่สร้าง session (= เวลาที่ login) — ใช้กับงานที่ต้อง login ใหม่เร็ว ๆ นี้ เช่น รีเซ็ต PIN ลงนาม */
+export async function findSessionCreatedAt(db: Queryable, sessionId: string): Promise<Date | null> {
+  const result = await db.query<{ createdAt: Date }>(`SELECT created_at AS "createdAt" FROM sessions WHERE id = $1`, [
+    sessionId,
+  ]);
+  return result.rows[0]?.createdAt ?? null;
+}

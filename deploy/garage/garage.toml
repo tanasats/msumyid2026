@@ -1,0 +1,21 @@
+# config ของ Garage บน production (single node, VM เดียวกับระบบ — ตัดสินใจ 2026-10-25: ไม่ backup เพราะไฟล์เก็บแค่ 7 วัน)
+# rpc_secret / admin_token อ่านจาก Docker secret (สร้างด้วย scripts/init-secrets.sh) — ไม่อยู่ในไฟล์นี้
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret_file = "/run/secrets/garage_rpc_secret"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+# ไม่ใช้ virtual-host style — browser เรียกแบบ path style ผ่าน nginx (https://did.msu.ac.th/<bucket>/<key>)
+root_domain = ".s3.garage.invalid"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token_file = "/run/secrets/garage_admin_token"
