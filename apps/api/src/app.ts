@@ -18,6 +18,7 @@ import { adminSupplementaryRequestsRouter } from './routes/admin-supplementary-c
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
 import { supplementaryCertificatesRouter } from './routes/supplementary-certificates.js';
+import { primaryCertificateRequestsRouter } from './routes/primary-certificate-requests.js';
 import { verifyRouter } from './routes/verify.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
@@ -50,6 +51,7 @@ export function createApp() {
   app.use(adminSupplementaryRequestsRouter);
   app.use(certificatesRouter);
   app.use(supplementaryCertificatesRouter);
+  app.use(primaryCertificateRequestsRouter);
   app.use(verifyRouter);
 
   app.use(notFoundHandler);

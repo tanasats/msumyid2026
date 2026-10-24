@@ -25,6 +25,10 @@ import {
 } from '../repositories/certificate-repository.js';
 import { getCertificatePolicy } from '../repositories/certificate-policy-repository.js';
 import { cancelOpenRequestsByUser, insertRequestLog } from '../repositories/supplementary-certificate-request-repository.js';
+import {
+  cancelOpenPrimaryRequestsByUser,
+  insertPrimaryRequestLog,
+} from '../repositories/primary-certificate-request-repository.js';
 import { canManageUser, hasPermission, type AuthUser } from './authorization-service.js';
 import { DAY_MS, primaryExpiryPreview, primaryValidityDays } from './certificate-policy-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -116,39 +120,60 @@ export async function requestCertificate(
     if (!(await lockUserForCertificate(client, user.id))) {
       throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
     }
-    const now = new Date();
-    const policy = await getCertificatePolicy(client);
-    const renewableFrom = primaryRenewableFrom(
-      await listActiveCertificateExpiries(client, user.id, 'primary'),
-      policy.renewalWindowDays,
-      now,
-    );
-    if (renewableFrom) {
-      throw new AppError(
-        409,
-        'PRIMARY_CERTIFICATE_EXISTS',
-        `คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ ${thaiDate(renewableFrom)} หรือเพิกถอนใบเดิมก่อน`,
-      );
-    }
-
-    let issued;
-    try {
-      issued = await signer.issueCertificate({
-        commonName,
-        email: user.email,
-        p12Password: input.p12Password,
-        legacyP12: input.legacyP12,
-        validityDays: primaryValidityDays(policy, now),
-      });
-    } catch (err) {
-      if (!(err instanceof SignerError)) throw err;
-      logger.error({ err }, 'ออกใบรับรองไม่สำเร็จ: บริการเซ็นไม่ตอบ');
-      throw new AppError(503, 'SIGNER_UNAVAILABLE', 'ระบบออกใบรับรองไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง');
-    }
-
-    const certificate = await recordIssuedCertificate(client, { user, commonName, kind: 'primary', issued });
-    return { certificate, p12: issued.p12 };
+    return issuePrimaryCertificate(client, { user, commonName, input });
   });
+}
+
+/**
+ * ขอใบประจำตัวใหม่ได้ตอนนี้หรือไม่ (กฎ 1 ใบ + ช่วงต่ออายุ) — ไม่ได้ = 409 PRIMARY_CERTIFICATE_EXISTS
+ * ใช้ทั้งตอนออกใบเอง ตอนส่งคำขอ และตอนรับใบจากคำขอ — ต้องเรียกหลัง lockUserForCertificate ใน transaction เดียวกัน
+ */
+export async function assertPrimaryRenewable(db: Queryable, userId: string, now: Date): Promise<void> {
+  const policy = await getCertificatePolicy(db);
+  const renewableFrom = primaryRenewableFrom(
+    await listActiveCertificateExpiries(db, userId, 'primary'),
+    policy.renewalWindowDays,
+    now,
+  );
+  if (renewableFrom) {
+    throw new AppError(
+      409,
+      'PRIMARY_CERTIFICATE_EXISTS',
+      `คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ ${thaiDate(renewableFrom)} หรือเพิกถอนใบเดิมก่อน`,
+    );
+  }
+}
+
+/**
+ * ออกใบประจำตัว (อายุตามนโยบาย) แล้วบันทึก — ตรวจกฎ 1 ใบ/ช่วงต่ออายุก่อนเสมอ
+ * ผู้เรียกต้องล็อกผู้ใช้ไว้แล้ว (lockUserForCertificate) ตลอดช่วงที่รอ signer
+ */
+export async function issuePrimaryCertificate(
+  db: Queryable,
+  input: { user: AuthUser; commonName: string; input: RequestCertificateInput },
+): Promise<{ certificate: Certificate; p12: Buffer }> {
+  const { user, commonName } = input;
+  const now = new Date();
+  await assertPrimaryRenewable(db, user.id, now);
+  const policy = await getCertificatePolicy(db);
+
+  let issued;
+  try {
+    issued = await signer.issueCertificate({
+      commonName,
+      email: user.email,
+      p12Password: input.input.p12Password,
+      legacyP12: input.input.legacyP12,
+      validityDays: primaryValidityDays(policy, now),
+    });
+  } catch (err) {
+    if (!(err instanceof SignerError)) throw err;
+    logger.error({ err }, 'ออกใบรับรองไม่สำเร็จ: บริการเซ็นไม่ตอบ');
+    throw new AppError(503, 'SIGNER_UNAVAILABLE', 'ระบบออกใบรับรองไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง');
+  }
+
+  const certificate = await recordIssuedCertificate(db, { user, commonName, kind: 'primary', issued });
+  return { certificate, p12: issued.p12 };
 }
 
 /**
@@ -205,12 +230,14 @@ export function p12FileName(email: string, serialNumber: string): string {
 
 /**
  * permission ที่ต้องมีเพื่อจัดการใบของตัวเอง (เพิกถอน / ดาวน์โหลดใหม่) ตามประเภทใบ
- * ใบประจำตัว = certificate:request, ใบเสริม = supplementary_certificate:request
+ * ใบประจำตัว = certificate:request หรือ certificate:apply (ได้ใบผ่านคำขอ), ใบเสริม = supplementary_certificate:request
  */
 function assertCanManageOwnCertificate(user: AuthUser, kind: CertificateKind): void {
-  const permission =
-    kind === 'supplementary' ? PERMISSIONS.SUPPLEMENTARY_CERTIFICATE_REQUEST : PERMISSIONS.CERTIFICATE_REQUEST;
-  if (!hasPermission(user, permission)) {
+  const allowed =
+    kind === 'supplementary'
+      ? hasPermission(user, PERMISSIONS.SUPPLEMENTARY_CERTIFICATE_REQUEST)
+      : hasPermission(user, PERMISSIONS.CERTIFICATE_REQUEST) || hasPermission(user, PERMISSIONS.CERTIFICATE_APPLY);
+  if (!allowed) {
     throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
   }
 }
@@ -304,7 +331,7 @@ export async function downloadMyCertificateP12(
 
 /**
  * เพิกถอนใบที่ใช้งานอยู่ทั้งหมดของผู้ใช้ เมื่อปิดบัญชี / ลบบัญชี / บัญชีหมดอายุ (ตัดสินใจ 2026-10-08)
- * และยกเลิกคำขอใบเสริมที่ค้างอยู่ (รออนุมัติ / อนุมัติแล้วยังไม่รับ) — ไม่ให้ออกใบหลังบัญชีถูกปิด
+ * และยกเลิกคำขอใบเสริมและคำขอใบประจำตัวที่ค้างอยู่ (รออนุมัติ / อนุมัติแล้วยังไม่รับ) — ไม่ให้ออกใบหลังบัญชีถูกปิด
  * ต้องเรียกใน transaction เดียวกับการปิดบัญชี และหลังล็อกแถวผู้ใช้แล้ว — ผู้เรียกออก CRL หลัง commit (issueCrlSafely)
  * actorId = null คือระบบทำเอง (บัญชีหมดอายุ)
  */
@@ -322,6 +349,9 @@ export async function revokeCertificatesOfClosedAccount(
   }
   for (const requestId of await cancelOpenRequestsByUser(db, input.userId)) {
     await insertRequestLog(db, { requestId, actorId: input.actorId, action: 'cancel' });
+  }
+  for (const requestId of await cancelOpenPrimaryRequestsByUser(db, input.userId)) {
+    await insertPrimaryRequestLog(db, { requestId, actorId: input.actorId, action: 'cancel' });
   }
   return ids.length;
 }

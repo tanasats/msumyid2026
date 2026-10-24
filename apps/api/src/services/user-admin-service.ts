@@ -36,6 +36,7 @@ import { findUsersByEmail } from '../repositories/user-repository.js';
 import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
 import { erasePersonalDataFromCertificates } from '../repositories/certificate-repository.js';
 import { erasePersonalDataFromRequests } from '../repositories/supplementary-certificate-request-repository.js';
+import { erasePersonalDataFromPrimaryRequests } from '../repositories/primary-certificate-request-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -460,6 +461,7 @@ export async function deleteUser(
     const revoked = await revokeCertificatesOfClosedAccount(client, { userId, actorId: actor.id, note: 'ลบบัญชี' });
     const erased = await erasePersonalDataFromCertificates(client, userId);
     const erasedRequests = await erasePersonalDataFromRequests(client, userId);
+    const erasedPrimaryRequests = await erasePersonalDataFromPrimaryRequests(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,
@@ -472,6 +474,7 @@ export async function deleteUser(
         revokedCertificates: revoked,
         erasedCertificates: erased.certificates,
         erasedSupplementaryRequests: erasedRequests,
+        erasedPrimaryRequests,
         deletedKeyEscrows: erased.keyEscrows,
       },
       reason,
