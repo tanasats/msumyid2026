@@ -44,7 +44,7 @@ adminSupplementaryRequestsRouter.get(
   },
 );
 
-// สิทธิ์: certificate:approve — อนุมัติ (กำหนดช่วงวันที่ได้ภายในนโยบาย) ตามกฎ canManageUser
+// สิทธิ์: certificate:approve — อนุมัติ (กำหนดช่วงวันที่ได้ภายในนโยบาย) ตามกฎ canManageUser (super_admin ตัดสินได้ทุกคำขอ)
 adminSupplementaryRequestsRouter.post(
   '/admin/supplementary-certificate-requests/:id/approve',
   requirePermission(PERMISSIONS.CERTIFICATE_APPROVE),
@@ -55,7 +55,7 @@ adminSupplementaryRequestsRouter.post(
   },
 );
 
-// สิทธิ์: certificate:approve — ปฏิเสธพร้อมเหตุผล ตามกฎ canManageUser
+// สิทธิ์: certificate:approve — ปฏิเสธพร้อมเหตุผล ตามกฎ canManageUser (super_admin ตัดสินได้ทุกคำขอ)
 adminSupplementaryRequestsRouter.post(
   '/admin/supplementary-certificate-requests/:id/reject',
   requirePermission(PERMISSIONS.CERTIFICATE_APPROVE),

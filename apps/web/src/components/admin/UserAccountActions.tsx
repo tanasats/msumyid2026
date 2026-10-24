@@ -59,9 +59,23 @@ const ACTIONS: Record<
   },
 };
 
+/** ปิด/ลบบัญชีของตัวเอง (super_admin เท่านั้น) — ออกจากระบบทันที จึงต้องพิมพ์อีเมลยืนยันทั้งสองแบบ */
+const SELF_ACTIONS: Partial<Record<Action, { title: string; description: string }>> = {
+  deactivate: {
+    title: 'ปิดบัญชีของคุณหรือไม่?',
+    description:
+      'คุณจะถูกออกจากระบบทันทีและเข้าระบบไม่ได้จนกว่าผู้ดูแลระบบสูงสุดคนอื่นจะเปิดบัญชีคืน ใบรับรองที่ใช้งานอยู่ของคุณจะถูกเพิกถอนถาวร',
+  },
+  delete: {
+    title: 'ลบบัญชีและข้อมูลส่วนบุคคลของคุณหรือไม่?',
+    description:
+      'คุณจะถูกออกจากระบบทันที ชื่อ อีเมล รูป ข้อมูลบุคลากร บทบาท และข้อมูลในใบรับรอง (รวม key สำรอง) ของคุณจะถูกลบถาวร ย้อนกลับไม่ได้ — ห้ามใส่ข้อมูลส่วนบุคคลในเหตุผล',
+  },
+};
+
 /**
  * ปุ่มจัดการบัญชี (อนุมัติ/ไม่อนุมัติ, ปิด/เปิดบัญชี) — แสดงเฉพาะปุ่มที่ผู้ใช้ปัจจุบันมีสิทธิ์ (เพื่อ UX)
- * การตรวจสิทธิ์จริงอยู่ที่ API ทุกครั้ง
+ * การตรวจสิทธิ์จริงอยู่ที่ API ทุกครั้ง — isSelf = super_admin จัดการบัญชีของตัวเอง (ผู้อื่นไม่เห็นส่วนนี้)
  */
 export function UserAccountActions({
   userId,
@@ -73,6 +87,7 @@ export function UserAccountActions({
   canApprove,
   canDeactivate,
   canDelete,
+  isSelf = false,
 }: {
   userId: string;
   /** ใช้เป็นข้อความที่ต้องพิมพ์ยืนยันก่อนลบ */
@@ -85,6 +100,7 @@ export function UserAccountActions({
   canApprove: boolean;
   canDeactivate: boolean;
   canDelete: boolean;
+  isSelf?: boolean;
 }) {
   const router = useRouter();
   const [action, setAction] = useState<Action | null>(null);
@@ -96,8 +112,10 @@ export function UserAccountActions({
           description: `ผู้ใช้จะได้รับบทบาท${ACCOUNT_TYPE_LABELS[accountType]}และใช้งานระบบได้ทันที`,
         }
       : action
-        ? ACTIONS[action]
+        ? { ...ACTIONS[action], ...(isSelf ? SELF_ACTIONS[action] : undefined) }
         : null;
+  // งานที่ย้อนกลับไม่ได้ หรือทำให้ตัวเองออกจากระบบ ต้องพิมพ์อีเมลยืนยัน
+  const needsEmailConfirm = action === 'delete' || (isSelf && action === 'deactivate');
 
   const showApprove = canApprove && isActive && approvalStatus !== 'approved';
   const showReject = canApprove && isActive && approvalStatus === 'pending';
@@ -107,12 +125,18 @@ export function UserAccountActions({
     if (!action) return;
     if (action === 'delete') {
       await apiMutate(`/admin/users/${userId}`, 'DELETE', { reason, confirmEmail: confirmText });
-      // บัญชีไม่มีแล้ว กลับไปหน้ารายชื่อ
-      router.push('/admin/users');
+      // บัญชีไม่มีแล้ว กลับไปหน้ารายชื่อ (ลบตัวเอง = session ถูกลบแล้ว ไปหน้าเข้าสู่ระบบ)
+      router.push(isSelf ? '/login' : '/admin/users');
       router.refresh();
       return;
     }
     await apiMutate(`/admin/users/${userId}/${action}`, 'POST', reason ? { reason } : {});
+    if (isSelf && action === 'deactivate') {
+      // session ของตัวเองถูกลบพร้อมการปิดบัญชี
+      router.push('/login');
+      router.refresh();
+      return;
+    }
     // โหลดข้อมูลหน้าใหม่จาก server (สถานะ, ประวัติ)
     router.refresh();
   }
@@ -178,7 +202,7 @@ export function UserAccountActions({
         confirmLabel={config?.confirmLabel ?? ''}
         tone={config?.tone}
         reason={config?.reason}
-        confirmText={action === 'delete' ? { label: `พิมพ์อีเมล ${email} เพื่อยืนยัน`, expected: email } : undefined}
+        confirmText={needsEmailConfirm ? { label: `พิมพ์อีเมล ${email} เพื่อยืนยัน`, expected: email } : undefined}
         onConfirm={confirm}
       />
     </section>

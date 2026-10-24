@@ -43,6 +43,20 @@ async function rawUser(id: string) {
 }
 
 describe('DELETE /admin/users/:id', () => {
+  it('ลบบัญชีตัวเอง: ผู้มี user:delete ที่ไม่ใช่ super_admin → 403 / super_admin ได้เมื่อยังเหลือคนอื่น', async () => {
+    await createTestRole('test_self_deleter', ['user:delete']);
+    const deleter = await createUser({ email: 'deleter@msu.ac.th', roles: ['user', 'test_self_deleter'] });
+    const denied = await deleteUser(deleter.id, await loginAs(deleter.id), { confirmEmail: 'deleter@msu.ac.th', reason: 'x' });
+    expect(denied.body.error.code).toBe('CANNOT_MANAGE_SELF');
+
+    await superAdmin();
+    const admin = await superAdmin();
+    const email = (await rawUser(admin.id)).email;
+    const res = await deleteUser(admin.id, admin.cookie, { confirmEmail: email, reason: 'ลาออก' });
+    expect(res.status).toBe(204);
+    expect((await rawUser(admin.id)).deleted).toBe(true);
+  });
+
   it('ลบข้อมูลส่วนบุคคล: ตัดชื่อ/อีเมล/รูป/google_sub ลบข้อมูลบุคลากร ถอน role และเพิกถอน session', async () => {
     const admin = await superAdmin();
     const target = await createUser({ email: 'somchai.j@msu.ac.th', name: 'สมชาย ใจดี', roles: ['user', 'staff'] });
@@ -150,9 +164,10 @@ describe('DELETE /admin/users/:id', () => {
     const denied = await deleteUser(target.id, await loginAs(deactivator.id), { confirmEmail: 't@msu.ac.th', reason: 'x' });
     expect(denied.status).toBe(403);
 
+    // super_admin คนสุดท้ายลบตัวเองไม่ได้ (คนอื่นที่ไม่ใช่ super_admin โดนกฎ SELF — ทดสอบด้านล่าง)
     const admin = await superAdmin();
-    const self = await deleteUser(admin.id, admin.cookie, { confirmEmail: 'x', reason: 'x' });
-    expect(self.body.error.code).toBe('CANNOT_MANAGE_SELF');
+    const self = await deleteUser(admin.id, admin.cookie, { confirmEmail: (await rawUser(admin.id)).email, reason: 'x' });
+    expect(self.body.error.code).toBe('LAST_SUPER_ADMIN');
 
     await createTestRole('test_deleter', ['user:delete']);
     const deleter = await createUser({ roles: ['user', 'test_deleter'] });

@@ -315,7 +315,7 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
     expect((await approve(cookie, body.request.id, { startDate: day(-2), endDate: day(3) })).status).toBe(200);
   });
 
-  it('กฎ canManageUser: คำขอของตัวเอง → 403 / ผู้ดูแลสิทธิ์สูงต้องเป็น super_admin', async () => {
+  it('ผู้อนุมัติที่ไม่ใช่ super_admin: คำขอของตัวเอง → 403 / ผู้ดูแลสิทธิ์สูงต้องเป็น super_admin', async () => {
     await ensureRole('test_both', ['certificate:approve', 'supplementary_certificate:request']);
     const self = await createUser({ roles: ['user', 'staff', 'test_both'] });
     const selfCookie = await loginAs(self.id);
@@ -334,6 +334,27 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
 
     const superAdmin = await createUser({ roles: ['user', 'staff', 'super_admin'] });
     expect((await approve(await loginAs(superAdmin.id), privilegedRequest.body.request.id)).status).toBe(200);
+  });
+
+  it('super_admin ตัดสินคำขอได้ทุกคำขอ รวมคำขอของตัวเอง (อนุมัติและปฏิเสธ) พร้อม log ผู้ทำ', async () => {
+    const superAdmin = await createUser({ roles: ['user', 'staff', 'super_admin'] });
+    const cookie = await loginAs(superAdmin.id);
+
+    const own = (await submit(cookie)).body.request.id;
+    const res = await approve(cookie, own);
+    expect(res.status).toBe(200);
+    expect(res.body.request).toMatchObject({ status: 'approved', decidedBy: { id: superAdmin.id } });
+
+    const another = (await submit(cookie)).body.request.id;
+    const rejected = await post(cookie, `/admin/supplementary-certificate-requests/${another}/reject`, { note: 'ขอซ้ำ' });
+    expect(rejected.status).toBe(200);
+
+    const { rows } = await pool.query(
+      `SELECT action FROM supplementary_certificate_request_logs
+       WHERE actor_id = $1 AND action IN ('approve', 'reject') ORDER BY created_at`,
+      [superAdmin.id],
+    );
+    expect(rows.map((r) => r.action)).toEqual(['approve', 'reject']);
   });
 
   it('ปฏิเสธต้องมีเหตุผล → ผู้ขอเห็นเหตุผล และไม่นับในเพดาน', async () => {
