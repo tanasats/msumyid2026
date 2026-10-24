@@ -15,6 +15,7 @@ export async function resetDatabase(): Promise<void> {
     await client.query('TRUNCATE certificate_policy_logs');
     await client.query('ALTER TABLE system_setting_logs DISABLE TRIGGER trg_system_setting_logs_no_truncate');
     await client.query('TRUNCATE system_setting_logs');
+    await client.query('ALTER TABLE primary_certificate_request_logs DISABLE TRIGGER trg_primary_request_logs_no_truncate');
     // ประวัติการกำหนด role/สิทธิ์อ้างถึง roles (FK) จึงต้องล้างก่อนลบ role ทดสอบ — ปิด trigger ไว้จนจบ (CASCADE จาก users มาถึงด้วย)
     await client.query('ALTER TABLE role_permission_logs DISABLE TRIGGER trg_role_permission_logs_no_truncate');
     await client.query('TRUNCATE role_permission_logs');
@@ -27,7 +28,8 @@ export async function resetDatabase(): Promise<void> {
     await client.query(
       `TRUNCATE users, sessions, user_roles, role_change_logs, user_audit_logs, erp_org_units,
                 certificates, certificate_key_escrows, certificate_audit_logs, crls,
-                supplementary_certificate_requests, supplementary_certificate_request_logs CASCADE`,
+                supplementary_certificate_requests, supplementary_certificate_request_logs,
+                primary_certificate_requests, primary_certificate_request_logs CASCADE`,
     );
     // นโยบายใบรับรองมีแถวเดียว: คืนค่าเริ่มต้น (DEFAULT ของ migration) — TRUNCATE users CASCADE ลบแถวไปด้วย (FK updated_by)
     await client.query('DELETE FROM certificate_policies');
@@ -37,6 +39,7 @@ export async function resetDatabase(): Promise<void> {
     await client.query('INSERT INTO system_settings (id) VALUES (true)');
     await client.query('ALTER TABLE certificate_policy_logs ENABLE TRIGGER trg_certificate_policy_logs_no_truncate');
     await client.query('ALTER TABLE system_setting_logs ENABLE TRIGGER trg_system_setting_logs_no_truncate');
+    await client.query('ALTER TABLE primary_certificate_request_logs ENABLE TRIGGER trg_primary_request_logs_no_truncate');
     await client.query('ALTER TABLE role_permission_logs ENABLE TRIGGER trg_role_permission_logs_no_truncate');
     await client.query('ALTER TABLE certificate_audit_logs ENABLE TRIGGER trg_certificate_audit_logs_no_truncate');
     await client.query(

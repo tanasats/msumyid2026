@@ -58,7 +58,7 @@ export default async function AdminCertificatesPage({
             {user.permissions.includes('certificate:approve') && (
               <Link href="/admin/certificate-requests" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
                 <ClipboardCheck className="size-5" aria-hidden />
-                คำขอใบรับรองเสริม
+                คำขอใบรับรอง
               </Link>
             )}
             {user.permissions.includes('certificate_policy:manage') && (

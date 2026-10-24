@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middlewares/auth.js';
-import { createRole, getRoleAdminOverview, renameRole, setRolePermissions } from '../services/role-admin-service.js';
+import {
+  createRole,
+  getRoleAdminOverview,
+  renameRole,
+  setRoleCertificateMode,
+  setRolePermissions,
+} from '../services/role-admin-service.js';
 
 // กำหนด role และสิทธิ์ของ role (หน้า /admin/roles)
 // สิทธิ์: super_admin เท่านั้น — route ตรวจแค่ login ส่วน service ตรวจ canManageRoles (ไม่ใช้ permission กันการยกระดับสิทธิ์)
@@ -51,5 +57,15 @@ adminRolesRouter.patch('/admin/role-permissions/roles/:code', requireAuth, async
 adminRolesRouter.put('/admin/role-permissions/roles/:code/permissions', requireAuth, async (req, res) => {
   const { code } = roleParams.parse(req.params);
   const result = await setRolePermissions(req.user!, code, permissionsBody.parse(req.body));
+  res.json({ ...result, ...(await getRoleAdminOverview(req.user!)) });
+});
+
+const certificateModeBody = z.object({ mode: z.enum(['off', 'apply', 'self']), reason });
+
+// สิทธิ์: super_admin เท่านั้น — วิธีขอใบรับรองประจำตัวของผู้ถือ role: ปิด / ส่งคำขอ / สร้างเองได้
+// (แก้เฉพาะ certificate:apply และ certificate:request สิทธิ์อื่นคงเดิม)
+adminRolesRouter.put('/admin/role-permissions/roles/:code/certificate-mode', requireAuth, async (req, res) => {
+  const { code } = roleParams.parse(req.params);
+  const result = await setRoleCertificateMode(req.user!, code, certificateModeBody.parse(req.body));
   res.json({ ...result, ...(await getRoleAdminOverview(req.user!)) });
 });

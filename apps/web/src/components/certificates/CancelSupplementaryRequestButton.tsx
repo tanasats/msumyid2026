@@ -7,8 +7,15 @@ import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { apiMutate } from '@/lib/api-client';
 
-/** ผู้ขอยกเลิกคำขอใบเสริมที่ยังไม่ได้รับใบ (ย้อนกลับไม่ได้ ต้องส่งคำขอใหม่) */
-export function CancelSupplementaryRequestButton({ requestId }: { requestId: string }) {
+/** ผู้ขอยกเลิกคำขอ (ใบเสริม / ใบประจำตัว) ที่ยังไม่ได้รับใบ — ย้อนกลับไม่ได้ ต้องส่งคำขอใหม่ */
+export function CancelSupplementaryRequestButton({
+  requestId,
+  basePath = '/me/supplementary-certificate-requests',
+}: {
+  requestId: string;
+  /** API ของคำขอประเภทนั้น */
+  basePath?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -26,7 +33,7 @@ export function CancelSupplementaryRequestButton({ requestId }: { requestId: str
         confirmLabel="ยกเลิกคำขอ"
         tone="danger"
         onConfirm={async () => {
-          await apiMutate(`/me/supplementary-certificate-requests/${requestId}/cancel`, 'POST');
+          await apiMutate(`${basePath}/${requestId}/cancel`, 'POST');
           router.refresh();
         }}
       />

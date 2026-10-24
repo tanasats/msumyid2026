@@ -93,7 +93,8 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
 | `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม (ยืนยัน 2026-10-24) |
 | `supplementary_certificate:request` | ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริม **ของตัวเอง** (ยืนยัน 2026-10-24) |
-| `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองเสริมของผู้อื่น (ยืนยัน 2026-10-24) |
+| `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองประจำตัวและใบรับรองเสริมของผู้อื่น (ยืนยัน 2026-10-24) |
+| `certificate:apply` | ส่งคำขอใบรับรองประจำตัว (รออนุมัติ) แล้วรับใบเอง และจัดการใบประจำตัวของตัวเอง (ยืนยัน 2026-10-24) |
 
 - ใช้ permission แทนการเปิดให้ "login เท่านั้น" เพราะยังไม่ชัดว่าทุกประเภทบัญชี (เช่น นิสิต) ได้ใบรับรอง — `super_admin` ผูกกับ role `staff`/`student`/... ได้เองภายหลัง ระหว่างนี้ใช้ได้เฉพาะ `super_admin` (ค่าเริ่มต้นคือปฏิเสธ)
 - การนำเข้าใบเดิมทำผ่านสคริปต์ (`pnpm --filter api cert:import`) ไม่มีหน้าเว็บ จึงไม่ต้องมี permission
@@ -148,6 +149,23 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - API คำนวณจำนวนวันแล้วส่ง `validityDays` ให้ signer ซึ่งยังตัดให้ไม่เกิน **เพดาน** `CERT_VALIDITY_DAYS` (ค่าเริ่มต้น 825) และอายุของ CA — API ถูกเจาะก็ขอใบอายุยาวผิดปกติไม่ได้; เพดานต้อง ≥ อายุที่นโยบายให้ได้ (โหมด 31 ธ.ค. ได้สูงสุดราว 365 + `primary_min_days` วัน)
 - ใบเสริมระยะสั้นต้องประทับเวลา (TSA) ตอนลงนาม ไม่เช่นนั้นหลังใบหมดอายุ ลายมือชื่อจะตรวจได้แค่ "ไม่ทราบความถูกต้อง"
 
+## ใบประจำตัวแบบส่งคำขอ (ตัดสินใจ 2026-10-24)
+
+super_admin ตั้ง **วิธีขอใบประจำตัว** ของแต่ละ role ที่หน้า `/admin/certificate-policy` (ส่วน "ใครขอใบรับรองประจำตัวได้" — `canManageRoles`) ผ่าน `PUT /admin/role-permissions/roles/:code/certificate-mode` ซึ่งผูก/ถอนเฉพาะ 2 permission และเขียน `role_permission_logs`:
+
+| วิธี | permission ของ role | ผล |
+|---|---|---|
+| ปิด | ไม่มีทั้งสอง | ขอใบประจำตัวไม่ได้ |
+| ส่งคำขอ | `certificate:apply` | ส่งคำขอ → ผู้มี `certificate:approve` อนุมัติ (`canManageUser`) → ผู้ขอกดรับใบภายใน 30 วัน (ตั้งรหัส `.p12` เอง) |
+| สร้างเองได้ | `certificate:request` | ออกใบทันที (มีทั้งสอง = สร้างเองได้) |
+
+- ใช้ได้ทุก role (นิสิต บุคลากร บุคลากรภายนอก บัญชีหน่วยงาน role ที่สร้างเอง) ผู้ที่มีหลาย role ได้วิธีที่สะดวกที่สุด เพราะสิทธิ์รวมกัน
+- คำขอค้างได้ 1 รายการ (รออนุมัติ หรืออนุมัติแล้วยังไม่หมดเวลารับ) — กฎใบประจำตัว 1 ใบ + ช่วงต่ออายุ (`assertPrimaryRenewable`) ตรวจทั้งตอนส่งและตอนรับ ใบออกด้วย `issuePrimaryCertificate` เดียวกับการขอเอง
+- วัตถุประสงค์ไม่บังคับ, ปฏิเสธต้องมีเหตุผล (ผู้ขอเห็น), "หมดเวลารับใบ" คำนวณจาก `decided_at` + 30 วัน (`PRIMARY_CLAIM_DAYS`) ไม่มี job
+- ผู้ที่ได้ใบผ่านคำขอ (มีแค่ `certificate:apply`) เพิกถอน/ดาวน์โหลดใบประจำตัวของตัวเองได้
+- ปิดบัญชีแล้วยกเลิกคำขอที่ค้าง ลบบัญชี (PDPA) ล้าง `purpose` และ `decision_note`
+- หน้าเว็บ: ส่วน "คำขอใบรับรองประจำตัว" ใน `/certificates`, รับใบที่ `/certificates/requests/[id]/claim`, ผู้อนุมัติ `/admin/certificate-requests?type=primary` (แท็บ ใบประจำตัว / ใบเสริม)
+
 ## ใบรับรองเสริม (ตัดสินใจ 2026-10-24)
 
 1. **ส่งคำขอ:** วัตถุประสงค์ + วันเริ่ม/วันสิ้นสุด (วันตามเวลาไทย) — วันเริ่มไม่ย้อนหลังและล่วงหน้าไม่เกิน `supplementary_max_lead_days` (ค่าเริ่มต้น 90), ยาวไม่เกิน `supplementary_max_days` (นับวันแรกและวันสุดท้าย), ชื่อแสดงยาวเกิน 64 ตัวปฏิเสธตั้งแต่ตอนนี้
@@ -171,6 +189,12 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | POST | `/me/supplementary-certificate-requests` | `supplementary_certificate:request` — ส่งคำขอ (`purpose`, `startDate`, `endDate`); ผิดนโยบาย = 422 `RANGE_INVALID`, เกินเพดาน = 409 `SUPPLEMENTARY_LIMIT_REACHED` |
 | POST | `/me/supplementary-certificate-requests/:id/cancel` | `supplementary_certificate:request` — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ |
 | POST | `/me/supplementary-certificate-requests/:id/certificate` | `supplementary_certificate:request` — รับใบจากคำขอที่อนุมัติแล้ว คืน `.p12` ครั้งเดียว (`no-store`); ยังไม่อนุมัติ = 409 `REQUEST_NOT_APPROVED`, เลยวันสิ้นสุด = 409 `REQUEST_EXPIRED`, รับแล้ว = 409 `REQUEST_ALREADY_ISSUED` |
+| GET | `/me/primary-certificate-requests` | ต้อง login เท่านั้น — คำขอใบประจำตัวของตัวเอง (สถานะรวม `expired`, `claimableUntil`) |
+| POST | `/me/primary-certificate-requests` | `certificate:apply` — `purpose` (ไม่บังคับ); มีคำขอค้าง = 409 `REQUEST_EXISTS`, ยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
+| POST | `/me/primary-certificate-requests/:id/cancel` · `/:id/certificate` | `certificate:apply` — ยกเลิก / รับใบ (คืน `.p12` ครั้งเดียว, `no-store`) |
+| GET | `/admin/primary-certificate-requests` | `certificate:approve` — `view` เหมือนของใบเสริม + `pendingCount` |
+| POST | `/admin/primary-certificate-requests/:id/approve` · `/reject` | `certificate:approve` — `note` (ปฏิเสธบังคับ) ตามกฎ `canManageUser` |
+| PUT | `/admin/role-permissions/roles/:code/certificate-mode` | super_admin — `mode` (`off`/`apply`/`self`) + `reason` |
 | GET | `/admin/supplementary-certificate-requests` | `certificate:approve` — `view=pending` (ค่าเริ่มต้น: คิวเก่าก่อน ≤ 100) หรือประวัติ `all`/ตามสถานะ (ล่าสุดก่อน cursor หน้าละ 20) + `pendingCount` + `limits` |
 | POST | `/admin/supplementary-certificate-requests/:id/approve` | `certificate:approve` — `startDate`, `endDate`, `note` (ไม่บังคับ) ตามกฎ `canManageUser` |
 | POST | `/admin/supplementary-certificate-requests/:id/reject` | `certificate:approve` — `note` (บังคับ) ตามกฎ `canManageUser` |
@@ -196,4 +220,5 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | เสร็จ |
 | 6 | ใบประจำตัว 1 ใบ + ช่วงต่ออายุ + นโยบายอายุใบ (`/admin/certificate-policy`) | เสร็จ |
 | 7 | ใบเสริม: คำขอ + อนุมัติ (`certificate:approve`) + โปรไฟล์ลงนามเอกสารอย่างเดียว | เสร็จ (รอทดสอบใน Acrobat) |
+| 8 | ใบประจำตัวแบบส่งคำขอ (`certificate:apply`) + ตั้งวิธีขอใบต่อ role (ปิด / ส่งคำขอ / สร้างเองได้) | เสร็จ |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |
