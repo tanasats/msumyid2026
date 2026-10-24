@@ -216,6 +216,8 @@ docker compose run --rm api node dist/scripts/seed-super-admin.js
 
 downtime ระหว่างสลับ container ไม่กี่วินาที
 
+**ค่าตั้งที่ย้ายจาก env ไปฐานข้อมูล (2026-10-24):** `ALLOWED_EMAIL_DOMAINS`, `SESSION_TTL_DAYS`, `CRL_VALIDITY_DAYS`, `CRL_REISSUE_HOURS` อยู่ในตาราง `system_settings` แก้ที่ `/admin/settings` (super_admin) มีผลทันทีไม่ต้อง restart — migration ตั้งค่าเริ่มต้น `msu.ac.th` / 7 / 7 / 24 ถ้า `env/api.env` บน VM ตั้งค่าอื่นไว้ ให้แก้ในหน้าตั้งค่าหลัง deploy แล้วลบ 4 บรรทัดนี้ออกจาก `env/api.env` (API ไม่อ่านแล้ว)
+
 ## 7. Rollback
 
 - `./scripts/rollback.sh` → กลับไปแท็กก่อนหน้าใน `deployed.log` (หรือระบุ: `./scripts/rollback.sh sha-xxxx`)
