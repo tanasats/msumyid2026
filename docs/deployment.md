@@ -273,7 +273,7 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 ## 10. CRL
 
 - ใบรับรองทุกใบฝัง `CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมใช้ค่านี้ เปลี่ยนไม่ได้)
-- ระบบออก CRL ใหม่ทันทีเมื่อเพิกถอน และทุก `CRL_REISSUE_HOURS` เผยแพร่ที่ `https://did.msu.ac.th/api/crl/msu-ca.crl`
+- ระบบออก CRL ใหม่ทันทีเมื่อเพิกถอน และตามรอบที่ตั้งในหน้า `/admin/settings` (ค่าเริ่มต้น 24 ชั่วโมง) เผยแพร่ที่ `https://did.msu.ac.th/api/crl/msu-ca.crl`
 - บน `cdp.msu.ac.th` ตั้ง cron ดึงทุก 5–15 นาที เช่น
   ```
   */10 * * * * curl -fsS --max-time 30 -o /var/www/cdp/msu-ca.crl.tmp https://did.msu.ac.th/api/crl/msu-ca.crl && openssl crl -in /var/www/cdp/msu-ca.crl.tmp -noout && mv /var/www/cdp/msu-ca.crl.tmp /var/www/cdp/msu-ca.crl

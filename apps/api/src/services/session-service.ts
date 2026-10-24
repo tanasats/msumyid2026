@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { config } from '../config/index.js';
 import { pool } from '../db/pool.js';
 import type { Queryable } from '../db/types.js';
 import { logger } from '../middlewares/logger.js';
@@ -11,6 +10,7 @@ import {
   touchSession,
 } from '../repositories/session-repository.js';
 import type { AuthUser } from './authorization-service.js';
+import { sessionTtlMs } from './system-settings-service.js';
 
 // token ดิบอยู่แค่ใน cookie ของผู้ใช้ ฐานข้อมูลเก็บเฉพาะ SHA-256
 export function hashSessionToken(token: string): Buffer {
@@ -22,13 +22,14 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * สร้าง session ใหม่ — รับ db เพื่อให้เรียกใน transaction เดียวกับการสร้างผู้ใช้ได้
+ * อายุตามค่าตั้งของระบบ (session_ttl_days) ณ ตอนสร้าง — แก้ค่าแล้ว session เดิมคงวันหมดอายุเดิม
  */
 export async function createSession(
   db: Queryable,
   userId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + config.session.ttlMs);
+  const expiresAt = new Date(Date.now() + (await sessionTtlMs(db)));
   await insertSession(db, { tokenHash: hashSessionToken(token), userId, expiresAt });
   return { token, expiresAt };
 }
