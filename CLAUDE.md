@@ -235,7 +235,8 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
 | `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม |
 | `supplementary_certificate:request` | ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริมของตัวเอง |
-| `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองเสริมของผู้อื่น |
+| `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองประจำตัวและใบรับรองเสริมของผู้อื่น |
+| `certificate:apply` | ส่งคำขอใบรับรองประจำตัว (รออนุมัติ) — มี `certificate:request` ด้วย = สร้างเองได้ (super_admin ตั้งต่อ role ที่หน้านโยบายอายุใบรับรอง) |
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
 
 ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`

@@ -5,7 +5,9 @@ import { Download, FileBadge, FilePen, FilePlus } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
+import { PrimaryRequestCard } from '@/components/certificates/PrimaryRequestCard';
 import { RevokeCertificateButton } from '@/components/certificates/RevokeCertificateButton';
+import { SubmitPrimaryRequestButton } from '@/components/certificates/SubmitPrimaryRequestButton';
 import { SupplementaryRequestCard } from '@/components/certificates/SupplementaryRequestCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
@@ -13,6 +15,7 @@ import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser } from '@/lib/auth';
 import { canRedownload, isKeyCompromised, type Certificate } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
+import { getMyPrimaryRequests } from '@/lib/primary-certificate-requests';
 import { getMySupplementaryRequests } from '@/lib/supplementary-certificates';
 
 export const metadata: Metadata = { title: 'ใบรับรองของฉัน' };
@@ -20,8 +23,8 @@ export const metadata: Metadata = { title: 'ใบรับรองของฉ
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' });
 
 // ใบรับรองของผู้ใช้ปัจจุบัน (ต้อง login เท่านั้น — ดูใบและคำขอของตัวเองได้เสมอ)
-// ปุ่มขอ/เพิกถอน/ดาวน์โหลดแสดงตามสิทธิ์ของประเภทใบ: ใบประจำตัว = certificate:request, ใบเสริม = supplementary_certificate:request
-// (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์อีกครั้ง)
+// ปุ่มขอ/เพิกถอน/ดาวน์โหลดแสดงตามสิทธิ์ของประเภทใบ (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์อีกครั้ง):
+// ใบประจำตัว = certificate:request (สร้างเองได้) หรือ certificate:apply (ส่งคำขอรออนุมัติ), ใบเสริม = supplementary_certificate:request
 export default async function CertificatesPage({
   searchParams,
 }: {
@@ -31,14 +34,19 @@ export default async function CertificatesPage({
   if (!user) redirect('/login');
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
-  const [{ certificates, primaryRequest }, supplementary, params] = await Promise.all([
+  const [{ certificates, primaryRequest }, supplementary, primaryRequests, params] = await Promise.all([
     getMyCertificates(),
     getMySupplementaryRequests(),
+    getMyPrimaryRequests(),
     searchParams,
   ]);
   const canRequest = user.permissions.includes('certificate:request');
+  // ส่งคำขอได้เฉพาะเมื่อสร้างเองไม่ได้ (มีทั้งสองสิทธิ์ = สร้างเองได้)
+  const canApply = !canRequest && user.permissions.includes('certificate:apply');
   const canRequestSupplementary = user.permissions.includes('supplementary_certificate:request');
-  const canManage = (c: Pick<Certificate, 'kind'>) => (c.kind === 'supplementary' ? canRequestSupplementary : canRequest);
+  const canManage = (c: Pick<Certificate, 'kind'>) =>
+    c.kind === 'supplementary' ? canRequestSupplementary : canRequest || user.permissions.includes('certificate:apply');
+  const hasOpenPrimaryRequest = primaryRequests.some((r) => r.status === 'pending' || r.status === 'approved');
   const { limits } = supplementary;
   const supplementaryFull = limits.open >= limits.maxActive;
   // มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
@@ -56,18 +64,47 @@ export default async function CertificatesPage({
   return (
     <PageShell title="ใบรับรองของฉัน" user={user}>
       <div className="space-y-4">
-        {!canRequest && (
+        {!canRequest && !canApply && (
           <Alert tone="info" title="ยังขอใบรับรองใหม่ไม่ได้">
             บัญชีของคุณยังไม่ได้รับสิทธิ์ขอใบรับรอง หากต้องการใช้งาน กรุณาติดต่อผู้ดูแลระบบ
           </Alert>
         )}
-        {canRequest && renewableFrom && (
+        {(canRequest || canApply) && renewableFrom && (
           <Alert tone="info" title="คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว">
             ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ {dateFormatter.format(renewableFrom)} (ก่อนใบเดิมหมดอายุ{' '}
             {primaryRequest.renewalWindowDays} วัน) ใบเดิมใช้ได้ต่อจนหมดอายุ
           </Alert>
         )}
         {canRequest && !renewableFrom && certificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
+        {params.applied === '1' && (
+          <Alert tone="success" title="ส่งคำขอแล้ว">
+            เมื่อได้รับอนุมัติ กด &quot;รับใบรับรอง&quot; ที่คำขอภายใน 30 วันเพื่อตั้งรหัสผ่านและดาวน์โหลดไฟล์
+          </Alert>
+        )}
+        {(canApply || primaryRequests.length > 0) && (
+          <section aria-labelledby="primary-requests-heading" className="space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 id="primary-requests-heading" className="font-display text-lg font-semibold">
+                  คำขอใบรับรองประจำตัว
+                </h2>
+                <p className="mt-1 text-sm text-muted">ส่งคำขอแล้วรอผู้ดูแลอนุมัติ จากนั้นกดรับใบรับรองเอง</p>
+              </div>
+              {canApply && !renewableFrom && !hasOpenPrimaryRequest && (
+                <div className="shrink-0">
+                  <SubmitPrimaryRequestButton name={user.name} email={user.email} />
+                </div>
+              )}
+            </div>
+            {primaryRequests.length > 0 && (
+              <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+                {primaryRequests.map((r) => (
+                  <PrimaryRequestCard key={r.id} request={r} canAct={canApply} />
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         {certificates.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface shadow-card">

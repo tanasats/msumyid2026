@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { History } from 'lucide-react';
+import { CertificateModeSection } from '@/components/certificates/CertificateModeSection';
 import { CertificatePolicyForm } from '@/components/certificates/CertificatePolicyForm';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { getCertificatePolicyForAdmin } from '@/lib/admin-certificate-policy';
+import { getRoleAdminOverview } from '@/lib/admin-roles';
 import { getCurrentUser } from '@/lib/auth';
 import { describePolicyChanges } from '@/lib/certificate-policy';
 
@@ -23,12 +25,18 @@ export default async function CertificatePolicyPage() {
   if (user.approvalStatus !== 'approved') redirect('/pending');
   if (!user.permissions.includes('certificate_policy:manage')) redirect('/forbidden');
 
-  const { policy, logs } = await getCertificatePolicyForAdmin();
+  // วิธีขอใบของแต่ละบทบาทแก้ได้เฉพาะ super_admin (capabilities.manageRoles) — ผู้มีแค่ certificate_policy:manage ไม่เห็นส่วนนี้
+  const [{ policy, logs }, roleOverview] = await Promise.all([
+    getCertificatePolicyForAdmin(),
+    user.capabilities.manageRoles ? getRoleAdminOverview() : Promise.resolve(null),
+  ]);
   const backHref = user.permissions.includes('certificate:read') ? '/admin/certificates' : '/';
 
   return (
     <PageShell title="นโยบายอายุใบรับรอง" backHref={backHref} user={user} width="form">
       <div className="space-y-6">
+        {roleOverview && <CertificateModeSection roles={roleOverview.roles} />}
+
         <CertificatePolicyForm initial={policy} />
 
         <section aria-labelledby="policy-history" className="rounded-xl border border-line bg-surface shadow-card">

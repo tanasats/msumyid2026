@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: 'ดาวน์โหลดไฟล
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' });
 
-// ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ — สิทธิ์ตามประเภทใบ: ใบประจำตัว = certificate:request,
+// ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ — สิทธิ์ตามประเภทใบ: ใบประจำตัว = certificate:request หรือ certificate:apply,
 // ใบเสริม = supplementary_certificate:request (API ตรวจเจ้าของและสิทธิ์อีกครั้งตอนส่ง)
 export default async function DownloadCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -29,7 +29,11 @@ export default async function DownloadCertificatePage({ params }: { params: Prom
   const certificate = certificates.find((c) => c.id === id);
   if (!certificate) notFound();
   const supplementary = certificate.kind === 'supplementary';
-  if (!user.permissions.includes(supplementary ? 'supplementary_certificate:request' : 'certificate:request')) {
+  // ใบประจำตัว: สร้างเอง (certificate:request) หรือได้ผ่านคำขอ (certificate:apply) — ตรงกับ assertCanManageOwnCertificate ของ API
+  const allowed = supplementary
+    ? user.permissions.includes('supplementary_certificate:request')
+    : user.permissions.includes('certificate:request') || user.permissions.includes('certificate:apply');
+  if (!allowed) {
     redirect('/forbidden');
   }
 
