@@ -278,7 +278,7 @@ export async function listSupplementaryRequestsForAdmin(filter: {
 }
 
 /**
- * ล็อกผู้ขอแล้วตรวจกฎ canManageUser (เหมือนการเพิกถอนใบของผู้อื่น): คำขอของตัวเองไม่ได้,
+ * ล็อกผู้ขอแล้วตรวจกฎ canManageUser: คำขอของตัวเองไม่ได้ (ยกเว้น super_admin),
  * คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin — แล้วจึงล็อกคำขอ (ลำดับ ผู้ใช้ → คำขอ เหมือนตอนรับใบ กัน deadlock)
  */
 async function lockPendingRequestForDecision(client: Queryable, actor: AuthUser, requestId: string) {

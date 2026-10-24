@@ -58,7 +58,7 @@ export type UserDetail = {
   user: UserDetailRow;
   staffProfile: StaffProfileRow | null;
   history: UserHistoryRow[];
-  /** ผู้ดูแลคนปัจจุบันจัดการบัญชีนี้ได้หรือไม่ (ไม่ใช่ตัวเอง และไม่ติดกฎ role สิทธิ์สูง) — ใช้ซ่อนปุ่มบนหน้าจอเท่านั้น */
+  /** ผู้ดูแลคนปัจจุบันจัดการบัญชีนี้ได้หรือไม่ (ตามกฎ canManageUser: ตัวเองได้เฉพาะ super_admin) — ใช้ซ่อนปุ่มบนหน้าจอเท่านั้น */
   manageable: boolean;
   isSelf: boolean;
 };

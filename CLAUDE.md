@@ -272,7 +272,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 กฎการให้/ถอน role (ทำใน service ที่เดียว เช่น `canGrantRole(actor, role)`):
 - role ที่ `is_privileged = true` (รวม `super_admin`) ให้/ถอนได้เฉพาะ `super_admin`
 - role อื่นให้/ถอนได้โดยผู้ที่มี permission `user_role:assign`
-- ห้ามแก้ role ของตัวเอง, ห้ามถอน role `user`, ห้ามถอน `super_admin` คนสุดท้ายออกจากระบบ
+- ห้ามแก้ role ของตัวเอง (ยกเว้น `super_admin` ซึ่งจัดการบัญชีและ role ของตัวเองได้ ตัดสินใจ 2026-10-24), ห้ามถอน role `user`, ห้ามถอน `super_admin` คนสุดท้ายออกจากระบบ
 - ทุกการให้/ถอนต้องเขียน `role_change_logs` (ใครทำ, กับใคร, role อะไร, grant หรือ revoke, เหตุผล, เมื่อไร) ใน **transaction เดียวกัน** และห้ามแก้/ลบ log
 - `super_admin` คนแรกสร้างผ่าน seed script (`INITIAL_SUPER_ADMIN_EMAIL`) เท่านั้น ห้ามมีช่องทางผ่าน UI หรือ API สาธารณะ
 - ตอน login ระบบให้ได้เฉพาะ `user` และ role ประเภทบัญชี (`student` หรือ `staff`) เท่านั้น ห้ามรับ role จาก client — role `external` และ `service` ให้ตอนอนุมัติบัญชีเท่านั้น

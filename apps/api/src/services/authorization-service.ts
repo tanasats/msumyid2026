@@ -33,7 +33,8 @@ export type RoleChangeDenial = 'SELF' | 'SYSTEM_ROLE' | 'PRIVILEGED_ROLE' | 'FOR
 
 /**
  * กฎการให้/ถอน role — ที่เดียวในระบบ (CLAUDE.md หัวข้อ 9)
- * - ห้ามแก้ role ของตัวเอง
+ * - ห้ามแก้ role ของตัวเอง ยกเว้น super_admin (ตัดสินใจ 2026-10-24: super_admin จัดการได้ทุกอย่างรวมของตัวเอง
+ *   — ถอน super_admin ของตัวเองได้เมื่อยังเหลือคนอื่น ซึ่งตรวจใน user-admin-service)
  * - role ระบบที่ไม่ใช่สิทธิ์สูง (user/student/staff/external/service) ระบบจัดการเอง แก้ด้วยมือไม่ได้
  *   (user ถอนไม่ได้, student/staff ให้ตอน login, external/service ให้ตอนอนุมัติ)
  * - role สิทธิ์สูง (is_privileged รวม super_admin) ให้/ถอนได้เฉพาะ super_admin
@@ -42,7 +43,7 @@ export type RoleChangeDenial = 'SELF' | 'SYSTEM_ROLE' | 'PRIVILEGED_ROLE' | 'FOR
  * คืน null = อนุญาต
  */
 export function canGrantRole(actor: AuthUser, targetUserId: string, role: RoleRule): RoleChangeDenial | null {
-  if (actor.id === targetUserId) return 'SELF';
+  if (actor.id === targetUserId && !isSuperAdmin(actor)) return 'SELF';
   if (role.isSystem && !role.isPrivileged) return 'SYSTEM_ROLE';
   if (role.isPrivileged) return isSuperAdmin(actor) ? null : 'PRIVILEGED_ROLE';
   return hasPermission(actor, PERMISSIONS.USER_ROLE_ASSIGN) ? null : 'FORBIDDEN';
@@ -51,8 +52,10 @@ export function canGrantRole(actor: AuthUser, targetUserId: string, role: RoleRu
 export type UserManageDenial = 'SELF' | 'PRIVILEGED_TARGET';
 
 /**
- * กฎการจัดการบัญชีผู้อื่น (ปิด/เปิด, อนุมัติ, แก้ไข, ลบ) — ใช้คู่กับ permission ของแต่ละการกระทำ
- * - ห้ามจัดการบัญชีของตัวเอง (กันปิด/ลบตัวเองจนไม่มีผู้ดูแล)
+ * กฎการจัดการบัญชีและข้อมูลของผู้ใช้ (ปิด/เปิด, อนุมัติ, แก้ไข, ลบบัญชี, เพิกถอนใบรับรอง, ตัดสินคำขอใบเสริม)
+ * ใช้คู่กับ permission ของแต่ละการกระทำ
+ * - ห้ามจัดการบัญชีของตัวเอง ยกเว้น super_admin (ตัดสินใจ 2026-10-24) — กฎ "ต้องเหลือ super_admin ที่ใช้งานได้
+ *   อย่างน้อย 1 คน" ยังกันการปิด/ลบตัวเองของคนสุดท้าย (ตรวจใน user-admin-service)
  * - ผู้ใช้ที่ถือ role สิทธิ์สูง จัดการได้เฉพาะ super_admin (กัน admin ปิดบัญชี super_admin)
  * คืน null = อนุญาต
  */
@@ -60,6 +63,7 @@ export function canManageUser(
   actor: AuthUser,
   target: { id: string; hasPrivilegedRole: boolean },
 ): UserManageDenial | null {
+  if (isSuperAdmin(actor)) return null;
   if (actor.id === target.id) return 'SELF';
   if (target.hasPrivilegedRole && !isSuperAdmin(actor)) return 'PRIVILEGED_TARGET';
   return null;
