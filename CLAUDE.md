@@ -73,6 +73,7 @@ S3_ACCESS_KEY=...
 S3_SECRET_KEY=...
 S3_BUCKET=app-files
 S3_FORCE_PATH_STYLE=true
+FILE_CLEANUP_INTERVAL_MS=900000            # รอบลบไฟล์หมดอายุ (ไฟล์ลงนามเอกสารเก็บ 7 วัน)
 
 # ERP-HR มมส. — ดึงข้อมูลบุคลากรด้วย Google access token ตอน login
 ERP_HR_STAFFINFO_URL=https://erp.msu.ac.th/service/api/staffinfo

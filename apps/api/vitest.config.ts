@@ -13,6 +13,12 @@ export default defineConfig({
       // บริการเซ็น: test ของ API mock signer เสมอ (signer มี test ของตัวเองกับ OpenSSL จริง)
       SIGNER_URL: 'http://signer.test.invalid',
       SIGNER_TOKEN: 'test-signer-token-0123456789abcdef0123456789',
+      // ที่เก็บไฟล์: test ของ API แทน storage ด้วย memoryStorage (tests/helpers/storage.ts) — โดเมน .invalid กันหลุดไปเรียกจริง
+      S3_ENDPOINT: 'http://s3.test.invalid',
+      S3_PUBLIC_ENDPOINT: 'http://s3-public.test.invalid',
+      S3_ACCESS_KEY: 'test-access-key',
+      S3_SECRET_KEY: 'test-secret-key',
+      S3_BUCKET: 'app-files-test',
     },
     // migrate ฐาน app_test อัตโนมัติก่อนเริ่ม test
     globalSetup: ['./tests/global-setup.ts'],

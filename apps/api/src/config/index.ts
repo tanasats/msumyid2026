@@ -36,6 +36,16 @@ const envSchema = z.object({
   SIGNER_TOKEN: z.string().min(32),
   // สร้าง RSA 4096 อาจใช้เวลาหลายวินาที
   SIGNER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  // ที่เก็บไฟล์ S3 (Garage) — S3_ENDPOINT = ที่ API เรียก, S3_PUBLIC_ENDPOINT = host ที่ browser ใช้กับ presigned URL (CLAUDE.md หัวข้อ 11)
+  S3_ENDPOINT: z.url(),
+  S3_PUBLIC_ENDPOINT: z.url(),
+  S3_REGION: z.string().min(1).default('garage'),
+  S3_ACCESS_KEY: z.string().min(1),
+  S3_SECRET_KEY: z.string().min(1),
+  S3_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
+  S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // รอบลบไฟล์ที่หมดอายุ (ms)
+  FILE_CLEANUP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(900_000),
   // ประทับเวลาลายมือชื่อบน PDF (RFC 3161) — MSU TSA (ตัดสินใจ 2026-10-25) ล่ม = ไม่ลงนาม (ไม่ออกไฟล์ที่ไม่มีเวลา)
   TSA_URL: z.url().default('https://tsa.msu.ac.th/tsa'),
   TSA_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
@@ -59,7 +69,7 @@ export function oauthCookiePath(redirectUri: string): string {
 
 // production อ่าน secret จากไฟล์ (Docker secret) — deploy/compose.yml
 try {
-  loadSecretFiles(process.env, ['SIGNER_TOKEN']);
+  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'S3_ACCESS_KEY', 'S3_SECRET_KEY']);
 } catch (err) {
   console.error('ค่า env ไม่ถูกต้อง:', err instanceof Error ? err.message : err);
   process.exit(1);
@@ -108,6 +118,16 @@ export const config = {
     url: env.SIGNER_URL,
     token: env.SIGNER_TOKEN,
     timeoutMs: env.SIGNER_TIMEOUT_MS,
+  },
+  s3: {
+    endpoint: env.S3_ENDPOINT,
+    publicEndpoint: env.S3_PUBLIC_ENDPOINT,
+    region: env.S3_REGION,
+    accessKey: env.S3_ACCESS_KEY,
+    secretKey: env.S3_SECRET_KEY,
+    bucket: env.S3_BUCKET,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    cleanupIntervalMs: env.FILE_CLEANUP_INTERVAL_MS,
   },
   tsa: {
     url: env.TSA_URL,
