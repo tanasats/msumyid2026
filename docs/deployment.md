@@ -217,6 +217,8 @@ docker compose run --rm api node dist/scripts/seed-super-admin.js
 
 downtime ระหว่างสลับ container ไม่กี่วินาที
 
+**ค่าตั้งที่ย้ายจาก env ไปฐานข้อมูล (2026-10-24):** `ALLOWED_EMAIL_DOMAINS`, `SESSION_TTL_DAYS`, `CRL_VALIDITY_DAYS`, `CRL_REISSUE_HOURS` อยู่ในตาราง `system_settings` แก้ที่ `/admin/settings` (super_admin) มีผลทันทีไม่ต้อง restart — migration ตั้งค่าเริ่มต้น `msu.ac.th` / 7 / 7 / 24 ถ้า `env/api.env` บน VM ตั้งค่าอื่นไว้ ให้แก้ในหน้าตั้งค่าหลัง deploy แล้วลบ 4 บรรทัดนี้ออกจาก `env/api.env` (API ไม่อ่านแล้ว)
+
 ## 7. Rollback
 
 - `./scripts/rollback.sh` → กลับไปแท็กก่อนหน้าใน `deployed.log` (หรือระบุ: `./scripts/rollback.sh sha-xxxx`)
@@ -274,6 +276,13 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 ## 10. CRL
 
 - ใบรับรองทุกใบฝัง `CRL_DISTRIBUTION_URL=https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมใช้ค่านี้ เปลี่ยนไม่ได้)
+- ระบบออก CRL ใหม่ทันทีเมื่อเพิกถอน และตามรอบที่ตั้งในหน้า `/admin/settings` (ค่าเริ่มต้น 24 ชั่วโมง) เผยแพร่ที่ `https://did.msu.ac.th/api/crl/msu-ca.crl`
+- บน `cdp.msu.ac.th` ตั้ง cron ดึงทุก 5–15 นาที เช่น
+  ```
+  */10 * * * * curl -fsS --max-time 30 -o /var/www/cdp/msu-ca.crl.tmp https://did.msu.ac.th/api/crl/msu-ca.crl && openssl crl -in /var/www/cdp/msu-ca.crl.tmp -noout && mv /var/www/cdp/msu-ca.crl.tmp /var/www/cdp/msu-ca.crl
+  ```
+  (ตรวจด้วย `openssl crl` ก่อนแทนที่ — ได้หน้า error มา = ไม่ทับฉบับเดิม; `CRL_PUBLISH_FORMAT=der` ต้องเพิ่ม `-inform DER`)
+- **ตั้ง cron หลังนำเข้าใบเดิมเสร็จเท่านั้น** (หัวข้อ 11)
 - ระบบออก CRL ใหม่ทันทีเมื่อเพิกถอน และทุก `CRL_REISSUE_HOURS` เผยแพร่ที่ `https://did.msu.ac.th/api/crl/msu-ca.crl`
 ### อัปเดตไฟล์บน cdp.msu.ac.th (`deploy/cdp/`)
 

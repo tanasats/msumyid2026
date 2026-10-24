@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, FileBadge, KeyRound, Search, SearchX, UserPlus } from 'lucide-react';
+import { ChevronRight, FileBadge, Search, SearchX, Settings, UserPlus } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
@@ -62,17 +62,23 @@ export default async function AdminUsersPage({
   const nextHref = nextCursor ? `/admin/users?${new URLSearchParams([...filterParams, ['cursor', nextCursor]])}` : null;
   const firstHref = `/admin/users?${filterParams}`;
 
+  // หน้าตั้งค่ารวมทางลัดบทบาทและสิทธิ์ / นโยบายอายุใบรับรอง / ค่าตั้งของระบบ
+  const canOpenSettings =
+    user.capabilities.manageSettings ||
+    user.capabilities.manageRoles ||
+    user.permissions.includes('certificate_policy:manage');
+
   return (
     <PageShell title="จัดการผู้ใช้" user={user}>
       <div className="space-y-4">
         {(user.permissions.includes('user:create') ||
           user.permissions.includes('certificate:read') ||
-          user.capabilities.manageRoles) && (
+          canOpenSettings) && (
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            {user.capabilities.manageRoles && (
-              <Link href="/admin/roles" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
-                <KeyRound className="size-5" aria-hidden />
-                บทบาทและสิทธิ์
+            {canOpenSettings && (
+              <Link href="/admin/settings" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+                <Settings className="size-5" aria-hidden />
+                ตั้งค่าระบบ
               </Link>
             )}
             {user.permissions.includes('certificate:read') && (

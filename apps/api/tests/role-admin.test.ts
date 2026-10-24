@@ -48,12 +48,12 @@ describe('สิทธิ์เข้าใช้ (super_admin เท่าน�
     const cookie = await loginAs(user.id);
     expect((await request(app).get('/admin/role-permissions').set('Cookie', cookie)).status).toBe(403);
     expect((await setPermissions(cookie, 'staff', ['user:read'])).status).toBe(403);
-    expect((await me(cookie)).body.user.capabilities).toEqual({ manageRoles: false });
+    expect((await me(cookie)).body.user.capabilities).toEqual({ manageRoles: false, manageSettings: false });
   });
 
   it('/auth/me บอก capabilities ให้ web ซ่อน/แสดงเมนู (ไม่ต้องเช็คชื่อ role)', async () => {
     const admin = await superAdmin();
-    expect((await me(admin.cookie)).body.user.capabilities).toEqual({ manageRoles: true });
+    expect((await me(admin.cookie)).body.user.capabilities).toEqual({ manageRoles: true, manageSettings: true });
   });
 
   it('ไม่ส่ง Origin → 403 (CSRF)', async () => {

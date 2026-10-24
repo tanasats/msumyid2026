@@ -31,7 +31,7 @@
 | ที่สร้าง private key | บริการเซ็น (ฝั่ง server) เพราะต้องเก็บสำรองอยู่แล้ว — สร้างใน browser ไม่ได้ประโยชน์เพิ่ม |
 | รหัสผ่าน `.p12` | ผู้ใช้ตั้งเองทุกครั้งที่ดาวน์โหลด **ระบบไม่เก็บรหัสผ่าน** (ไม่มี CSV แบบเดิม) |
 | CRL | URL เดิม `https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมฝังไว้แล้ว เปลี่ยนไม่ได้) ระบบออก CRL ใหม่ทุกครั้งที่เพิกถอน และทุกวัน |
-| อายุ CRL | 7 วัน (`CRL_VALIDITY_DAYS`, ระบบเดิม 30) — ผู้ตรวจอาจใช้ CRL ที่เก็บไว้จนถึง next update จึงสั้นลงให้การเพิกถอนมีผลเร็วขึ้น; ถ้า cron ของ cdp หยุดเกิน 7 วัน CRL จะหมดอายุ |
+| อายุ CRL | 7 วัน (`system_settings.crl_validity_days` แก้ที่ `/admin/settings`, ระบบเดิม 30) — ผู้ตรวจอาจใช้ CRL ที่เก็บไว้จนถึง next update จึงสั้นลงให้การเพิกถอนมีผลเร็วขึ้น; ถ้า cron ของ cdp หยุดเกิน 7 วัน CRL จะหมดอายุ |
 | เลข CRL | เวลา Unix (วินาที) และเพิ่มขึ้นเสมอ — มากกว่าเลขจาก `crlnumber` ของระบบเดิมแน่นอน จึงไม่ต้องนำเข้า `crlnumber` |
 | รูปแบบไฟล์ CRL | PEM (`CRL_PUBLISH_FORMAT=pem`) เหมือนไฟล์ที่ `openssl ca -gencrl` สร้างแล้วเปลี่ยนชื่อขึ้น cdp — เปลี่ยนเป็น DER ได้ |
 | เหตุผลการเพิกถอน (ผู้ใช้เลือก) | `keyCompromise`, `superseded`, `affiliationChanged`, `cessationOfOperation` — `unspecified`/`CACompromise` สงวนไว้ให้ระบบ/ผู้ดูแล |

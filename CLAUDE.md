@@ -62,9 +62,8 @@ GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=...                 # ค่าจริงอยู่ใน apps/api/.env เท่านั้น
 GOOGLE_REDIRECT_URI=http://localhost:4010/auth/google/callback
 SESSION_COOKIE_NAME=msumyid_session
-SESSION_TTL_DAYS=7
 INITIAL_SUPER_ADMIN_EMAIL=tanasat.s@msu.ac.th              # ใช้เฉพาะ seed ครั้งแรก
-ALLOWED_EMAIL_DOMAINS=msu.ac.th               # โดเมนที่ไม่ต้องรออนุมัติ (ตรวจทั้ง email และ claim hd) โดเมนอื่น = บุคลากรภายนอก รออนุมัติ
+# โดเมนที่ไม่ต้องรออนุมัติ, อายุ session, อายุ/รอบออก CRL → หน้า /admin/settings (ตาราง system_settings, super_admin แก้ได้)
 
 # Storage (Garage)
 S3_ENDPOINT=http://localhost:3910
@@ -89,9 +88,7 @@ MAIL_TRANSPORT=log
 SIGNER_URL=http://localhost:4020
 SIGNER_TOKEN=...
 SIGNER_TIMEOUT_MS=30000
-# CRL: ออกใหม่ทันทีเมื่อเพิกถอน + ทุก CRL_REISSUE_HOURS, เผยแพร่ที่ GET /crl/msu-ca.crl (cdp.msu.ac.th ใช้ cron ดึง)
-CRL_VALIDITY_DAYS=7
-CRL_REISSUE_HOURS=24
+# CRL: ออกใหม่ทันทีเมื่อเพิกถอน + ตามรอบใน /admin/settings, เผยแพร่ที่ GET /crl/msu-ca.crl (cdp.msu.ac.th ใช้ cron ดึง)
 CRL_CHECK_INTERVAL_MS=300000
 CRL_PUBLISH_FORMAT=pem                    # pem = แบบ openssl ca -gencrl เดิม, der = ตาม RFC 5280
 
@@ -199,7 +196,7 @@ Flow (Authorization Code + PKCE):
 - ทุก request อ่านผู้ใช้และ role จากฐานข้อมูลใหม่ (ผ่าน session) ห้ามเชื่อ role ที่มากับ client
 - ผู้ใช้ที่ `is_active = false` ต้องเข้าระบบไม่ได้ทันที
 - **CSRF:** ใช้เฉพาะ POST/PUT/PATCH/DELETE กับการเปลี่ยนข้อมูล และตรวจ header `Origin` ต้องตรงกับ `WEB_URL`
-- ตรวจโดเมนของ email (และ claim `hd`) ที่ callback: อยู่ใน `ALLOWED_EMAIL_DOMAINS` = นิสิต/บุคลากร ใช้งานได้ทันที, โดเมนอื่น = บุคลากรภายนอก สร้างบัญชีสถานะรออนุมัติ (ดูหัวข้อ 9)
+- ตรวจโดเมนของ email (และ claim `hd`) ที่ callback: อยู่ในโดเมนที่ไม่ต้องรออนุมัติ (`system_settings.allowed_email_domains`, ตั้งที่ `/admin/settings`) = นิสิต/บุคลากร ใช้งานได้ทันที, โดเมนอื่น = บุคลากรภายนอก สร้างบัญชีสถานะรออนุมัติ (ดูหัวข้อ 9)
 - บน localhost `:3010` กับ `:4010` ถือเป็น site เดียวกัน cookie จึงส่งได้ แต่ fetch จาก browser ต้องใส่ `credentials: 'include'` ส่วนบน production ให้ web และ API อยู่ใต้โดเมนหลักเดียวกัน
 
 ## 9. ระบบสิทธิ์ (Authorization)
@@ -247,7 +244,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 บัญชีบุคลากรภายนอก (ตัดสินใจ 2026-10-07):
 - เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น
 - บัญชีใหม่มี `users.approval_status = 'pending'` ใช้งานไม่ได้จนผู้มี `user:approve` อนุมัติ จึงได้ role `external`
-- `ALLOWED_EMAIL_DOMAINS` จึงหมายถึงโดเมนที่ **ไม่ต้องรออนุมัติ** (ไม่ใช่โดเมนเดียวที่ login ได้)
+- โดเมนที่ตั้งไว้ (`allowed_email_domains`) จึงหมายถึงโดเมนที่ **ไม่ต้องรออนุมัติ** (ไม่ใช่โดเมนเดียวที่ login ได้)
 
 บัญชีรอจำแนกประเภท (ตัดสินใจ 2026-10-23):
 - บัญชี @msu.ac.th ที่เป็นตัวเลข 11 หลัก = นิสิตเสมอ ส่วนชื่ออื่นจำแนกจากอีเมลไม่ได้ (บุคลากร / บุคลากรภายนอก / หน่วยงาน) — ระบบไม่เดา
