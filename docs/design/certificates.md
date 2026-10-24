@@ -56,7 +56,7 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 - **ให้ผู้ตรวจลายเซ็นเชื่อถือ root:** หน้า `/root-ca` (public ไม่ต้อง login) แจก `tuc-root-ca.cer` (DER) พร้อม fingerprint และวิธีตั้งค่า trust ใน Acrobat/Foxit — สำเนา root อยู่ที่ `apps/web/src/lib/root-ca.ts` ต้องตรงกับ `apps/signer/ca/root.cert.pem` (test ใน signer ตรวจ) ใช้แทนไฟล์ `TUCTrustedCert.fdf` เดิมที่ลายเซ็นของไฟล์หมดอายุแล้ว
   - หน้าเดียวกันแนะนำให้ผู้ลงนามตั้ง Timestamp Server ใน Acrobat/Foxit (ตอนนี้ใช้ TSA สาธารณะ `http://timestamp.digicert.com` ใน `apps/web/src/app/root-ca/page.tsx`) — ไม่มี timestamp ลายเซ็นจะใช้เวลาจากนาฬิกาเครื่องผู้ลงนาม และตรวจไม่ผ่านหลังใบหมดอายุ/ถูกเพิกถอน เมื่อ TSA ของมหาวิทยาลัยพร้อม (ระยะ S4 ใน `document-signing.md`) ให้เปลี่ยน URL
 - **อายุใบไม่เกินอายุ CA:** อายุใบ = ตามนโยบาย (ไม่เกินเพดาน `CERT_VALIDITY_DAYS`) แต่ไม่เกินวันหมดอายุที่เร็วที่สุดของ Intermediate/root (ใบที่ออกหลัง 2029-03-25 จะสั้นกว่า 365 วัน) เหลือไม่ถึง 1 วัน = signer ปฏิเสธ (`CA_EXPIRING`) — ต้องติดตามการต่ออายุ root ของ TUC ก่อน 2030-03-25 แล้วเปลี่ยนไฟล์ `CA_CHAIN_PATH`
-- **การนำ CRL ขึ้น cdp:** ระบบเปิด `GET /crl/msu-ca.crl` (public) แล้วเครื่อง `cdp.msu.ac.th` ใช้ cron ดึงทุก 5–15 นาที — ผู้พัฒนาดูแล cdp เอง จึงไม่ต้องให้ระบบมีสิทธิ์เขียนเข้า cdp
+- **การนำ CRL ขึ้น cdp:** ระบบเปิด `GET /crl/msu-ca.crl` (public) แล้วเครื่อง `cdp.msu.ac.th` ดึงทุก 10 นาทีด้วย `deploy/cdp/update-crl.sh` (ตรวจลายเซ็น/เลข CRL/จำนวนใบที่เพิกถอนก่อนแทนที่ — `docs/deployment.md` หัวข้อ 10) — ผู้พัฒนาดูแล cdp เอง จึงไม่ต้องให้ระบบมีสิทธิ์เขียนเข้า cdp
 
 ## ขั้นตอนหลัก
 
@@ -126,10 +126,10 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - ออก CRL ใหม่ทันทีหลังนำเข้า
 
 **ลำดับการย้ายระบบ (สำคัญ):**
-1. deploy API + signer (ใช้ Intermediate CA key จริง) — ยัง **ไม่** ตั้ง cron บน cdp
+1. deploy API + signer (ใช้ Intermediate CA key จริง) — ยัง **ไม่** ตั้ง timer บน cdp
 2. หยุดใช้ `openssl ca` บน Ubuntu แล้วคัดลอกโฟลเดอร์ CA (ไม่ต้องมี CA key) ไปเครื่อง API ชั่วคราว
 3. `cert:import --dry-run` → ตรวจรายงาน → รันจริง
-4. ตรวจ `/crl/msu-ca.crl` ว่ามีใบที่เพิกถอนเดิมครบ (`openssl crl -noout -text`) แล้วจึงตั้ง cron บน cdp — ถ้าตั้ง cron ก่อนนำเข้า CRL ว่างจะทับฉบับเดิม ใบที่เคยเพิกถอนจะกลับมาใช้ได้
+4. ตรวจ `/crl/msu-ca.crl` ว่ามีใบที่เพิกถอนเดิมครบ (`openssl crl -noout -text`) แล้วจึงตั้ง timer บน cdp — ถ้าตั้งก่อนนำเข้า CRL ว่างจะทับฉบับเดิม ใบที่เคยเพิกถอนจะกลับมาใช้ได้ (`deploy/cdp/update-crl.sh` กันไว้ถ้ามีฉบับเดิมวางอยู่แล้ว)
 5. ลบสำเนาโฟลเดอร์ CA และทำลาย `private/` + `pkcs12-files.csv` บน Ubuntu (key และรหัสผ่านอยู่ใน key สำรองที่เข้ารหัสแล้ว)
 
 ## ใบประจำตัว / ใบเสริม / นโยบายอายุ (ตัดสินใจ 2026-10-24)
