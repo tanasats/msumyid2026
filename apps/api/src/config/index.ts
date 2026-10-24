@@ -19,21 +19,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   // ชื่อ cookie ต้องเฉพาะโปรเจกต์ เพราะ cookie บน localhost ใช้ร่วมกันทุก port
   SESSION_COOKIE_NAME: z.string().regex(/^[a-z0-9_]+$/),
-  SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   // ต้องตรงกับ redirect URI ที่ลงทะเบียนกับ Google ทุกตัวอักษร
   GOOGLE_REDIRECT_URI: z.url(),
-  // โดเมนที่ไม่ต้องรออนุมัติ (คั่นด้วย ,) — โดเมนอื่น = บุคลากรภายนอก รออนุมัติ
-  ALLOWED_EMAIL_DOMAINS: z
-    .string()
-    .transform((v) =>
-      v
-        .split(',')
-        .map((d) => d.trim().toLowerCase())
-        .filter(Boolean),
-    )
-    .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1)),
+  // ALLOWED_EMAIL_DOMAINS, SESSION_TTL_DAYS, CRL_VALIDITY_DAYS, CRL_REISSUE_HOURS ย้ายไปตาราง system_settings
+  // (แก้ที่หน้า /admin/settings โดย super_admin — ตัดสินใจ 2026-10-24) ค่าใน env เดิมไม่ถูกใช้แล้ว
   // ERP-HR มมส. เรียกด้วย Google access token ของบุคลากรตอน login (CLAUDE.md หัวข้อ 18)
   ERP_HR_STAFFINFO_URL: z.url(),
   // ERP ช้าหรือล่มต้องไม่ทำให้ login ค้าง — เกินเวลานี้ข้ามไป
@@ -45,10 +36,6 @@ const envSchema = z.object({
   SIGNER_TOKEN: z.string().min(32),
   // สร้าง RSA 4096 อาจใช้เวลาหลายวินาที
   SIGNER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
-  // CRL: อายุแต่ละฉบับ (next_update) — ผู้ตรวจใบรับรองอาจเก็บ CRL ไว้ใช้จนถึงวันนี้ จึงไม่ควรยาวเกินไป
-  CRL_VALIDITY_DAYS: z.coerce.number().int().min(1).max(30).default(7),
-  // ออกฉบับใหม่ทุกกี่ชั่วโมงแม้ไม่มีการเพิกถอน (ต้องน้อยกว่าอายุ CRL มาก เผื่อ signer ล่ม)
-  CRL_REISSUE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   // รอบตรวจว่าต้องออก CRL ใหม่หรือไม่ (ออกใหม่ทันทีเมื่อเพิกถอนอยู่แล้ว รอบนี้ใช้ลองใหม่เมื่อ signer ล่ม)
   CRL_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
   // รูปแบบไฟล์ที่เผยแพร่: pem = แบบเดียวกับที่ openssl ca -gencrl ของระบบเดิมสร้าง, der = ตาม RFC 5280
@@ -102,7 +89,6 @@ export const config = {
   logLevel: env.NODE_ENV === 'test' ? 'silent' : env.LOG_LEVEL,
   session: {
     cookieName: env.SESSION_COOKIE_NAME,
-    ttlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
   },
   google: {
     clientId: env.GOOGLE_CLIENT_ID,
@@ -110,7 +96,6 @@ export const config = {
     redirectUri: env.GOOGLE_REDIRECT_URI,
     oauthCookiePath: oauthCookiePath(env.GOOGLE_REDIRECT_URI),
   },
-  allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
   erpHr: {
     staffInfoUrl: env.ERP_HR_STAFFINFO_URL,
     timeoutMs: env.ERP_HR_TIMEOUT_MS,
@@ -122,8 +107,6 @@ export const config = {
     timeoutMs: env.SIGNER_TIMEOUT_MS,
   },
   crl: {
-    validityMs: env.CRL_VALIDITY_DAYS * 24 * 60 * 60 * 1000,
-    reissueHours: env.CRL_REISSUE_HOURS,
     checkIntervalMs: env.CRL_CHECK_INTERVAL_MS,
     publishFormat: env.CRL_PUBLISH_FORMAT,
   },

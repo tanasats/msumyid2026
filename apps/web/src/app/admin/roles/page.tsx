@@ -25,10 +25,9 @@ export default async function AdminRolesPage() {
   if (!user.capabilities.manageRoles) redirect('/forbidden');
 
   const { roles, permissions, logs } = await getRoleAdminOverview();
-  const backHref = user.permissions.includes('user:read') ? '/admin/users' : '/';
 
   return (
-    <PageShell title="บทบาทและสิทธิ์" backHref={backHref} user={user}>
+    <PageShell title="บทบาทและสิทธิ์" backHref="/admin/settings" user={user}>
       <div className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <p className="text-sm text-muted">

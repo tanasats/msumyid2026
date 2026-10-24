@@ -8,7 +8,6 @@ export default defineConfig({
       GOOGLE_CLIENT_ID: 'test-client-id.apps.googleusercontent.com',
       GOOGLE_CLIENT_SECRET: 'test-client-secret',
       GOOGLE_REDIRECT_URI: 'http://localhost:4010/auth/google/callback',
-      ALLOWED_EMAIL_DOMAINS: 'msu.ac.th',
       // โดเมน .invalid ไม่มีจริง — test ต้อง mock erpHr เสมอ ถ้าหลุดไปเรียกจริงจะล้มทันที
       ERP_HR_STAFFINFO_URL: 'https://erp.test.invalid/service/api/staffinfo',
       // บริการเซ็น: test ของ API mock signer เสมอ (signer มี test ของตัวเองกับ OpenSSL จริง)

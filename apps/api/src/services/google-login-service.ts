@@ -1,5 +1,4 @@
 import { timingSafeEqual } from 'node:crypto';
-import { config } from '../config/index.js';
 import { withTransaction } from '../db/transaction.js';
 import { logger } from '../middlewares/logger.js';
 import { grantRoleBySystem } from '../repositories/role-repository.js';
@@ -17,6 +16,7 @@ import {
 import { erpHr, type ErpStaffInfo } from './erp-hr.js';
 import { googleOAuth, type GoogleAuthRequest } from './google-oauth.js';
 import { createSession } from './session-service.js';
+import { readSystemSettings } from './system-settings-service.js';
 
 // role ที่ทุกคนได้ตอน login ครั้งแรกและถอนไม่ได้
 const BASE_ROLE = 'user';
@@ -167,7 +167,9 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
     return { ok: false, reason: 'EMAIL_NOT_VERIFIED' };
   }
 
-  const classification = classifyAccount(identity.email, identity.hd, config.allowedEmailDomains);
+  // โดเมนที่ไม่ต้องรออนุมัติ อ่านจากค่าตั้งของระบบทุกครั้ง (แก้ที่หน้า /admin/settings มีผลทันที)
+  const { allowedEmailDomains } = await readSystemSettings();
+  const classification = classifyAccount(identity.email, identity.hd, allowedEmailDomains);
 
   // บุคลากร: ดึงข้อมูลจาก ERP-HR "นอก transaction" (ไม่ถือ connection ไว้ระหว่างรอ ERP)
   // ล้มเหลว = null แล้ว login ต่อได้ตามปกติ (CLAUDE.md หัวข้อ 18)
@@ -182,7 +184,7 @@ export async function completeGoogleLogin(input: GoogleCallbackInput): Promise<G
   // (classifyAccount ให้ external เมื่อโดเมน มมส. ไม่มี hd = บัญชี Google ส่วนตัวที่ใช้อีเมล มมส. ห้ามสวมสิทธิ์)
   const emailDomain = identity.email.slice(identity.email.lastIndexOf('@') + 1).toLowerCase();
   const canLinkPreRegistered =
-    !config.allowedEmailDomains.includes(emailDomain) || classification.accountType !== 'external';
+    !allowedEmailDomains.includes(emailDomain) || classification.accountType !== 'external';
 
   const result = await withTransaction(async (client) => {
     // ไม่พบ google_sub นี้ แต่มีบัญชีลงทะเบียนล่วงหน้าด้วยอีเมลนี้ → ผูก google_sub ก่อน

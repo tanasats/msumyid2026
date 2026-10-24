@@ -1,4 +1,3 @@
-import { config } from '../config/index.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import { logger } from '../middlewares/logger.js';
@@ -11,6 +10,7 @@ import {
   type PublishedCrl,
 } from '../repositories/crl-repository.js';
 import { signer } from './signer-client.js';
+import { readSystemSettings } from './system-settings-service.js';
 
 // ออกและเผยแพร่ CRL (docs/design/certificates.md)
 // ออกใหม่ทันทีเมื่อมีการเพิกถอน + job ตามรอบ (ออกใหม่เมื่อฉบับล่าสุดเก่าเกิน หรือมีการเพิกถอนที่ยังไม่อยู่ใน CRL)
@@ -43,7 +43,9 @@ export async function issueCrl(): Promise<{ crlNumber: bigint; revokedCount: num
 
     // ตัดเศษมิลลิวินาที: เวลาใน CRL ละเอียดถึงวินาที ให้ค่าในฐานข้อมูลตรงกับในไฟล์
     const thisUpdate = new Date(Math.floor(Date.now() / 1000) * 1000);
-    const nextUpdate = new Date(thisUpdate.getTime() + config.crl.validityMs);
+    // อายุ CRL ตามค่าตั้งของระบบ ณ ตอนออก
+    const { crlValidityDays } = await readSystemSettings(client);
+    const nextUpdate = new Date(thisUpdate.getTime() + crlValidityDays * 24 * 60 * 60 * 1000);
     const crlNumber = nextCrlNumber(latest?.crlNumber ?? null, thisUpdate);
 
     const crlDer = await signer.generateCrl({ crlNumber, thisUpdate, nextUpdate, revoked });
@@ -68,10 +70,10 @@ export async function issueCrlSafely(): Promise<boolean> {
 
 /** ต้องออก CRL ใหม่หรือไม่: ยังไม่เคยออก / ฉบับล่าสุดเก่าเกินกำหนด / มีการเพิกถอนที่ยังไม่อยู่ใน CRL */
 export async function isCrlOutdated(now = new Date()): Promise<boolean> {
-  const { latest, revokedNow } = await getCrlState(pool);
+  const [{ latest, revokedNow }, { crlReissueHours }] = await Promise.all([getCrlState(pool), readSystemSettings()]);
   if (!latest) return true;
   if (revokedNow > latest.revokedCount) return true;
-  return now.getTime() - latest.thisUpdate.getTime() >= config.crl.reissueHours * 60 * 60 * 1000;
+  return now.getTime() - latest.thisUpdate.getTime() >= crlReissueHours * 60 * 60 * 1000;
 }
 
 /** ออก CRL ใหม่เฉพาะเมื่อจำเป็น — คืน true ถ้าออกใหม่ */

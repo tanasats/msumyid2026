@@ -40,7 +40,6 @@ jobs:
       DATABASE_URL: postgres://app:app@localhost:5432/app_test
       TEST_DATABASE_URL: postgres://app:app@localhost:5432/app_test
       SESSION_COOKIE_NAME: msumyid_session
-      SESSION_TTL_DAYS: "7"
     steps:
       - uses: actions/checkout@v4
       # เวอร์ชัน pnpm อ่านจาก packageManager ใน package.json

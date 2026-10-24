@@ -77,3 +77,8 @@ export function canManageRoles(actor: AuthUser): boolean {
 export function roleHasAllPermissions(role: { code: string }): boolean {
   return role.code === SUPER_ADMIN_ROLE;
 }
+
+/** แก้ค่าตั้งของระบบ (หน้า /admin/settings) — super_admin เท่านั้น ด้วยเหตุผลเดียวกับ canManageRoles */
+export function canManageSystemSettings(actor: AuthUser): boolean {
+  return actor.approvalStatus === 'approved' && isSuperAdmin(actor);
+}
