@@ -176,8 +176,13 @@ describe('GET /admin/users/:id', () => {
     expect(res.body.user.roles.map((r: { code: string }) => r.code).sort()).toEqual(['staff', 'user']);
     expect(res.body).toMatchObject({ manageable: true, isSelf: false, staffProfile: null, history: [] });
 
+    // super_admin จัดการบัญชีของตัวเองได้ (ตัดสินใจ 2026-10-24) ผู้ดูแลอื่นยังไม่ได้
     const self = await request(app).get(`/admin/users/${admin.id}`).set('Cookie', admin.cookie);
-    expect(self.body).toMatchObject({ manageable: false, isSelf: true });
+    expect(self.body).toMatchObject({ manageable: true, isSelf: true });
+
+    const reader = await userWithPermissions('user:read');
+    const readerSelf = await request(app).get(`/admin/users/${reader.id}`).set('Cookie', reader.cookie);
+    expect(readerSelf.body).toMatchObject({ manageable: false, isSelf: true });
   });
 
   it('ไม่พบ → 404, id ไม่ใช่ uuid → 400', async () => {
@@ -231,11 +236,24 @@ describe('ปิด/เปิดบัญชี', () => {
     expect(again.body.error.code).toBe('ALREADY_INACTIVE');
   });
 
-  it('ห้ามปิดบัญชีตัวเอง', async () => {
-    const admin = await superAdmin();
-    const res = await post(`/admin/users/${admin.id}/deactivate`, admin.cookie, { reason: 'ทดสอบ' });
+  it('ผู้ดูแลที่ไม่ใช่ super_admin ปิดบัญชีตัวเองไม่ได้', async () => {
+    const operator = await userWithPermissions('user:deactivate');
+    const res = await post(`/admin/users/${operator.id}/deactivate`, operator.cookie, { reason: 'ทดสอบ' });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('CANNOT_MANAGE_SELF');
+  });
+
+  it('super_admin ปิดบัญชีตัวเองได้เมื่อยังเหลือ super_admin คนอื่น (หลุดจากระบบทันที) แต่คนสุดท้ายปิดไม่ได้', async () => {
+    const last = await superAdmin();
+    const denied = await post(`/admin/users/${last.id}/deactivate`, last.cookie, { reason: 'ทดสอบ' });
+    expect(denied.status).toBe(409);
+    expect(denied.body.error.code).toBe('LAST_SUPER_ADMIN');
+
+    await superAdmin();
+    const res = await post(`/admin/users/${last.id}/deactivate`, last.cookie, { reason: 'ย้ายงาน' });
+    expect(res.status).toBe(204);
+    expect(await userState(last.id)).toMatchObject({ is_active: false, deactivated_by: last.id });
+    expect((await request(app).get('/auth/me').set('Cookie', last.cookie)).status).toBe(401);
   });
 
   it('ผู้มี user:deactivate แต่ไม่ใช่ super_admin ปิดบัญชีผู้ถือ role สิทธิ์สูงไม่ได้', async () => {
@@ -345,10 +363,26 @@ describe('ให้/ถอน role', () => {
     expect(grant.body.error.code).toBe('SYSTEM_ROLE');
   });
 
-  it('ห้ามแก้ role ของตัวเอง', async () => {
-    const admin = await superAdmin();
-    const res = await post(`/admin/users/${admin.id}/roles/admin`, admin.cookie, { reason: 'ทดสอบ' });
+  it('ผู้มี user_role:assign แก้ role ของตัวเองไม่ได้', async () => {
+    await createTestRole('test_extra', []);
+    const assigner = await userWithPermissions('user_role:assign');
+    const res = await post(`/admin/users/${assigner.id}/roles/test_extra`, assigner.cookie, { reason: 'ทดสอบ' });
     expect(res.body.error.code).toBe('CANNOT_MANAGE_SELF');
+  });
+
+  it('super_admin แก้ role ของตัวเองได้ แต่ถอน super_admin ของตัวเองได้เฉพาะเมื่อยังเหลือคนอื่น และ role ระบบยังแก้ไม่ได้', async () => {
+    const admin = await superAdmin();
+    expect((await post(`/admin/users/${admin.id}/roles/admin`, admin.cookie, { reason: 'ทดสอบ' })).status).toBe(204);
+    expect(await rolesOf(admin.id)).toEqual(['admin', 'staff', 'super_admin', 'user']);
+
+    const last = await del(`/admin/users/${admin.id}/roles/super_admin`, admin.cookie, { reason: 'ทดสอบ' });
+    expect(last.body.error.code).toBe('LAST_SUPER_ADMIN');
+    const system = await del(`/admin/users/${admin.id}/roles/user`, admin.cookie, { reason: 'ทดสอบ' });
+    expect(system.body.error.code).toBe('SYSTEM_ROLE');
+
+    await superAdmin();
+    expect((await del(`/admin/users/${admin.id}/roles/super_admin`, admin.cookie, { reason: 'ส่งมอบงาน' })).status).toBe(204);
+    expect(await rolesOf(admin.id)).toEqual(['admin', 'staff', 'user']);
   });
 
   it('ถอน super_admin จากผู้ดูแลอีกคนได้เมื่อยังเหลือตัวเอง', async () => {
@@ -530,15 +564,18 @@ describe('แก้ไขข้อมูลผู้ใช้ (PATCH /admin/user
     expect((await patch(`/admin/users/${target.id}`, admin.cookie, { accountType: 'student' })).status).toBe(400);
   });
 
-  it('ต้องมี user:update และห้ามแก้บัญชีของตัวเอง', async () => {
-    const reader = await userWithPermissions('user:read');
+  it('ต้องมี user:update / ผู้ดูแลอื่นแก้บัญชีของตัวเองไม่ได้ แต่ super_admin แก้ได้', async () => {
+    const updater = await userWithPermissions('user:update');
     const target = await createUser();
-    const denied = await patch(`/admin/users/${target.id}`, reader.cookie, { accountType: 'student', reason: 'x' });
+    const ownDenied = await patch(`/admin/users/${updater.id}`, updater.cookie, { displayNameOverride: 'ฉัน', reason: 'x' });
+    expect(ownDenied.body.error.code).toBe('CANNOT_MANAGE_SELF');
+    const reader = await createUser();
+    const denied = await patch(`/admin/users/${target.id}`, await loginAs(reader.id), { accountType: 'student', reason: 'x' });
     expect(denied.status).toBe(403);
 
     const admin = await superAdmin();
     const self = await patch(`/admin/users/${admin.id}`, admin.cookie, { displayNameOverride: 'ฉัน', reason: 'x' });
-    expect(self.body.error.code).toBe('CANNOT_MANAGE_SELF');
+    expect(self.status).toBe(204);
   });
 
   it('GET /admin/org-units คืนหน่วยงานที่ใช้งานอยู่', async () => {

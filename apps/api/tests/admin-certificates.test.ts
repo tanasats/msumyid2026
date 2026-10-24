@@ -177,12 +177,24 @@ describe('POST /admin/certificates/:id/revoke (certificate:revoke)', () => {
     expect((await adminRevoke(revoker.cookie, cert.id)).status).toBe(200);
   });
 
-  it('ใบของตัวเอง → 403 CANNOT_MANAGE_SELF (ให้ใช้หน้าของฉัน)', async () => {
+  it('ผู้มี certificate:revoke ที่ไม่ใช่ super_admin: ใบของตัวเอง → 403 CANNOT_MANAGE_SELF (ให้ใช้หน้าของฉัน)', async () => {
     const revoker = await admin(['certificate:revoke']);
     const cert = await insertCertificate(revoker.id);
     const res = await adminRevoke(revoker.cookie, cert.id);
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('CANNOT_MANAGE_SELF');
+  });
+
+  it('super_admin เพิกถอนใบของตัวเองจากหน้าผู้ดูแลได้ (เหตุผลแบบผู้ดูแล + บันทึกใน audit)', async () => {
+    const admin = await superAdmin();
+    const cert = await insertCertificate(admin.id);
+    const res = await adminRevoke(admin.cookie, cert.id);
+    expect(res.status).toBe(200);
+    const { rows } = await pool.query(
+      `SELECT actor_id FROM certificate_audit_logs WHERE certificate_id = $1 AND action = 'revoke'`,
+      [cert.id],
+    );
+    expect(rows).toEqual([{ actor_id: admin.id }]);
   });
 
   it('ใบของผู้ดูแลสิทธิ์สูง: ผู้มี permission ทั่วไป → 403, super_admin → ได้', async () => {
