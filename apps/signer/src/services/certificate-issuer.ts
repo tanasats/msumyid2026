@@ -7,23 +7,40 @@ import { config } from '../config/index.js';
 import { loadCa, type CaInfo } from './ca.js';
 import { AppError } from '../errors.js';
 import { openPrivateKey, sealPrivateKey, type SealedKey } from './escrow.js';
-import { runOpenssl } from './openssl.js';
+import { asn1Time, confPath, evenHex, runOpenssl } from './openssl.js';
 
-// ออกใบรับรอง S/MIME ให้ผู้ใช้ด้วย OpenSSL CLI — extensions เหมือน [ smime ] ใน intermediate.cnf ของระบบเดิมทุกตัว
+// ออกใบรับรองให้ผู้ใช้ด้วย OpenSSL CLI — 2 โปรไฟล์ (docs/design/certificates.md หัวข้อ "ใบประจำตัว / ใบเสริม / นโยบายอายุ")
+//   smime            = ใบประจำตัว: extensions เหมือน [ smime ] ใน intermediate.cnf ของระบบเดิมทุกตัว
+//   document_signing = ใบเสริม: ลงนามเอกสารเท่านั้น (ไม่มี emailProtection โปรแกรมอีเมลจึงไม่ใช้ใบนี้) กำหนดช่วงเวลาเองได้
 // ต่างจากสคริปต์เดิม: private key ไม่ถูกเขียนลงดิสก์แบบไม่เข้ารหัส, รหัสผ่านไม่อยู่ใน argument, ระบบไม่เก็บรหัสผ่าน .p12
 
 const generateKeyPairAsync = promisify(generateKeyPair);
 
-export type IssueInput = {
+export type CertificateProfile = 'smime' | 'document_signing';
+
+type IssueBase = {
   commonName: string;
   email: string;
   /** รหัสผ่านของไฟล์ .p12 ที่ผู้ใช้ตั้งเอง (ไม่เก็บ) */
   p12Password: string;
   /** true = เข้ารหัส .p12 แบบ 3DES/SHA-1 ให้โปรแกรมรุ่นเก่าเปิดได้ (ค่าเริ่มต้นของ OpenSSL 3 คือ AES-256) */
   legacyP12: boolean;
-  /** อายุใบ (วัน) ตามนโยบายของ API — ไม่ส่ง = ใช้เพดาน CERT_VALIDITY_DAYS; ไม่เกินเพดานและอายุ CA เสมอ */
-  validityDays?: number;
 };
+
+export type IssueInput = IssueBase &
+  (
+    | {
+        profile?: 'smime';
+        /** อายุใบ (วัน) ตามนโยบายของ API — ไม่ส่ง = ใช้เพดาน CERT_VALIDITY_DAYS; ไม่เกินเพดานและอายุ CA เสมอ */
+        validityDays?: number;
+      }
+    | {
+        profile: 'document_signing';
+        /** ช่วงเวลาที่อนุมัติ — ถูกตัดตาม documentSigningWindow() */
+        notBefore: Date;
+        notAfter: Date;
+      }
+  );
 
 export type IssuedCertificate = {
   certificatePem: string;
@@ -73,16 +90,29 @@ function requestConfig(ca: CaInfo, input: IssueInput): string {
   ].join('\n');
 }
 
+/** ชื่อ section ของ extensions ตามโปรไฟล์ */
+const EXTENSION_SECTION: Record<CertificateProfile, string> = { smime: 'smime', document_signing: 'document_signing' };
+
 function extensionsConfig(): string {
-  return [
-    '[ smime ]',
+  const common = [
     'basicConstraints = CA:FALSE',
-    'keyUsage = critical, digitalSignature, keyEncipherment',
     'subjectKeyIdentifier = hash',
     'authorityKeyIdentifier = keyid,issuer',
     'subjectAltName = email:copy',
-    'extendedKeyUsage = emailProtection',
     'crlDistributionPoints = @crl_info',
+  ];
+  return [
+    '[ smime ]',
+    ...common,
+    'keyUsage = critical, digitalSignature, keyEncipherment',
+    'extendedKeyUsage = emailProtection',
+    '',
+    // ลงนามเอกสาร: nonRepudiation = ผู้ลงนามปฏิเสธไม่ได้, ไม่มี keyEncipherment (ไม่ใช้เข้ารหัส)
+    // EKU ที่ Acrobat/Foxit ยอมรับ: documentSigning (RFC 9336), Microsoft Document Signing, Adobe Authentic Documents Trust
+    '[ document_signing ]',
+    ...common,
+    'keyUsage = critical, digitalSignature, nonRepudiation',
+    'extendedKeyUsage = 1.3.6.1.5.5.7.3.36, 1.3.6.1.4.1.311.10.3.12, 1.2.840.113583.1.1.5',
     '',
     '[ crl_info ]',
     `URI.0 = ${confValue(config.crlDistributionUrl)}`,
@@ -125,6 +155,80 @@ export function validityDays(caNotAfter: Date, now: Date, maxDays: number, reque
   return days;
 }
 
+/**
+ * ช่วงเวลาของใบเสริม: เริ่มไม่ก่อนเวลาปัจจุบัน (ไม่ออกใบย้อนหลัง) และสิ้นสุดไม่เกินที่ขอ, เพดาน CERT_VALIDITY_DAYS และอายุของ CA
+ * ช่วงที่เหลือหมดแล้ว = ปฏิเสธ (API ตรวจก่อนอยู่แล้ว ตรงนี้กันข้อมูลผิดพลาด)
+ */
+export function documentSigningWindow(
+  caNotAfter: Date,
+  now: Date,
+  maxDays: number,
+  requested: { notBefore: Date; notAfter: Date },
+): { notBefore: Date; notAfter: Date } {
+  if (caNotAfter.getTime() - now.getTime() < DAY_MS) {
+    throw new AppError(503, 'CA_EXPIRING', 'ใบรับรองของ CA หมดอายุหรือใกล้หมดอายุ ออกใบรับรองใหม่ไม่ได้');
+  }
+  // ตัดเศษมิลลิวินาที เพราะเวลาในใบรับรองละเอียดถึงวินาที
+  const start = Math.floor(Math.max(requested.notBefore.getTime(), now.getTime()) / 1000) * 1000;
+  const end = Math.floor(Math.min(requested.notAfter.getTime(), caNotAfter.getTime(), start + maxDays * DAY_MS) / 1000) * 1000;
+  if (end <= start) {
+    throw new AppError(422, 'VALIDITY_INVALID', 'ช่วงเวลาของใบรับรองสิ้นสุดแล้ว');
+  }
+  return { notBefore: new Date(start), notAfter: new Date(end) };
+}
+
+/**
+ * ให้ CA เซ็น CSR ด้วย openssl ca กับฐานข้อมูลชั่วคราว (แบบเดียวกับการออก CRL) เพราะกำหนดวันเริ่มได้ทุกเวอร์ชัน
+ * (x509 -req กำหนดวันเริ่มได้ตั้งแต่ OpenSSL 3.4 แต่เครื่อง dev ใช้ 3.2) — ฐานข้อมูลของระบบยังเป็นแหล่งข้อมูลหลัก
+ */
+async function signWithCa(
+  dir: string,
+  ca: CaInfo,
+  input: { csrFile: string; extFile: string; section: string; serial: string; notBefore: Date; notAfter: Date; outFile: string },
+): Promise<void> {
+  const file = (name: string) => path.join(dir, name);
+  await writeFile(file('index.txt'), '');
+  await writeFile(file('serial'), `${evenHex(input.serial)}\n`);
+  await writeFile(
+    file('ca.cnf'),
+    [
+      '[ ca ]',
+      'default_ca = CA_default',
+      '',
+      '[ CA_default ]',
+      `database = ${confPath(file('index.txt'))}`,
+      `serial = ${confPath(file('serial'))}`,
+      `new_certs_dir = ${confPath(dir)}`,
+      `certificate = ${confPath(ca.certPath)}`,
+      `private_key = ${confPath(ca.keyPath)}`,
+      'default_md = sha256',
+      'unique_subject = no',
+      'email_in_dn = yes',
+      'copy_extensions = none',
+      'string_mask = utf8only',
+      'policy = policy_any',
+      '',
+      // subject มาจาก CSR ที่ signer สร้างเอง — ไม่ต้องบังคับค่า แค่เก็บทุกช่องตามลำดับเดิม (-preserveDN)
+      '[ policy_any ]',
+      'countryName = optional',
+      'organizationName = optional',
+      'commonName = supplied',
+      'emailAddress = optional',
+      '',
+    ].join('\n'),
+  );
+  await runOpenssl(
+    config.opensslBin,
+    [
+      'ca', '-batch', '-notext', '-preserveDN', '-utf8', '-config', file('ca.cnf'), '-passin', 'env:CA_KEY_PASS',
+      '-in', input.csrFile, '-extfile', input.extFile, '-extensions', input.section,
+      '-startdate', asn1Time(input.notBefore, 'generalized'), '-enddate', asn1Time(input.notAfter, 'generalized'),
+      '-out', input.outFile,
+    ],
+    { secrets: { CA_KEY_PASS: config.ca.keyPassphrase } },
+  );
+}
+
 /** รวม private key + ใบรับรอง + ใบของ Intermediate CA (และ root ถ้าตั้ง CA_CHAIN_PATH) เป็น .p12 ที่ล็อกด้วยรหัสผ่านของผู้ใช้ */
 export async function buildP12(input: {
   privateKey: KeyObject;
@@ -155,7 +259,13 @@ export async function buildP12(input: {
 /** สร้าง key ใหม่ → CSR → CA เซ็น → .p12 + key สำรองที่เข้ารหัสแล้ว */
 export async function issueCertificate(input: IssueInput): Promise<IssuedCertificate> {
   const ca = await loadCa();
-  const days = validityDays(ca.notAfter, new Date(), config.certValidityDays, input.validityDays);
+  const now = new Date();
+  const profile: CertificateProfile = input.profile ?? 'smime';
+  // คำนวณ (และปฏิเสธ) ก่อนสร้าง key เพื่อไม่เสียเวลาสร้าง RSA key เปล่า ๆ
+  const period =
+    input.profile === 'document_signing'
+      ? documentSigningWindow(ca.notAfter, now, config.certValidityDays, input)
+      : validityDays(ca.notAfter, now, config.certValidityDays, input.validityDays);
   const { privateKey } = await generateKeyPairAsync('rsa', { modulusLength: config.userKeyBits });
   const serial = randomSerial();
 
@@ -175,17 +285,23 @@ export async function issueCertificate(input: IssueInput): Promise<IssuedCertifi
       ['req', '-new', '-batch', '-utf8', '-config', reqConfigFile, '-key', keyFile, '-passin', 'env:KEY_PASS', '-sha256', '-out', csrFile],
       { secrets: { KEY_PASS: keyPass } },
     );
-    // ใช้ x509 -req แทน openssl ca: ฐานข้อมูลของระบบเป็นแหล่งข้อมูลหลักแทน index.txt
-    await runOpenssl(
-      config.opensslBin,
-      [
-        'x509', '-req', '-in', csrFile,
-        '-CA', ca.certPath, '-CAkey', ca.keyPath, '-passin', 'env:CA_KEY_PASS',
-        '-set_serial', `0x${serial}`, '-days', String(days), '-sha256',
-        '-extfile', extFile, '-extensions', 'smime', '-out', certFile,
-      ],
-      { secrets: { CA_KEY_PASS: config.ca.keyPassphrase } },
-    );
+    if (typeof period === 'number') {
+      // ใบประจำตัว: ใช้ x509 -req แทน openssl ca: ฐานข้อมูลของระบบเป็นแหล่งข้อมูลหลักแทน index.txt
+      await runOpenssl(
+        config.opensslBin,
+        [
+          'x509', '-req', '-in', csrFile,
+          '-CA', ca.certPath, '-CAkey', ca.keyPath, '-passin', 'env:CA_KEY_PASS',
+          '-set_serial', `0x${serial}`, '-days', String(period), '-sha256',
+          '-extfile', extFile, '-extensions', EXTENSION_SECTION[profile], '-out', certFile,
+        ],
+        { secrets: { CA_KEY_PASS: config.ca.keyPassphrase } },
+      );
+    } else {
+      await signWithCa(dir, ca, {
+        csrFile, extFile, section: EXTENSION_SECTION[profile], serial, ...period, outFile: certFile,
+      });
+    }
     return readFile(certFile, 'utf8');
   });
 

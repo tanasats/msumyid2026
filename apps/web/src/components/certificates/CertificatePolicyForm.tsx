@@ -37,6 +37,7 @@ export function CertificatePolicyForm({ initial }: { initial: CertificatePolicyS
     renewalWindowDays: String(initial.renewalWindowDays),
     supplementaryMaxDays: String(initial.supplementaryMaxDays),
     supplementaryMaxActive: String(initial.supplementaryMaxActive),
+    supplementaryMaxLeadDays: String(initial.supplementaryMaxLeadDays),
   }));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -51,6 +52,7 @@ export function CertificatePolicyForm({ initial }: { initial: CertificatePolicyS
     renewalWindowDays: Number(values.renewalWindowDays),
     supplementaryMaxDays: Number(values.supplementaryMaxDays),
     supplementaryMaxActive: Number(values.supplementaryMaxActive),
+    supplementaryMaxLeadDays: Number(values.supplementaryMaxLeadDays),
   };
   const maxDay = MAX_DAY_OF_MONTH[settings.primaryExpiryMonth - 1] ?? 31;
   const dayInvalid = mode === 'fixed_date' && (settings.primaryExpiryDay < 1 || settings.primaryExpiryDay > maxDay);
@@ -195,7 +197,13 @@ export function CertificatePolicyForm({ initial }: { initial: CertificatePolicyS
             {...numberProps('supplementaryMaxActive')}
             label="ใช้งานพร้อมกันได้ต่อคน (ใบ)"
             max={20}
-            hint="0 = ปิดการขอใบเสริม"
+            hint="นับรวมคำขอที่รออนุมัติและยังไม่รับใบ — 0 = ปิดการขอใบเสริม"
+          />
+          <TextField
+            {...numberProps('supplementaryMaxLeadDays')}
+            label="วันเริ่มล่วงหน้าได้ไม่เกิน (วัน)"
+            max={365}
+            hint="นับจากวันที่ส่งคำขอ เช่น 90 = ขอใช้ในอีก 3 เดือนข้างหน้าได้"
           />
         </div>
       </section>

@@ -92,6 +92,8 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | `certificate:read` | ดูรายการใบรับรองของผู้อื่น |
 | `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
 | `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม (ยืนยัน 2026-10-24) |
+| `supplementary_certificate:request` | ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริม **ของตัวเอง** (ยืนยัน 2026-10-24) |
+| `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองเสริมของผู้อื่น (ยืนยัน 2026-10-24) |
 
 - ใช้ permission แทนการเปิดให้ "login เท่านั้น" เพราะยังไม่ชัดว่าทุกประเภทบัญชี (เช่น นิสิต) ได้ใบรับรอง — `super_admin` ผูกกับ role `staff`/`student`/... ได้เองภายหลัง ระหว่างนี้ใช้ได้เฉพาะ `super_admin` (ค่าเริ่มต้นคือปฏิเสธ)
 - การนำเข้าใบเดิมทำผ่านสคริปต์ (`pnpm --filter api cert:import`) ไม่มีหน้าเว็บ จึงไม่ต้องมี permission
@@ -105,8 +107,10 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - `certificate_key_escrows`: `certificate_id` (PK), `encrypted_key`, `wrapped_data_key`, `kek_id`, `created_at`, `updated_at` — แยกตารางเพื่อให้ query รายการใบรับรองไม่แตะ blob
 - `crls`: `crl_number` (bigint UNIQUE), `this_update`, `next_update`, `revoked_count` (จำนวนใบที่เพิกถอนตอนออก — จำนวนปัจจุบันมากกว่า = ต้องออกใหม่), `crl_der`, `created_at`, `updated_at` — เก็บทุกฉบับ
 - `certificate_audit_logs`: `certificate_id`, `actor_id`, `action` (`issue`/`recover`/`revoke`/`import`/`sign`), `reason`, `created_at` — แก้/ลบไม่ได้
-- `certificate_policies`: แถวเดียว (`id` = true) — `primary_mode`, `primary_days`, `primary_expiry_month`, `primary_expiry_day`, `primary_min_days`, `renewal_window_days`, `supplementary_max_days`, `supplementary_max_active`, `updated_by`
+- `certificate_policies`: แถวเดียว (`id` = true) — `primary_mode`, `primary_days`, `primary_expiry_month`, `primary_expiry_day`, `primary_min_days`, `renewal_window_days`, `supplementary_max_days`, `supplementary_max_active`, `supplementary_max_lead_days`, `updated_by`
 - `certificate_policy_logs`: `actor_id`, `before`, `after` (jsonb ค่าทั้งชุด), `created_at` — แก้/ลบไม่ได้
+- `supplementary_certificate_requests`: `user_id`, `purpose`, `requested_start/end` และ `approved_start/end` (date ตามเวลาไทย), `status` (`pending`/`approved`/`issued`/`rejected`/`cancelled` — "หมดเวลา" คำนวณจาก `approved_end` ไม่เก็บ), `decided_by`, `decided_at`, `decision_note`, `certificate_id` (UNIQUE), `created_at`, `updated_at`
+- `supplementary_certificate_request_logs`: `request_id`, `actor_id` (NULL = ระบบ), `action` (`submit`/`approve`/`reject`/`cancel`/`issue`), `range_start`, `range_end`, `created_at` — แก้/ลบไม่ได้, ไม่เก็บวัตถุประสงค์/บันทึก (PDPA)
 
 ## นำเข้าใบเดิม
 
@@ -133,7 +137,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | ประเภท (`certificates.kind`) | ใครขอ | จำนวน | อายุ | การใช้งาน |
 |---|---|---|---|---|
 | `primary` ใบประจำตัว | ผู้ใช้ขอเอง (`certificate:request`) | ใช้งานอยู่ 1 ใบ — ขอใบใหม่ได้เมื่อใบเดิมเหลือ ≤ `renewal_window_days` (ใบเดิมใช้ต่อจนหมดอายุ) | ตามนโยบาย | S/MIME (ลงนาม + เข้ารหัสอีเมล) |
-| `supplementary` ใบเสริม | ผู้ใช้ส่งคำขอ (เหตุผล + อายุ) → ผู้มี `certificate:approve` อนุมัติ (แก้อายุได้) | ≤ `supplementary_max_active` | ≤ `supplementary_max_days` | ลงนามเอกสารเท่านั้น — **ยังไม่ได้สร้าง (PR ถัดไป)** |
+| `supplementary` ใบเสริม | ผู้ใช้ส่งคำขอ (`supplementary_certificate:request`: วัตถุประสงค์ + ช่วงวันที่) → ผู้มี `certificate:approve` อนุมัติ (แก้ช่วงได้) → ผู้ใช้กดรับใบ | ใบที่ใช้งานอยู่ + คำขอที่ค้าง ≤ `supplementary_max_active` | ช่วงวันที่ ≤ `supplementary_max_days` วัน | ลงนามเอกสารเท่านั้น (หัวข้อถัดไป) |
 
 - **ชื่อเรียก:** ใบของผู้ใช้ = "ใบรับรองประจำตัว" (`primary` ในโค้ด/ฐานข้อมูล) — คำว่า "ใบรับรองหลัก" สงวนไว้หมายถึง root CA (หน้า `/root-ca`) ห้ามใช้เรียกใบของผู้ใช้
 - ใบเดิมทั้งหมด (รวมที่นำเข้า) เป็นใบประจำตัว ผู้ที่มีใบที่ใช้งานอยู่ 2 ใบจากกฎเดิมใช้ต่อได้ — กฎใหม่ตรวจเฉพาะตอนขอใบใหม่
@@ -144,14 +148,32 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 - API คำนวณจำนวนวันแล้วส่ง `validityDays` ให้ signer ซึ่งยังตัดให้ไม่เกิน **เพดาน** `CERT_VALIDITY_DAYS` (ค่าเริ่มต้น 825) และอายุของ CA — API ถูกเจาะก็ขอใบอายุยาวผิดปกติไม่ได้; เพดานต้อง ≥ อายุที่นโยบายให้ได้ (โหมด 31 ธ.ค. ได้สูงสุดราว 365 + `primary_min_days` วัน)
 - ใบเสริมระยะสั้นต้องประทับเวลา (TSA) ตอนลงนาม ไม่เช่นนั้นหลังใบหมดอายุ ลายมือชื่อจะตรวจได้แค่ "ไม่ทราบความถูกต้อง"
 
+## ใบรับรองเสริม (ตัดสินใจ 2026-10-24)
+
+1. **ส่งคำขอ:** วัตถุประสงค์ + วันเริ่ม/วันสิ้นสุด (วันตามเวลาไทย) — วันเริ่มไม่ย้อนหลังและล่วงหน้าไม่เกิน `supplementary_max_lead_days` (ค่าเริ่มต้น 90), ยาวไม่เกิน `supplementary_max_days` (นับวันแรกและวันสุดท้าย), ชื่อแสดงยาวเกิน 64 ตัวปฏิเสธตั้งแต่ตอนนี้
+2. **อนุมัติ/ปฏิเสธ:** กฎ `canManageUser` เหมือนการเพิกถอน (คำขอของตัวเองไม่ได้, คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin) ล็อก ผู้ใช้ → คำขอ; อนุมัติแก้ช่วงได้ภายในเพดาน (วันเริ่มผ่านไปแล้วได้ แต่ต้องยังไม่สิ้นสุด) บันทึกถึงผู้ขอไม่บังคับ; ปฏิเสธต้องมีเหตุผล (ผู้ขอเห็น)
+3. **รับใบ:** ผู้ขอตั้งรหัส `.p12` เอง แล้วระบบออกใบตอนนั้น (ระบบไม่เก็บรหัส จึงออกตอนอนุมัติไม่ได้) — ได้ตั้งแต่อนุมัติจนสิ้นวันสุดท้าย; ใบเริ่ม 00:00 ของวันแรก (หรือเวลาที่รับ ถ้าช้ากว่า — ไม่ออกย้อนหลัง) ถึง 23:59:59 ของวันสุดท้าย; เก็บ key สำรองเหมือนใบประจำตัว
+- ผู้ขอยกเลิกได้ระหว่างรออนุมัติหรือก่อนรับใบ; ปิดบัญชี/ลบบัญชี/บัญชีหมดอายุ = ยกเลิกคำขอที่ค้างอัตโนมัติ (log `cancel` ผู้ทำ = ผู้ดูแล หรือ NULL); ลบข้อมูลส่วนบุคคลล้าง `purpose` และ `decision_note`
+- เพดานจำนวนนับคำขอที่ค้างด้วย กันส่งหลายคำขอแล้วได้ใบเกินเมื่ออนุมัติพร้อมกัน — ตรวจตอนส่ง (ต้องมีช่องว่าง), ตอนอนุมัติและตอนรับ (ไม่เกิน) โดยล็อกแถวผู้ใช้ก่อนนับ; `supplementary_max_active = 0` = ปิดรับคำขอ
+- เพิกถอน/ดาวน์โหลดใหม่ใช้ endpoint เดียวกับใบประจำตัว แต่ตรวจ permission ตามประเภทใบใน service (route เป็น "ต้อง login") — ใบเสริมที่ใช้ไม่ได้แล้วหน้าเว็บไม่เสนอให้ดาวน์โหลด (ไม่มีอีเมลเก่าให้เปิด)
+- **โปรไฟล์ใน signer** (`profile: 'document_signing'`): keyUsage `digitalSignature, nonRepudiation` (critical), EKU `documentSigning` (1.3.6.1.5.5.7.3.36) + Microsoft Document Signing (1.3.6.1.4.1.311.10.3.12) + Adobe Authentic Documents (1.2.840.113583.1.1.5) ไม่มี `emailProtection`; extensions อื่นเหมือน `[ smime ]`; ออกด้วย `openssl ca -startdate/-enddate` กับฐานข้อมูลชั่วคราว (`x509 -req` กำหนดวันเริ่มได้ตั้งแต่ OpenSSL 3.4 แต่เครื่อง dev ใช้ 3.2) ตัดตามเพดาน `CERT_VALIDITY_DAYS` และอายุ CA เหมือนเดิม — **ต้องทดสอบลงนามใน Acrobat/Foxit จริงก่อนใช้งาน**
+- หน้าเว็บ: ส่วน "ใบรับรองเสริม" ใน `/certificates`, `/certificates/supplementary/new`, `/certificates/supplementary/[id]/claim`, ผู้อนุมัติ `/admin/certificate-requests` (เมนู "อนุมัติ" สำหรับผู้มี `certificate:approve`)
+
 ## API
 
 | Method | Path | สิทธิ์ |
 |---|---|---|
 | GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า, มี `kind`) + `primaryRequest` (`renewableFrom` = วันที่เริ่มขอใบประจำตัวใหม่ได้ / null = ขอได้, `expiresAtIfRequested`, `renewalWindowDays`) |
 | POST | `/me/certificates` | `certificate:request` — ออกใบประจำตัว (อายุตามนโยบาย) คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store`; มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
-| POST | `/me/certificates/:id/revoke` | `certificate:request` — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
-| POST | `/me/certificates/:id/p12` | `certificate:request` — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า) ยกเว้นเพิกถอนด้วย `keyCompromise` = 409 `KEY_COMPROMISED`, ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
+| POST | `/me/certificates/:id/revoke` | ตามประเภทใบ (ใบประจำตัว `certificate:request`, ใบเสริม `supplementary_certificate:request`) — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
+| POST | `/me/certificates/:id/p12` | ตามประเภทใบ (เหมือนการเพิกถอน) — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า) ยกเว้นเพิกถอนด้วย `keyCompromise` = 409 `KEY_COMPROMISED`, ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
+| GET | `/me/supplementary-certificate-requests` | ต้อง login เท่านั้น — คำขอใบเสริมของตัวเอง (สถานะรวม `expired`) + `limits` (`maxDays`, `maxLeadDays`, `maxActive`, `open`, `today`) |
+| POST | `/me/supplementary-certificate-requests` | `supplementary_certificate:request` — ส่งคำขอ (`purpose`, `startDate`, `endDate`); ผิดนโยบาย = 422 `RANGE_INVALID`, เกินเพดาน = 409 `SUPPLEMENTARY_LIMIT_REACHED` |
+| POST | `/me/supplementary-certificate-requests/:id/cancel` | `supplementary_certificate:request` — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ |
+| POST | `/me/supplementary-certificate-requests/:id/certificate` | `supplementary_certificate:request` — รับใบจากคำขอที่อนุมัติแล้ว คืน `.p12` ครั้งเดียว (`no-store`); ยังไม่อนุมัติ = 409 `REQUEST_NOT_APPROVED`, เลยวันสิ้นสุด = 409 `REQUEST_EXPIRED`, รับแล้ว = 409 `REQUEST_ALREADY_ISSUED` |
+| GET | `/admin/supplementary-certificate-requests` | `certificate:approve` — `view=pending` (ค่าเริ่มต้น: คิวเก่าก่อน ≤ 100) หรือประวัติ `all`/ตามสถานะ (ล่าสุดก่อน cursor หน้าละ 20) + `pendingCount` + `limits` |
+| POST | `/admin/supplementary-certificate-requests/:id/approve` | `certificate:approve` — `startDate`, `endDate`, `note` (ไม่บังคับ) ตามกฎ `canManageUser` |
+| POST | `/admin/supplementary-certificate-requests/:id/reject` | `certificate:approve` — `note` (บังคับ) ตามกฎ `canManageUser` |
 | GET | `/crl/msu-ca.crl` | public — CRL ฉบับล่าสุด (`Cache-Control: no-cache`) |
 | GET | `/admin/certificates` | `certificate:read` — ค้นหาทั้งระบบ (ชื่อ/อีเมลบางส่วนด้วย trigram, serial ตรงตัว รับ `:`/ตัวพิมพ์ใหญ่), กรองสถานะ, cursor หน้าละ 20, แสดงเจ้าของ |
 | GET | `/admin/users/:id/certificates` | `certificate:read` — ใบของผู้ใช้คนหนึ่ง (หน้ารายละเอียดผู้ใช้) |
@@ -159,7 +181,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | PUT | `/admin/certificate-policy` | `certificate_policy:manage` — แก้นโยบาย (ส่งครบทุกช่อง) ล็อกแถว + log ค่าก่อน/หลัง ใน transaction เดียว |
 | POST | `/admin/certificates/:id/revoke` | `certificate:revoke` — เหตุผล (`unspecified`/`keyCompromise`/`affiliationChanged`/`superseded`/`cessationOfOperation`) + บันทึกประกอบ (บังคับ, เก็บใน audit) ใช้กฎ `canManageUser`: ใบของตัวเองไม่ได้ ใบของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin; ล็อก ผู้ใช้ → ใบ (ลำดับเดียวกับการปิดบัญชี) |
 
-บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ (`validityDays` ไม่บังคับ — ตัดตามเพดานและอายุ CA), `POST /certificates/legacy-key` นำ key เดิมเข้าเป็น key สำรอง (ถอดด้วยรหัสผ่าน + จับคู่ใบด้วย public key), `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
+บริการเซ็น (`apps/signer`, ต้องมี `Authorization: Bearer <SIGNER_TOKEN>`): `POST /certificates` ออกใบ (`profile` = `smime` ค่าเริ่มต้น + `validityDays` ไม่บังคับ หรือ `document_signing` + `notBefore`/`notAfter` — ตัดตามเพดานและอายุ CA), `POST /certificates/legacy-key` นำ key เดิมเข้าเป็น key สำรอง (ถอดด้วยรหัสผ่าน + จับคู่ใบด้วย public key), `POST /certificates/p12` กู้ key แล้วสร้าง `.p12` ใหม่ (ตรวจว่าใบออกโดย CA นี้, serial ตรง และ key คู่กับใบก่อนเสมอ), `POST /crls` ออก CRL (`openssl ca -gencrl` กับ index.txt ชั่วคราว), `GET /health` (ไม่ต้องใช้ token)
 
 ตั้งค่าบน `cdp.msu.ac.th` (ผู้พัฒนาดูแล): cron ทุก 5–15 นาที ดึง `https://<API>/crl/msu-ca.crl` ลงไฟล์ชั่วคราว ตรวจด้วย `openssl crl -noout` แล้วจึงย้ายทับ `msu-ca.crl` (กันไฟล์เสียเมื่อดึงไม่สำเร็จ)
 
@@ -173,5 +195,5 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | 4 | สคริปต์นำเข้าใบเดิม + key เดิม | เสร็จ |
 | 5 | หน้าผู้ดูแล (ดู/เพิกถอนใบของผู้อื่น), เพิกถอนอัตโนมัติเมื่อปิดบัญชี | เสร็จ |
 | 6 | ใบประจำตัว 1 ใบ + ช่วงต่ออายุ + นโยบายอายุใบ (`/admin/certificate-policy`) | เสร็จ |
-| 7 | ใบเสริม: คำขอ + อนุมัติ (`certificate:approve`) + โปรไฟล์ลงนามเอกสารอย่างเดียว | |
+| 7 | ใบเสริม: คำขอ + อนุมัติ (`certificate:approve`) + โปรไฟล์ลงนามเอกสารอย่างเดียว | เสร็จ (รอทดสอบใน Acrobat) |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

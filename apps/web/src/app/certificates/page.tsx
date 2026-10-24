@@ -1,31 +1,46 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Download, FileBadge, FilePlus } from 'lucide-react';
+import { Download, FileBadge, FilePen, FilePlus } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
 import { RevokeCertificateButton } from '@/components/certificates/RevokeCertificateButton';
+import { SupplementaryRequestCard } from '@/components/certificates/SupplementaryRequestCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser } from '@/lib/auth';
-import { canRedownload, isKeyCompromised } from '@/lib/certificate';
+import { canRedownload, isKeyCompromised, type Certificate } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
+import { getMySupplementaryRequests } from '@/lib/supplementary-certificates';
 
 export const metadata: Metadata = { title: 'ใบรับรองของฉัน' };
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' });
 
-// ใบรับรองของผู้ใช้ปัจจุบัน (ต้อง login เท่านั้น — ดูใบของตัวเองได้เสมอ)
-// ปุ่มขอใบใหม่/เพิกถอนแสดงเมื่อมี certificate:request (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์อีกครั้ง)
-export default async function CertificatesPage() {
+// ใบรับรองของผู้ใช้ปัจจุบัน (ต้อง login เท่านั้น — ดูใบและคำขอของตัวเองได้เสมอ)
+// ปุ่มขอ/เพิกถอน/ดาวน์โหลดแสดงตามสิทธิ์ของประเภทใบ: ใบประจำตัว = certificate:request, ใบเสริม = supplementary_certificate:request
+// (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์อีกครั้ง)
+export default async function CertificatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
-  const { certificates, primaryRequest } = await getMyCertificates();
+  const [{ certificates, primaryRequest }, supplementary, params] = await Promise.all([
+    getMyCertificates(),
+    getMySupplementaryRequests(),
+    searchParams,
+  ]);
   const canRequest = user.permissions.includes('certificate:request');
+  const canRequestSupplementary = user.permissions.includes('supplementary_certificate:request');
+  const canManage = (c: Pick<Certificate, 'kind'>) => (c.kind === 'supplementary' ? canRequestSupplementary : canRequest);
+  const { limits } = supplementary;
+  const supplementaryFull = limits.open >= limits.maxActive;
   // มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
   const renewableFrom = primaryRequest.renewableFrom ? new Date(primaryRequest.renewableFrom) : null;
 
@@ -94,7 +109,7 @@ export default async function CertificatesPage() {
                   <dt className="text-muted">หมายเลขใบรับรอง</dt>
                   <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
                 </dl>
-                {canRequest && c.status === 'active' && (
+                {canManage(c) && c.status === 'active' && (
                   <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
                     <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
                     {canRedownload(c) && (
@@ -108,8 +123,8 @@ export default async function CertificatesPage() {
                     )}
                   </div>
                 )}
-                {/* ใบที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) */}
-                {canRequest && c.status !== 'active' && canRedownload(c) && (
+                {/* ใบประจำตัวที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) — ใบเสริมไม่ใช้กับอีเมล จึงไม่มีปุ่มนี้ */}
+                {c.kind === 'primary' && canManage(c) && c.status !== 'active' && canRedownload(c) && (
                   <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm text-muted">ใช้ลงนามไม่ได้แล้ว ดาวน์โหลดได้เพื่อเปิดอีเมลเก่าที่เข้ารหัสไว้</p>
                     <Link
@@ -129,6 +144,55 @@ export default async function CertificatesPage() {
               </li>
             ))}
           </ul>
+        )}
+
+        {(canRequestSupplementary || supplementary.requests.length > 0) && (
+          <section aria-labelledby="supplementary-heading" className="space-y-3 pt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 id="supplementary-heading" className="font-display text-lg font-semibold">
+                  ใบรับรองเสริม
+                </h2>
+                <p className="mt-1 text-sm text-muted">
+                  ใบเฉพาะกิจสำหรับลงนามเอกสารในช่วงวันที่กำหนด ส่งคำขอแล้วรอผู้ดูแลอนุมัติ ใช้กับอีเมลไม่ได้
+                </p>
+              </div>
+              {canRequestSupplementary && !supplementaryFull && (
+                <Link
+                  href="/certificates/supplementary/new"
+                  className={`${buttonClasses({ variant: 'secondary', fullWidth: true })} shrink-0`}
+                >
+                  <FilePen className="size-5" aria-hidden />
+                  ขอใบรับรองเสริม
+                </Link>
+              )}
+            </div>
+            {params.requested === '1' && (
+              <Alert tone="success" title="ส่งคำขอแล้ว">
+                เมื่อได้รับอนุมัติ กด &quot;รับใบรับรอง&quot; ที่คำขอเพื่อตั้งรหัสผ่านและดาวน์โหลดไฟล์
+              </Alert>
+            )}
+            {canRequestSupplementary && supplementaryFull && (
+              <Alert tone="info">
+                {limits.maxActive === 0
+                  ? 'ขณะนี้ยังไม่เปิดให้ขอใบรับรองเสริม'
+                  : `มีใบรับรองเสริมที่ใช้งานอยู่และคำขอที่ค้างครบ ${limits.maxActive} รายการแล้ว ขอเพิ่มได้เมื่อใบเดิมหมดอายุหรือยกเลิกคำขอ`}
+              </Alert>
+            )}
+            {supplementary.requests.length === 0 ? (
+              <div className="rounded-xl border border-line bg-surface shadow-card">
+                <StatusState icon={FilePen} title="ยังไม่มีคำขอใบรับรองเสริม">
+                  ใช้เมื่อต้องลงนามเอกสารเฉพาะกิจ เช่น เกียรติบัตรของงาน โดยไม่ใช้ใบรับรองประจำตัว
+                </StatusState>
+              </div>
+            ) : (
+              <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+                {supplementary.requests.map((r) => (
+                  <SupplementaryRequestCard key={r.id} request={r} canAct={canRequestSupplementary} />
+                ))}
+              </ul>
+            )}
+          </section>
         )}
       </div>
     </PageShell>

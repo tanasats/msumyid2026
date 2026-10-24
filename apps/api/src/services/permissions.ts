@@ -23,6 +23,10 @@ export const PERMISSIONS = {
   CERTIFICATE_REVOKE: 'certificate:revoke',
   /** กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม */
   CERTIFICATE_POLICY_MANAGE: 'certificate_policy:manage',
+  /** ดู อนุมัติ และปฏิเสธคำขอใบรับรองเสริมของผู้อื่น */
+  CERTIFICATE_APPROVE: 'certificate:approve',
+  /** ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริมของตัวเอง */
+  SUPPLEMENTARY_CERTIFICATE_REQUEST: 'supplementary_certificate:request',
   /** ลงนามเอกสารด้วยใบรับรองของตัวเอง */
   DOCUMENT_SIGN: 'document:sign',
 } as const;

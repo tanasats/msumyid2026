@@ -14,6 +14,8 @@ export type CertificatePolicySettings = {
   renewalWindowDays: number;
   supplementaryMaxDays: number;
   supplementaryMaxActive: number;
+  /** ใบเสริม: วันเริ่มของคำขอล่วงหน้าได้ไม่เกินกี่วัน */
+  supplementaryMaxLeadDays: number;
 };
 
 export type CertificatePolicy = CertificatePolicySettings & {
@@ -29,7 +31,8 @@ const SETTINGS_COLUMNS = `p.primary_mode             AS "primaryMode",
             p.primary_min_days         AS "primaryMinDays",
             p.renewal_window_days      AS "renewalWindowDays",
             p.supplementary_max_days   AS "supplementaryMaxDays",
-            p.supplementary_max_active AS "supplementaryMaxActive"`;
+            p.supplementary_max_active AS "supplementaryMaxActive",
+            p.supplementary_max_lead_days AS "supplementaryMaxLeadDays"`;
 
 /**
  * อ่านนโยบาย — forUpdate = ล็อกแถวไว้ก่อนแก้ (กันผู้ดูแล 2 คนแก้พร้อมกันแล้ว log ค่าก่อนหน้าผิด)
@@ -67,6 +70,7 @@ export async function updateCertificatePolicy(
          renewal_window_days = $6,
          supplementary_max_days = $7,
          supplementary_max_active = $8,
+         supplementary_max_lead_days = $10,
          updated_by = $9
      WHERE id = true`,
     [
@@ -79,6 +83,7 @@ export async function updateCertificatePolicy(
       settings.supplementaryMaxDays,
       settings.supplementaryMaxActive,
       actorId,
+      settings.supplementaryMaxLeadDays,
     ],
   );
 }

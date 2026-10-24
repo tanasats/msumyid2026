@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { loadCa } from './ca.js';
-import { runOpenssl } from './openssl.js';
+import { asn1Time, confPath, evenHex, runOpenssl } from './openssl.js';
 
 // ออก CRL ด้วย openssl ca -gencrl เหมือนระบบเดิม แต่สร้าง index.txt ชั่วคราวจากรายการที่ API ส่งมา
 // (ฐานข้อมูลของระบบเป็นแหล่งข้อมูลหลัก ไม่มี index.txt ถาวร) แล้วลบทิ้งทุกครั้ง
@@ -31,27 +31,6 @@ export type GenerateCrlInput = {
   nextUpdate: Date;
   revoked: RevokedEntry[];
 };
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** เวลาแบบ ASN.1: UTCTime (YYMMDDHHMMSSZ) ก่อนปี 2050 ตาม RFC 5280 — openssl ca รับวันเพิกถอนแบบ UTCTime เท่านั้น */
-function asn1Time(date: Date, form: 'utc' | 'generalized' = 'utc'): string {
-  const y = date.getUTCFullYear();
-  const rest = `${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
-  if (form === 'utc' && y >= 2050) throw new Error('วันที่ตั้งแต่ปี 2050 ใช้ UTCTime ไม่ได้');
-  return form === 'utc' ? `${String(y % 100).padStart(2, '0')}${rest}` : `${y}${rest}`;
-}
-
-/** ฐาน 16 ตัวพิมพ์ใหญ่ ความยาวคู่ (รูปแบบเดียวกับที่ openssl ca เขียนใน index.txt / crlnumber) */
-function evenHex(hex: string): string {
-  const upper = hex.toUpperCase();
-  return upper.length % 2 === 0 ? upper : `0${upper}`;
-}
-
-/** path ในไฟล์ config ของ OpenSSL: ใช้ / (\ คืออักขระ escape) และใส่ \ หน้า $ (แทนค่าตัวแปร) */
-function confPath(p: string): string {
-  return p.split(path.sep).join('/').replace(/[$#"']/g, (c) => `\\${c}`);
-}
 
 /**
  * แถวของ index.txt: สถานะ R, วันหมดอายุ, วันเพิกถอน,เหตุผล, serial, ชื่อไฟล์ (unknown), subject

@@ -177,6 +177,7 @@ export async function insertCertificateAuditLog(
 export type CertificateForRevocation = {
   id: string;
   userId: string | null;
+  kind: CertificateKind;
   serialNumber: string;
   revokedAt: Date | null;
   notAfter: Date;
@@ -190,6 +191,7 @@ export async function findCertificateForUpdate(db: Queryable, id: string): Promi
   const result = await db.query<CertificateForRevocation>(
     `SELECT id,
             user_id        AS "userId",
+            kind,
             serial_number  AS "serialNumber",
             revoked_at     AS "revokedAt",
             not_after      AS "notAfter"
@@ -223,6 +225,7 @@ export async function revokeCertificate(
 export type CertificateWithEscrow = {
   id: string;
   userId: string | null;
+  kind: CertificateKind;
   serialNumber: string;
   email: string;
   certificatePem: string;
@@ -240,6 +243,7 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
   const result = await db.query<{
     id: string;
     user_id: string | null;
+    kind: CertificateKind;
     serial_number: string;
     email: string;
     certificate_pem: string;
@@ -248,7 +252,7 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
     encrypted_key: Buffer | null;
     wrapped_data_key: Buffer | null;
   }>(
-    `SELECT c.id, c.user_id, c.serial_number, c.email, c.certificate_pem, c.revocation_reason,
+    `SELECT c.id, c.user_id, c.kind, c.serial_number, c.email, c.certificate_pem, c.revocation_reason,
             e.kek_id, e.encrypted_key, e.wrapped_data_key
      FROM certificates c
      LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id
@@ -260,6 +264,7 @@ export async function findCertificateWithEscrow(db: Queryable, id: string): Prom
   return {
     id: row.id,
     userId: row.user_id,
+    kind: row.kind,
     serialNumber: row.serial_number,
     email: row.email,
     certificatePem: row.certificate_pem,

@@ -21,6 +21,7 @@ const DEFAULTS: CertificatePolicySettings = {
   renewalWindowDays: 30,
   supplementaryMaxDays: 90,
   supplementaryMaxActive: 3,
+  supplementaryMaxLeadDays: 90,
 };
 
 const fixedDate = (input: Partial<CertificatePolicySettings> = {}): CertificatePolicySettings => ({
