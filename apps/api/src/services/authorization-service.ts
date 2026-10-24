@@ -68,3 +68,16 @@ export function canManageUser(
   if (target.hasPrivilegedRole && !isSuperAdmin(actor)) return 'PRIVILEGED_TARGET';
   return null;
 }
+
+/**
+ * กำหนด role และสิทธิ์ของ role (หน้า /admin/roles) — super_admin เท่านั้น (ตัดสินใจ 2026-10-24)
+ * ไม่ใช้ permission เพราะถ้าผูก permission นี้ให้ role อื่นได้ ผู้ถือ role นั้นจะเพิ่มสิทธิ์ให้ตัวเองได้ (privilege escalation)
+ */
+export function canManageRoles(actor: AuthUser): boolean {
+  return actor.approvalStatus === 'approved' && isSuperAdmin(actor);
+}
+
+/** role ที่ได้ทุก permission อยู่แล้ว (super_admin ผ่าน hasPermission) — ผูก permission เพิ่มไม่มีผล */
+export function roleHasAllPermissions(role: { code: string }): boolean {
+  return role.code === SUPER_ADMIN_ROLE;
+}

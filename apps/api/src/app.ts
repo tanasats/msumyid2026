@@ -12,6 +12,7 @@ import { authRouter } from './routes/auth.js';
 import { meRouter } from './routes/me.js';
 import { adminCertificatePolicyRouter } from './routes/admin-certificate-policy.js';
 import { adminCertificatesRouter } from './routes/admin-certificates.js';
+import { adminRolesRouter } from './routes/admin-roles.js';
 import { adminSupplementaryRequestsRouter } from './routes/admin-supplementary-certificate-requests.js';
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
@@ -41,6 +42,7 @@ export function createApp() {
   app.use(authRouter);
   app.use(meRouter);
   app.use(adminUsersRouter);
+  app.use(adminRolesRouter);
   app.use(adminCertificatesRouter);
   app.use(adminCertificatePolicyRouter);
   app.use(adminSupplementaryRequestsRouter);

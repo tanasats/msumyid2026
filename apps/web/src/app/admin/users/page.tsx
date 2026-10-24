@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, FileBadge, Search, SearchX, UserPlus } from 'lucide-react';
+import { ChevronRight, FileBadge, KeyRound, Search, SearchX, UserPlus } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
@@ -65,8 +65,16 @@ export default async function AdminUsersPage({
   return (
     <PageShell title="จัดการผู้ใช้" user={user}>
       <div className="space-y-4">
-        {(user.permissions.includes('user:create') || user.permissions.includes('certificate:read')) && (
+        {(user.permissions.includes('user:create') ||
+          user.permissions.includes('certificate:read') ||
+          user.capabilities.manageRoles) && (
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            {user.capabilities.manageRoles && (
+              <Link href="/admin/roles" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
+                <KeyRound className="size-5" aria-hidden />
+                บทบาทและสิทธิ์
+              </Link>
+            )}
             {user.permissions.includes('certificate:read') && (
               <Link href="/admin/certificates" className={buttonClasses({ variant: 'secondary', fullWidth: true })}>
                 <FileBadge className="size-5" aria-hidden />
