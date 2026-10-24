@@ -127,7 +127,9 @@ function onlyWhitespaceAfter(buffer: Buffer, end: number): boolean {
 function signatureDictionary(text: string, offset: number, gapStart: number, gapEnd: number): string {
   const from = Math.max(text.lastIndexOf(' obj', offset), offset - 4096, 0);
   const endObj = text.indexOf('endobj', offset);
-  const to = endObj === -1 ? Math.min(offset + 4096, text.length) : Math.min(endObj, offset + 65536);
+  // เผื่อความยาวของ /Contents ด้วย — ลายมือชื่อที่จองช่องไว้ใหญ่ (เช่น 32 KB = 64K ตัวอักษร hex) มีคีย์อื่นต่อท้ายช่องนั้น
+  const gap = gapEnd > offset ? gapEnd - gapStart : 0;
+  const to = endObj === -1 ? Math.min(offset + 4096 + gap, text.length) : Math.min(endObj, offset + 65536 + gap);
   if (gapStart >= from && gapEnd <= to) {
     return text.slice(from, gapStart) + text.slice(gapEnd, to);
   }

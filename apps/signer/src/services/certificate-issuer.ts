@@ -7,7 +7,7 @@ import { config } from '../config/index.js';
 import { loadCa, type CaInfo } from './ca.js';
 import { AppError } from '../errors.js';
 import { openPrivateKey, sealPrivateKey, type SealedKey } from './escrow.js';
-import { asn1Time, confPath, evenHex, runOpenssl } from './openssl.js';
+import { asn1Time, confPath, evenHex, runOpenssl, supportsCmsCades } from './openssl.js';
 
 // ออกใบรับรองให้ผู้ใช้ด้วย OpenSSL CLI — 2 โปรไฟล์ (docs/design/certificates.md หัวข้อ "ใบประจำตัว / ใบเสริม / นโยบายอายุ")
 //   smime            = ใบประจำตัว: extensions เหมือน [ smime ] ใน intermediate.cnf ของระบบเดิมทุกตัว
@@ -333,13 +333,17 @@ export async function issueCertificate(input: IssueInput): Promise<IssuedCertifi
  * ตรวจก่อนเสมอ: ใบออกโดย CA นี้, serial ตรงกับที่ผูกไว้กับก้อนสำรอง และ key คู่กับใบรับรอง
  * — API ส่งข้อมูลผิดใบมาก็จะไม่ได้ไฟล์ที่รวม key กับใบของคนอื่น
  */
-export async function rebuildP12(input: {
-  serialNumber: string;
-  certificatePem: string;
-  escrow: SealedKey;
-  p12Password: string;
-  legacyP12: boolean;
-}): Promise<Buffer> {
+export type EscrowedCertificate = { serialNumber: string; certificatePem: string; escrow: SealedKey };
+
+/**
+ * ถอด key สำรองของใบรับรองแล้วส่งให้ use() — ตรวจก่อนเสมอ: ใบออกโดย CA นี้, serial ตรงกับที่ผูกไว้กับก้อนสำรอง
+ * และ key คู่กับใบรับรอง (API ส่งข้อมูลผิดใบมาก็จะไม่ได้ผลลัพธ์ที่ใช้ key ของคนอื่นกับใบนี้)
+ * ล้างไบต์ของ key ทิ้งเมื่อ use() จบ (สำเร็จหรือไม่ก็ตาม)
+ */
+async function withEscrowedKey<T>(
+  input: EscrowedCertificate,
+  use: (key: { cert: X509Certificate; privateKey: KeyObject; ca: CaInfo }) => Promise<T>,
+): Promise<T> {
   const ca = await loadCa();
   let cert: X509Certificate;
   try {
@@ -366,15 +370,55 @@ export async function rebuildP12(input: {
     if (!cert.checkPrivateKey(privateKey)) {
       throw new AppError(422, 'KEY_MISMATCH', 'key สำรองไม่คู่กับใบรับรอง');
     }
-    return await buildP12({
-      privateKey,
-      certificatePem: input.certificatePem,
-      password: input.p12Password,
-      legacy: input.legacyP12,
-    });
+    return await use({ cert, privateKey, ca });
   } finally {
     pkcs8Der.fill(0);
   }
+}
+
+/** กู้ key จากที่สำรองไว้ แล้วสร้าง .p12 ใหม่ด้วยรหัสผ่านใหม่ของผู้ใช้ (ใบรับรองเดิม ไม่ออกใบใหม่) */
+export async function rebuildP12(input: EscrowedCertificate & { p12Password: string; legacyP12: boolean }): Promise<Buffer> {
+  return withEscrowedKey(input, ({ privateKey }) =>
+    buildP12({ privateKey, certificatePem: input.certificatePem, password: input.p12Password, legacy: input.legacyP12 }),
+  );
+}
+
+/**
+ * ลงนามข้อมูลด้วย key สำรองของผู้ใช้ — คืน CMS SignedData แบบ detached (DER) สำหรับฝังในลายมือชื่อ PDF
+ * signer ไม่ตีความ PDF: API ส่งมาเฉพาะไบต์ตาม /ByteRange (ข้อมูลที่ต้องลงนาม) ส่วนการตรวจสิทธิ์ PIN และสถานะใบอยู่ที่ API
+ * - CAdES (-cades): มี signingCertificateV2 ผูกใบรับรองของผู้ลงนามไว้ในลายมือชื่อ — ใช้เมื่อ OpenSSL รองรับ (3.2 ขึ้นไป)
+ *   รุ่นเก่ายังได้ลายมือชื่อ adbe.pkcs7.detached ที่ Acrobat ยอมรับ (ไม่มี signingCertificateV2)
+ * - แนบใบของ CA ทั้งสาย ให้โปรแกรมตรวจต่อสายถึง root ได้โดยไม่ต้องหาใบเอง
+ * - ใบหมดอายุหรือยังไม่ถึงวันเริ่ม = ไม่ลงนาม (API ตรวจก่อนแล้ว ตรงนี้กันข้อมูลผิดพลาด)
+ */
+export async function signCms(input: EscrowedCertificate & { content: Buffer }): Promise<Buffer> {
+  return withEscrowedKey(input, async ({ cert, privateKey, ca }) => {
+    const now = Date.now();
+    if (now < Date.parse(cert.validFrom) || now > Date.parse(cert.validTo)) {
+      throw new AppError(422, 'CERTIFICATE_NOT_VALID_NOW', 'ใบรับรองหมดอายุหรือยังไม่ถึงวันเริ่มใช้');
+    }
+    const cades = await supportsCmsCades(config.opensslBin);
+    return withTempDir(async (dir) => {
+      const file = (name: string) => path.join(dir, name);
+      const keyPass = await writeEncryptedKey(file('key.pem'), privateKey);
+      await Promise.all([
+        writeFile(file('cert.pem'), input.certificatePem),
+        writeFile(file('chain.pem'), ca.bundlePem),
+        writeFile(file('content.bin'), input.content),
+      ]);
+      await runOpenssl(
+        config.opensslBin,
+        [
+          'cms', '-sign', '-binary', '-in', file('content.bin'),
+          '-signer', file('cert.pem'), '-inkey', file('key.pem'), '-passin', 'env:KEY_PASS',
+          '-certfile', file('chain.pem'), '-md', 'sha256', ...(cades ? ['-cades'] : []), '-nosmimecap',
+          '-outform', 'DER', '-out', file('signature.der'),
+        ],
+        { secrets: { KEY_PASS: keyPass } },
+      );
+      return readFile(file('signature.der'));
+    });
+  });
 }
 
 /**

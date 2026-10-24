@@ -18,6 +18,17 @@ export type IssueCertificateInput = IssueBase &
     | { profile: 'document_signing'; notBefore: Date; notAfter: Date }
   );
 
+/** key สำรองที่ signer เข้ารหัสไว้ (ฐานข้อมูลถอดเองไม่ได้) */
+export type EscrowedKey = { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer };
+
+const encodeEscrow = (escrow: EscrowedKey) => ({
+  kekId: escrow.kekId,
+  encryptedKey: escrow.encryptedKey.toString('base64'),
+  wrappedDataKey: escrow.wrappedDataKey.toString('base64'),
+});
+
+const cmsResponseSchema = z.object({ cms: z.base64().transform((v) => Buffer.from(v, 'base64')) });
+
 export type IssuedCertificate = {
   certificatePem: string;
   serialNumber: string;
@@ -119,6 +130,19 @@ export const signer = {
       throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
     }
     return parsed.data;
+  },
+
+  /**
+   * ลงนามข้อมูล (ไบต์ตาม /ByteRange ของ PDF) ด้วย key สำรองของผู้ใช้ — คืน CMS SignedData แบบ detached (DER)
+   * signer ตรวจว่าใบออกโดย CA นี้ serial ตรง key คู่กับใบ และใบอยู่ในช่วงอายุ — PIN/สถานะใบตรวจที่ API ก่อนเรียก
+   */
+  async signCms(input: { serialNumber: string; certificatePem: string; escrow: EscrowedKey; content: Buffer }): Promise<Buffer> {
+    const body = { ...input, escrow: encodeEscrow(input.escrow), content: input.content.toString('base64') };
+    const parsed = cmsResponseSchema.safeParse(await post('/signatures/cms', body));
+    if (!parsed.success) {
+      throw new SignerError('บริการเซ็นตอบข้อมูลผิดรูปแบบ', { cause: parsed.error });
+    }
+    return parsed.data.cms;
   },
 
   /** กู้ key จากที่สำรองไว้แล้วสร้าง .p12 ใหม่ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม) */
