@@ -27,7 +27,8 @@ check_files() {
   for f in .env env/api.env env/web.env env/signer.env env/postgres.env; do
     [[ -s "$f" ]] || { log "ไม่พบหรือว่าง: $f"; missing=1; }
   done
-  for f in secrets/signer_token secrets/ca_key_passphrase secrets/escrow_kek ca/univ-ca.key.pem; do
+  for f in secrets/signer_token secrets/ca_key_passphrase secrets/escrow_kek ca/univ-ca.key.pem \
+    secrets/garage_rpc_secret secrets/garage_admin_token secrets/s3_access_key secrets/s3_secret_key; do
     [[ -s "$f" ]] || { log "ไม่พบหรือว่าง: $f"; missing=1; }
   done
   [[ $missing -eq 0 ]] || die "ไฟล์ไม่ครบ — กู้ env ด้วย scripts/recover-env.sh หรือจาก backup ก่อน (ห้าม deploy/up/down จนกว่าจะกู้เสร็จ)"
@@ -36,7 +37,7 @@ check_files() {
   for key in APP_TAG IMAGE_PREFIX APP_UID APP_GID; do
     [[ -n "$(env_get "$key")" ]] || die ".env ไม่มีค่า $key"
   done
-  for key in DATABASE_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REDIRECT_URI WEB_URL; do
+  for key in DATABASE_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REDIRECT_URI WEB_URL S3_PUBLIC_ENDPOINT S3_BUCKET; do
     [[ -n "$(env_get "$key" env/api.env)" ]] || die "env/api.env ไม่มีค่า $key"
   done
   docker compose config -q || die "docker compose config ไม่ผ่าน"

@@ -59,6 +59,27 @@ services:
       retries: 6
       start_period: 10s
 
+  # ที่เก็บไฟล์ (S3) สำหรับลงนามเอกสาร — single node ไม่ backup (ไฟล์เก็บ 7 วัน, docs/design/document-signing.md)
+  # S3 API เปิดที่ 127.0.0.1 ให้ nginx ของ host ส่งต่อ (browser อัปโหลด/ดาวน์โหลดด้วย presigned URL) admin API ไม่เปิดออก
+  # image ไม่มี shell จึงไม่มี healthcheck ในตัว — scripts/init-garage.sh ตรวจว่าพร้อมก่อนสร้าง key/bucket
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    command: ["/garage", "server"]
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - msumyid_prod_garage_meta:/var/lib/garage/meta
+      - msumyid_prod_garage_data:/var/lib/garage/data
+    secrets: [garage_rpc_secret, garage_admin_token]
+    ports:
+      - "127.0.0.1:${GARAGE_S3_PORT:-3900}:3900"
+    networks: [storage]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
   api:
     <<: *app
     image: ${IMAGE_PREFIX:?}-api:${APP_TAG:?}
@@ -67,14 +88,19 @@ services:
       PORT: "4000"
       SIGNER_URL: http://signer:4020
       SIGNER_TOKEN_FILE: /run/secrets/signer_token
-    secrets: [signer_token]
+      # ภายใน network storage — presigned URL ใช้ S3_PUBLIC_ENDPOINT (env/api.env) ที่ browser เข้าถึงได้
+      S3_ENDPOINT: http://garage:3900
+      S3_ACCESS_KEY_FILE: /run/secrets/s3_access_key
+      S3_SECRET_KEY_FILE: /run/secrets/s3_secret_key
+    secrets: [signer_token, s3_access_key, s3_secret_key]
     ports:
       - "127.0.0.1:${API_PORT:-4000}:4000"
-    # app = ออกอินเทอร์เน็ตได้ (Google, ERP-HR) และให้ web เรียก, db = postgres, signer = บริการเซ็น
-    networks: [app, db, signer]
+    # app = ออกอินเทอร์เน็ตได้ (Google, ERP-HR, MSU TSA) และให้ web เรียก, db = postgres, signer = บริการเซ็น, storage = Garage
+    networks: [app, db, signer, storage]
     depends_on:
       postgres: { condition: service_healthy }
       signer: { condition: service_healthy }
+      garage: { condition: service_started }
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4000/health"]
       interval: 10s
@@ -119,6 +145,15 @@ secrets:
     file: ./secrets/ca_key_passphrase
   escrow_kek:
     file: ./secrets/escrow_kek
+  garage_rpc_secret:
+    file: ./secrets/garage_rpc_secret
+  garage_admin_token:
+    file: ./secrets/garage_admin_token
+  # สร้างโดย scripts/init-garage.sh
+  s3_access_key:
+    file: ./secrets/s3_access_key
+  s3_secret_key:
+    file: ./secrets/s3_secret_key
 
 networks:
   app: {}
@@ -126,7 +161,13 @@ networks:
     internal: true
   signer:
     internal: true
+  storage:
+    internal: true
 
 volumes:
   msumyid_prod_pgdata:
     name: msumyid_prod_pgdata
+  msumyid_prod_garage_meta:
+    name: msumyid_prod_garage_meta
+  msumyid_prod_garage_data:
+    name: msumyid_prod_garage_data

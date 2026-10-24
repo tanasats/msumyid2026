@@ -86,6 +86,8 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
   scripts/init-secrets.sh     สร้าง signer_token / escrow_kek ครั้งแรก (ไม่สร้างทับ)
   scripts/recover-env.sh      กู้ env/*.env ที่หายจาก container ที่ยังอยู่
   scripts/update-cloudflare-realip.sh  ช่วง IP ของ Cloudflare ให้ nginx (nginx -t ไม่ผ่าน = คืนไฟล์เดิม)
+  scripts/init-garage.sh      เปิด Garage + layout + key/bucket + เขียน secrets/s3_* (รันซ้ำได้)
+  garage/garage.toml          config ของ Garage (single node, secret อ่านจาก Docker secret)
   cdp/                        ติดตั้งบนเครื่อง cdp.msu.ac.th (ไม่ใช้บน VM): update-crl.sh + systemd timer ดึง CRL (หัวข้อ 10)
 ```
 
@@ -144,6 +146,16 @@ read -rs P && printf '%s' "$P" > secrets/ca_key_passphrase && unset P   # passph
 chmod 600 ca/univ-ca.key.pem secrets/*
 ```
 
+**5.4.1 ที่เก็บไฟล์ (Garage)** — ใช้กับการลงนามเอกสาร (`docs/design/document-signing.md`) single node บน VM เดียวกัน **ไม่ backup** (ไฟล์เก็บ 7 วันแล้วลบอัตโนมัติ — ตัดสินใจ 2026-10-25)
+```bash
+./scripts/init-secrets.sh            # (ถ้ายังไม่ได้รันหลังอัปเดต) สร้าง secrets/garage_rpc_secret, secrets/garage_admin_token
+./scripts/init-garage.sh             # เปิด garage, กำหนด layout (GARAGE_CAPACITY ค่าเริ่มต้น 20G), สร้าง key + bucket (S3_BUCKET)
+                                     # แล้วเขียน secrets/s3_access_key, secrets/s3_secret_key — รันซ้ำได้
+```
+- browser อัปโหลด/ดาวน์โหลดตรงกับ Garage ด้วย presigned URL ผ่าน nginx: `https://did.msu.ac.th/<S3_BUCKET>/...` → `127.0.0.1:GARAGE_S3_PORT` (location `/msumyid-files/` ใน `msumyid.conf` ชื่อต้องตรงกับ `S3_BUCKET`)
+- origin เดียวกับหน้าเว็บ จึงไม่ต้องตั้ง CORS ของ bucket บน production (`storage:cors` ใช้กับ dev)
+- **Cloudflare จำกัดขนาด request** ตามแผนที่ใช้ (Free/Pro 100 MB) — ZIP ที่ใหญ่กว่านี้ต้องอัปโหลดแบบ multipart (ระยะ D3 ของการลงนามเอกสาร)
+
 **5.5 deploy ครั้งแรก**
 ```bash
 echo '<PAT read:packages>' | docker login ghcr.io -u <github-user> --password-stdin
@@ -174,7 +186,7 @@ sudo ln -s /etc/nginx/sites-available/msumyid.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 curl -s --resolve did.msu.ac.th:443:127.0.0.1 https://did.msu.ac.th/api/health   # ทดสอบก่อนมี DNS/Cloudflare
 ```
-ถ้าเปลี่ยน `WEB_PORT`/`API_PORT` ใน `.env` ต้องแก้ upstream ใน `msumyid.conf` ให้ตรง
+ถ้าเปลี่ยน `WEB_PORT`/`API_PORT`/`GARAGE_S3_PORT` ใน `.env` ต้องแก้ upstream / location `/msumyid-files/` ใน `msumyid.conf` ให้ตรง
 
 **ใบ TLS `*.msu.ac.th` หมดอายุ 2027-03-05** — ต่ออายุล่วงหน้าอย่างน้อย 1 เดือน แล้วทำขั้นตอนข้างบนซ้ำ (เฉพาะส่วนใบรับรอง) และ `sudo systemctl reload nginx`
 
@@ -216,6 +228,13 @@ docker compose run --rm api node dist/scripts/seed-super-admin.js
 4. ถ้า PR นั้นแก้ไฟล์ใน `deploy/` (compose, nginx, สคริปต์, env ตัวอย่าง) ต้องคัดลอกไฟล์ที่เปลี่ยนไปที่ VM ด้วย (ห้ามทับ `.env`, `env/*.env`, `secrets/`, `ca/`)
 
 downtime ระหว่างสลับ container ไม่กี่วินาที
+
+**อัปเดตเครื่องที่ deploy ไว้ก่อนมี Garage (ครั้งเดียว):**
+1. คัดลอก `deploy/compose.yml`, `deploy/garage/`, `deploy/scripts/`, `deploy/nginx/msumyid.conf` ไปที่ `/opt/msumyid` (ห้ามทับ `.env`, `env/*.env`, `secrets/`, `ca/`)
+2. เพิ่มใน `.env`: `GARAGE_S3_PORT=3900` · เพิ่มใน `env/api.env`: `S3_PUBLIC_ENDPOINT=https://did.msu.ac.th`, `S3_REGION=garage`, `S3_BUCKET=msumyid-files`, `S3_FORCE_PATH_STYLE=true` (ดู `env/api.env.example`)
+3. `./scripts/init-secrets.sh && ./scripts/init-garage.sh` (หัวข้อ 5.4.1)
+4. nginx: `sudo cp /opt/msumyid/nginx/msumyid.conf /etc/nginx/sites-available/msumyid.conf && sudo nginx -t && sudo systemctl reload nginx`
+5. `./scripts/deploy.sh sha-<commit>` ตามปกติ (deploy.sh ตรวจว่ามี secret ของ Garage ครบก่อน)
 
 **ค่าตั้งที่ย้ายจาก env ไปฐานข้อมูล (2026-10-24):** `ALLOWED_EMAIL_DOMAINS`, `SESSION_TTL_DAYS`, `CRL_VALIDITY_DAYS`, `CRL_REISSUE_HOURS` อยู่ในตาราง `system_settings` แก้ที่ `/admin/settings` (super_admin) มีผลทันทีไม่ต้อง restart — migration ตั้งค่าเริ่มต้น `msu.ac.th` / 7 / 7 / 24 ถ้า `env/api.env` บน VM ตั้งค่าอื่นไว้ ให้แก้ในหน้าตั้งค่าหลัง deploy แล้วลบ 4 บรรทัดนี้ออกจาก `env/api.env` (API ไม่อ่านแล้ว)
 
