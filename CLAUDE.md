@@ -88,6 +88,9 @@ MAIL_TRANSPORT=log
 SIGNER_URL=http://localhost:4020
 SIGNER_TOKEN=...
 SIGNER_TIMEOUT_MS=30000
+# ประทับเวลาลายมือชื่อบน PDF ด้วย MSU TSA (RFC 3161) — TSA ล่ม = ไม่ลงนาม
+TSA_URL=https://tsa.msu.ac.th/tsa
+TSA_TIMEOUT_MS=15000
 # CRL: ออกใหม่ทันทีเมื่อเพิกถอน + ตามรอบใน /admin/settings, เผยแพร่ที่ GET /crl/msu-ca.crl (cdp.msu.ac.th ใช้ cron ดึง)
 CRL_CHECK_INTERVAL_MS=300000
 CRL_PUBLISH_FORMAT=pem                    # pem = แบบ openssl ca -gencrl เดิม, der = ตาม RFC 5280

@@ -4,6 +4,7 @@ import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { requestLogger } from './middlewares/logger.js';
 import { certificatesRouter } from './routes/certificates.js';
 import { crlsRouter } from './routes/crls.js';
+import { signaturesRouter } from './routes/signatures.js';
 import { loadCa } from './services/ca.js';
 
 // บริการเซ็น: ถือ key ของ Intermediate CA และ KEK ของ key สำรอง — เปิดเฉพาะในเครือข่ายภายใน ให้ API เรียกเท่านั้น
@@ -25,6 +26,7 @@ export function createApp() {
   // แต่ละ route อ่าน body ด้วยขนาดสูงสุดของตัวเอง (ออกใบ = เล็ก, ออก CRL = ตามจำนวนใบที่เพิกถอน)
   app.use(certificatesRouter);
   app.use(crlsRouter);
+  app.use(signaturesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

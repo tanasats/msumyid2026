@@ -62,3 +62,19 @@ export function evenHex(hex: string): string {
 export function confPath(p: string): string {
   return p.split(path.sep).join('/').replace(/[$#"']/g, (c) => `\\${c}`);
 }
+
+let cadesSupport: Promise<boolean> | null = null;
+
+/**
+ * OpenSSL รุ่นนี้รองรับ cms -cades หรือไม่ (เพิ่มใน 3.2 — production 3.5, dev 3.2, runner ของ GitHub 3.0)
+ * ตรวจครั้งเดียวต่อ process จากข้อความ -help (ไม่มีตัวเลือก = รุ่นเก่า)
+ */
+export function supportsCmsCades(bin: string): Promise<boolean> {
+  cadesSupport ??= new Promise((resolve) => {
+    execFile(bin, ['cms', '-help'], { windowsHide: true }, (_err, stdout, stderr) => {
+      // -help เขียนลง stderr และบางรุ่นคืน exit code ไม่เป็น 0 — ดูจากข้อความอย่างเดียว
+      resolve(`${stdout}${stderr}`.includes('-cades'));
+    });
+  });
+  return cadesSupport;
+}
