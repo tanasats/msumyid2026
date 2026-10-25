@@ -18,7 +18,7 @@ COPY tsconfig.base.json ./
 COPY apps/api apps/api
 RUN pnpm --filter api build \
   && pnpm --filter api deploy --prod --legacy /out \
-  && cp -r apps/api/dist apps/api/migrations /out/
+  && cp -r apps/api/dist apps/api/migrations apps/api/assets /out/
 
 FROM ${NODE_IMAGE}
 ENV NODE_ENV=production
@@ -28,6 +28,8 @@ COPY --from=build --chown=node:node /out/package.json ./
 COPY --from=build --chown=node:node /out/node_modules ./node_modules
 COPY --from=build --chown=node:node /out/dist ./dist
 COPY --from=build --chown=node:node /out/migrations ./migrations
+# ฟอนต์ Sarabun (OFL) สำหรับข้อความในลายมือชื่อแบบมองเห็น — src/services/pdf-signing/appearance.ts อ่านจาก /app/assets
+COPY --from=build --chown=node:node /out/assets ./assets
 USER node
 EXPOSE 4000
 CMD ["node", "--enable-source-maps", "dist/src/server.js"]
