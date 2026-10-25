@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, type PDFRef } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNull, PDFRef, PDFString } from 'pdf-lib';
 import { extractPdfSignatures, isPdf } from '../signature-verification/pdf-signatures.js';
 
 // เตรียม PDF ให้มีช่องลายมือชื่อ + placeholder แล้วฝัง CMS ที่ได้ — ไม่ถือ key (การลงนามจริงอยู่ที่ signer)
@@ -100,8 +100,23 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
   addToAcroForm(doc, widgetRef);
   if (options.lock) catalog.set(PDFName.of('Perms'), context.obj({ DocMDP: signatureRef }));
 
+  fillObjectNumberGaps(doc);
   const saved = Buffer.from(await doc.save({ useObjectStreams: false }));
   return locatePlaceholders(saved);
+}
+
+/**
+ * เติมเลข object ที่ขาดหายด้วย null ให้ตาราง xref เป็นส่วนย่อยเดียวเริ่มจาก 0
+ * ไฟล์ที่อ่านมา (เช่น จาก Word) มักมีเลขที่หายไป (object stream / xref stream ที่ pdf-lib แตกออกแล้วไม่ได้เขียนกลับ)
+ * pdf-lib จึงเขียน xref หลายส่วนย่อย — ISO 32000-1 ข้อ 7.5.4 กำหนดให้ไฟล์ที่ไม่เคย incremental update มีส่วนย่อยเดียว
+ * Acrobat ตีความว่าไฟล์ถูกแก้หลังลงนาม ทำให้เอกสารที่ล็อก (certification) ขึ้นว่าลายมือชื่อไม่ถูกต้อง (ยืนยันกับ Acrobat 2026-10-25)
+ */
+function fillObjectNumberGaps(doc: PDFDocument): void {
+  const { context } = doc;
+  const used = new Set(context.enumerateIndirectObjects().map(([ref]) => ref.objectNumber));
+  for (let n = 1; n <= context.largestObjectNumber; n++) {
+    if (!used.has(n)) context.assign(PDFRef.of(n), PDFNull);
+  }
 }
 
 /** เพิ่มช่องลายมือชื่อใน AcroForm (สร้างใหม่ถ้ายังไม่มี) — SigFlags 3 = มีลายมือชื่อ + ต้องบันทึกแบบต่อท้ายเท่านั้น */
