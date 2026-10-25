@@ -2,6 +2,7 @@ import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import { AppError } from '../errors.js';
 import { findFileById } from '../repositories/file-repository.js';
+import { findSignatureImage } from '../repositories/signature-image-repository.js';
 import {
   findSigningBatchOfUser,
   findSigningCertificate,
@@ -9,6 +10,7 @@ import {
   insertSigningJob,
   listSigningBatchesOfUser,
   listSigningJobsOfBatch,
+  type SigningAppearance,
   type SigningBatchRow,
   type SigningBatchStatus,
   type SigningJobRow,
@@ -33,6 +35,8 @@ const JOB_ERROR_MESSAGES: Record<string, string> = {
   ALREADY_SIGNED: 'ไฟล์นี้มีลายมือชื่อดิจิทัลอยู่แล้ว ยังลงนามซ้ำไม่ได้',
   INVALID_PDF: 'เปิดไฟล์ PDF ไม่ได้ ไฟล์อาจเสีย',
   SIGNATURE_TOO_LARGE: 'ลายมือชื่อมีขนาดเกินที่จองไว้ในไฟล์ กรุณาติดต่อผู้ดูแลระบบ',
+  PAGE_NOT_FOUND: 'ไฟล์นี้ไม่มีหน้าที่เลือกวางลายเซ็น',
+  SIGNATURE_IMAGE_MISSING: 'ไม่พบภาพลายเซ็นที่เลือกไว้ (อาจถูกเปลี่ยนหรือลบแล้ว) กรุณาลงนามใหม่',
   TSA_UNAVAILABLE: 'บริการประทับเวลาของมหาวิทยาลัยไม่พร้อมใช้งาน กรุณาลองใหม่ภายหลัง',
   SIGNER_UNAVAILABLE: 'ระบบลงนามไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง',
   STORAGE_UNAVAILABLE: 'ระบบจัดเก็บไฟล์ไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง',
@@ -120,14 +124,38 @@ async function assertUsableCertificate(user: AuthUser, certificateId: string): P
   }
 }
 
+/** ตำแหน่งที่หน้าเว็บส่งมา (สัดส่วนของหน้าที่แสดงผล) — route ตรวจช่วงค่าแล้ว */
+export type AppearanceInput =
+  | { visible: false }
+  | { visible: true; page: number; x: number; y: number; w: number; h: number; showText: boolean; useImage: boolean };
+
 /**
- * ส่งไฟล์ PDF ที่อัปโหลดแล้ว 1 ไฟล์เข้าคิวลงนาม (มองไม่เห็น) — ตรวจไฟล์และใบก่อน แล้วจึงตรวจ PIN
- * (พิมพ์ผิดที่ส่วนอื่นจึงไม่ทำให้เสียจำนวนครั้งของ PIN) ผ่านทั้งหมดแล้วสร้างชุด + งานใน transaction เดียว
- * worker ตรวจสถานะบัญชีและใบซ้ำอีกครั้งตอนลงนาม
+ * แปลงตำแหน่งเป็นค่าที่เก็บในชุด: ใช้ภาพ = บันทึก file_id ของภาพลายเซ็นปัจจุบันไว้ (เปลี่ยนภาพภายหลังไม่กระทบชุดที่ส่งแล้ว)
+ * ยังไม่ได้ตั้งภาพ = 409 / ไม่มีทั้งภาพและข้อความ = 422
+ */
+async function resolveAppearance(user: AuthUser, input: AppearanceInput): Promise<SigningAppearance> {
+  if (!input.visible) return { visible: false };
+  if (!input.useImage && !input.showText) {
+    throw new AppError(422, 'APPEARANCE_EMPTY', 'ลายเซ็นแบบมองเห็นต้องมีภาพลายเซ็นหรือข้อความอย่างน้อยหนึ่งอย่าง');
+  }
+  let imageFileId: string | null = null;
+  if (input.useImage) {
+    const image = await findSignatureImage(pool, user.id);
+    if (!image) throw new AppError(409, 'SIGNATURE_IMAGE_NOT_SET', 'ยังไม่ได้ตั้งภาพลายเซ็น');
+    imageFileId = image.fileId;
+  }
+  const { page, x, y, w, h, showText } = input;
+  return { visible: true, page, x, y, w, h, showText, imageFileId };
+}
+
+/**
+ * ส่งไฟล์ PDF ที่อัปโหลดแล้ว 1 ไฟล์เข้าคิวลงนาม (มองไม่เห็น หรือมองเห็นตาม appearance) — ตรวจไฟล์ ใบ และตำแหน่งก่อน
+ * แล้วจึงตรวจ PIN (พิมพ์ผิดที่ส่วนอื่นจึงไม่ทำให้เสียจำนวนครั้งของ PIN) ผ่านทั้งหมดแล้วสร้างชุด + งานใน transaction เดียว
+ * worker ตรวจสถานะบัญชีและใบซ้ำอีกครั้งตอนลงนาม (หน้าที่เลือกไม่มีในไฟล์ = worker แจ้ง PAGE_NOT_FOUND)
  */
 export async function createSigningBatch(
   user: AuthUser,
-  input: { fileId: string; certificateId: string; lockDocument: boolean; pin: string },
+  input: { fileId: string; certificateId: string; lockDocument: boolean; appearance: AppearanceInput; pin: string },
 ): Promise<SigningBatch> {
   const file = await findFileById(pool, input.fileId);
   if (!file || file.uploadedBy !== user.id || file.purpose !== 'signing_source') {
@@ -142,6 +170,7 @@ export async function createSigningBatch(
     throw new AppError(422, 'FILE_TYPE_NOT_ALLOWED', 'ตอนนี้ลงนามได้เฉพาะไฟล์ PDF ทีละไฟล์');
   }
   await assertUsableCertificate(user, input.certificateId);
+  const appearance = await resolveAppearance(user, input.appearance);
   await verifySigningPin(user.id, input.pin);
 
   const batchId = await withTransaction(async (client) => {
@@ -150,6 +179,7 @@ export async function createSigningBatch(
       certificateId: input.certificateId,
       source: 'single',
       lockDocument: input.lockDocument,
+      appearance,
       expiresAt: new Date(Date.now() + SIGNING_FILE_RETENTION_DAYS * DAY_MS),
     });
     await insertSigningJob(client, { batchId: batch.id, sourceFileId: file.id, originalName: file.originalName });

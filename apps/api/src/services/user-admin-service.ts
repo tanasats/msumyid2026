@@ -40,6 +40,7 @@ import { erasePersonalDataFromPrimaryRequests } from '../repositories/primary-ce
 import { expireFilesOfUser } from '../repositories/file-repository.js';
 import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
 import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
+import { deleteSignatureImage } from '../repositories/signature-image-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -470,6 +471,7 @@ export async function deleteUser(
     const expiredFiles = await expireFilesOfUser(client, userId);
     const erasedSigningJobs = await eraseSigningJobNamesOfUser(client, userId);
     await deleteSigningPin(client, userId);
+    await deleteSignatureImage(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,

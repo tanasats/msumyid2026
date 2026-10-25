@@ -128,3 +128,8 @@ export async function expireFilesOfUser(db: Queryable, userId: string): Promise<
   );
   return result.rowCount ?? 0;
 }
+
+/** เลิกตั้งวันหมดอายุ — ไฟล์ที่ผูกใช้งานถาวรแล้ว (ภาพลายเซ็น) ไม่ให้ job ลบ */
+export async function clearFileExpiry(db: Queryable, id: string): Promise<void> {
+  await db.query(`UPDATE files SET expires_at = NULL WHERE id = $1 AND deleted_at IS NULL`, [id]);
+}

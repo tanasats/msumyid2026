@@ -49,15 +49,30 @@ const JOB_COLUMNS = `j.id,
             j.signed_sha256   AS "signedSha256",
             j.signed_at       AS "signedAt"`;
 
+/**
+ * signing_batches.appearance (jsonb): มองไม่เห็น = { visible: false }
+ * มองเห็น = ตำแหน่งเป็นสัดส่วนของหน้าที่แสดงผล + ภาพลายเซ็น ณ ตอนส่งคำขอ (imageFileId, null = ข้อความอย่างเดียว)
+ */
+export type SigningAppearance =
+  | { visible: false }
+  | { visible: true; page: number; x: number; y: number; w: number; h: number; showText: boolean; imageFileId: string | null };
+
 export async function insertSigningBatch(
   db: Queryable,
-  input: { userId: string; certificateId: string; source: 'single' | 'zip'; lockDocument: boolean; expiresAt: Date },
+  input: {
+    userId: string;
+    certificateId: string;
+    source: 'single' | 'zip';
+    lockDocument: boolean;
+    appearance: SigningAppearance;
+    expiresAt: Date;
+  },
 ): Promise<{ id: string }> {
   const result = await db.query<{ id: string }>(
-    `INSERT INTO signing_batches (user_id, certificate_id, source, lock_document, expires_at)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO signing_batches (user_id, certificate_id, source, lock_document, appearance, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
-    [input.userId, input.certificateId, input.source, input.lockDocument, input.expiresAt],
+    [input.userId, input.certificateId, input.source, input.lockDocument, JSON.stringify(input.appearance), input.expiresAt],
   );
   return result.rows[0]!;
 }
@@ -168,6 +183,9 @@ export type SigningJobContext = {
   batchId: string;
   originalName: string;
   lockDocument: boolean;
+  appearance: SigningAppearance;
+  /** object key ของภาพลายเซ็นที่ชุดนี้ใช้ — null = ไม่ใช้ภาพ หรือไฟล์ภาพถูกลบไปแล้ว (ดู appearance.imageFileId) */
+  imageObjectKey: string | null;
   batchExpiresAt: Date;
   user: {
     id: string;
@@ -207,6 +225,8 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
     batch_id: string;
     original_name: string;
     lock_document: boolean;
+    appearance: SigningAppearance;
+    image_object_key: string | null;
     batch_expires_at: Date;
     user_id: string;
     email: string;
@@ -238,6 +258,8 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
             j.batch_id,
             j.original_name,
             b.lock_document,
+            b.appearance,
+            img.object_key     AS image_object_key,
             b.expires_at       AS batch_expires_at,
             u.id               AS user_id,
             u.email,
@@ -284,6 +306,8 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
      JOIN certificates c ON c.id = b.certificate_id
      LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id
      JOIN files f ON f.id = j.source_file_id
+     -- ภาพลายเซ็นที่บันทึกไว้ใน appearance ตอนส่งคำขอ (ไฟล์ถูกลบแล้ว = NULL → worker แจ้งว่าไม่พบภาพ)
+     LEFT JOIN files img ON img.id = (b.appearance->>'imageFileId')::uuid AND img.deleted_at IS NULL
      WHERE j.id = $1`,
     [jobId],
   );
@@ -294,6 +318,8 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
     batchId: row.batch_id,
     originalName: row.original_name,
     lockDocument: row.lock_document,
+    appearance: row.appearance,
+    imageObjectKey: row.image_object_key,
     batchExpiresAt: row.batch_expires_at,
     user: {
       id: row.user_id,

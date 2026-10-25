@@ -8,10 +8,29 @@ import { createSigningBatch, getMySigningBatch, listMySigningBatches } from '../
 // ลงนามเอกสารบนเว็บ (docs/design/document-signing.md) — ส่งเข้าคิวแล้ว worker ลงนาม หน้าเว็บถามสถานะซ้ำจนจบ
 export const signingRouter = Router();
 
+// ตำแหน่งเป็นสัดส่วนของหน้าที่แสดงผล (มุมซ้ายบน) กล่องต้องอยู่ในหน้าทั้งหมด และกว้าง/สูงอย่างน้อย 2% ของหน้า
+// ค่าคลาดเล็กน้อยจากการปัดเศษของ browser (1e-6) ยอมรับได้
+const fraction = z.number().min(0).max(1);
+const visibleAppearance = z
+  .object({
+    visible: z.literal(true),
+    page: z.number().int().min(1).max(10_000),
+    x: fraction,
+    y: fraction,
+    w: z.number().min(0.02).max(1),
+    h: z.number().min(0.02).max(1),
+    showText: z.boolean(),
+    useImage: z.boolean(),
+  })
+  .refine((a) => a.x + a.w <= 1 + 1e-6 && a.y + a.h <= 1 + 1e-6, 'กรอบลายเซ็นต้องอยู่ภายในหน้าเอกสาร');
+const appearance = z.discriminatedUnion('visible', [z.object({ visible: z.literal(false) }), visibleAppearance]);
+
 const createBody = z.object({
   fileId: z.uuid(),
   certificateId: z.uuid(),
   lockDocument: z.boolean(),
+  // ไม่ส่ง = มองไม่เห็น (แบบ D1)
+  appearance: appearance.default({ visible: false }),
   pin: z.string().regex(PIN_PATTERN, 'PIN ต้องเป็นตัวเลข 6–12 หลัก'),
 });
 const batchParams = z.object({ id: z.uuid() });
