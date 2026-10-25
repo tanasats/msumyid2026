@@ -1,5 +1,5 @@
-import { apiFetch } from './api-server';
-import type { SignatureImage, SigningBatchSummary, SigningPinStatus } from './signing';
+import { ApiError, apiFetch } from './api-server';
+import type { SignatureImage, SigningBatch, SigningBatchSummary, SigningPinStatus } from './signing';
 
 /** สถานะ PIN ลงนามของผู้ใช้ปัจจุบัน (ต้อง login เท่านั้น) */
 export async function getSigningPinStatus(): Promise<SigningPinStatus> {
@@ -16,4 +16,15 @@ export async function getMySigningBatches(): Promise<SigningBatchSummary[]> {
 export async function getMySignatureImage(): Promise<SignatureImage | null> {
   const { image } = await apiFetch<{ image: SignatureImage | null }>('/me/signature-image');
   return image;
+}
+
+/** ชุดการลงนามของผู้ใช้ (null = ไม่พบ หรือเป็นของคนอื่น) */
+export async function getMySigningBatch(id: string): Promise<SigningBatch | null> {
+  try {
+    const { batch } = await apiFetch<{ batch: SigningBatch }>(`/me/signing-batches/${id}`);
+    return batch;
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 400)) return null;
+    throw err;
+  }
 }

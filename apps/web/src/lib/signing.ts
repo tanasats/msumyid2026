@@ -3,17 +3,23 @@ import type { Certificate } from './certificate';
 
 /** PDF ที่ลงนามได้ต่อไฟล์ (ตรงกับ allowlist ของ API: signing_source) */
 export const MAX_SIGNING_PDF_BYTES = 20 * 1024 * 1024;
+/** ZIP ที่รวม PDF ไว้ (ตรงกับ allowlist ของ API) — ข้างในไม่เกิน 100 PDF รวมกันไม่เกิน 500 MB (worker ตรวจตอนแตกไฟล์) */
+export const MAX_SIGNING_ZIP_BYTES = 500 * 1024 * 1024;
 
 export type SigningPinStatus = { hasPin: boolean; lockedUntil: string | null };
 
 export type SigningJobStatus = 'pending' | 'signing' | 'signed' | 'failed';
-export type SigningBatchStatus = 'processing' | 'completed' | 'failed';
+/** extracting = กำลังแตก ZIP */
+export type SigningBatchStatus = 'extracting' | 'processing' | 'completed' | 'failed';
+
+/** retryable = ล้มเหลวเพราะระบบขัดข้องชั่วคราว กดลองใหม่ได้ */
+export type SigningError = { code: string; message: string; retryable: boolean };
 
 export type SigningJob = {
   id: string;
   originalName: string;
   status: SigningJobStatus;
-  error: { code: string; message: string } | null;
+  error: SigningError | null;
   /** ดาวน์โหลดผ่าน GET /me/files/:id/download — null เมื่อยังไม่เสร็จหรือเลย 7 วันแล้ว */
   signedFileId: string | null;
   signedAt: string | null;
@@ -23,14 +29,25 @@ export type SigningBatch = {
   id: string;
   status: SigningBatchStatus;
   source: 'single' | 'zip';
+  /** ชื่อไฟล์ ZIP (null = ชุดไฟล์เดียว) */
+  zipName: string | null;
   lockDocument: boolean;
   certificateId: string;
+  /** เหตุที่ทั้งชุดล้มเหลว (เช่น ZIP เสีย) */
+  error: SigningError | null;
+  /** รายการใน ZIP ที่ข้าม */
+  skipped: { name: string; reason: string; message: string }[];
+  /** มีส่วนที่ล้มเหลวชั่วคราวและชุดจบแล้ว — แสดงปุ่มลองใหม่ */
+  canRetry: boolean;
   expiresAt: string;
   createdAt: string;
   jobs: SigningJob[];
 };
 
-export type SigningBatchSummary = Omit<SigningBatch, 'jobs'> & {
+export type SigningBatchSummary = Pick<
+  SigningBatch,
+  'id' | 'status' | 'source' | 'lockDocument' | 'certificateId' | 'expiresAt' | 'createdAt'
+> & {
   firstName: string | null;
   firstSignedFileId: string | null;
   totalJobs: number;
@@ -43,7 +60,11 @@ export function canSignWith(c: Pick<Certificate, 'status' | 'hasKeyEscrow' | 'no
   return c.status === 'active' && c.hasKeyEscrow && new Date(c.notBefore) <= now;
 }
 
+/** ชุดยังไม่จบ (หน้าเว็บถามสถานะซ้ำ) */
+export const isBatchInProgress = (status: SigningBatchStatus) => status === 'extracting' || status === 'processing';
+
 export const BATCH_STATUS_LABELS: Record<SigningBatchStatus, string> = {
+  extracting: 'กำลังแตกไฟล์ ZIP',
   processing: 'กำลังลงนาม',
   completed: 'ลงนามแล้ว',
   failed: 'ไม่สำเร็จ',

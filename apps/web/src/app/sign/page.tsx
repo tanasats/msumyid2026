@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { FileBadge, History, KeyRound, Signature } from 'lucide-react';
+import { ChevronRight, FileArchive, FileBadge, History, KeyRound, Signature } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
 import { BatchStatusBadge } from '@/components/signing/BatchStatusBadge';
-import { DownloadButton, SignDocumentForm } from '@/components/signing/SignDocumentForm';
+import { DownloadButton } from '@/components/signing/DownloadButton';
+import { SignDocumentForm } from '@/components/signing/SignDocumentForm';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser } from '@/lib/auth';
@@ -19,7 +20,8 @@ export const metadata: Metadata = { title: 'ลงนามเอกสาร' }
 const dateTimeFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' });
 
 // ลงนาม PDF ด้วยใบรับรองของตัวเอง (document:sign — API ตรวจสิทธิ์ ใบ และ PIN อีกครั้งทุกครั้ง)
-// docs/design/document-signing.md ระยะ D1–D2: ไฟล์เดียว แสดงลายเซ็น (ภาพ/ชื่อและวันเวลา) ณ ตำแหน่งที่ลากวาง หรือไม่แสดง เลือกล็อกเอกสารได้
+// docs/design/document-signing.md ระยะ D1–D3: PDF ไฟล์เดียวหรือ ZIP หลายไฟล์ แสดงลายเซ็น (ภาพ/ชื่อและวันเวลา) ณ ตำแหน่งที่ลากวาง
+// หรือไม่แสดง เลือกล็อกเอกสารได้ — ผลการลงนามแต่ละชุดอยู่ที่ /sign/batches/[id]
 export default async function SignPage({
   searchParams,
 }: {
@@ -98,18 +100,27 @@ function SigningHistory({ batches }: { batches: SigningBatchSummary[] }) {
         <ul className="divide-y divide-line rounded-xl border border-line bg-surface shadow-card">
           {batches.map((b) => (
             <li key={b.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="font-medium break-all">{b.firstName ?? 'เอกสาร'}</p>
+              <Link href={`/sign/batches/${b.id}`} className="group min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 font-medium break-all group-hover:underline">
+                  {b.source === 'zip' && <FileArchive className="size-4 shrink-0" aria-hidden />}
+                  {b.firstName ?? 'เอกสาร'}
+                  <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+                </p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
                   <BatchStatusBadge status={b.status} />
+                  {b.source === 'zip' && b.totalJobs > 0 && (
+                    <span className="tabular-nums">
+                      {b.signedJobs}/{b.totalJobs} ไฟล์
+                    </span>
+                  )}
                   {b.lockDocument && <Tag>ล็อกเอกสาร</Tag>}
                   <span className="tabular-nums">{dateTimeFormatter.format(new Date(b.createdAt))}</span>
                 </p>
-              </div>
-              {b.firstSignedFileId ? (
+              </Link>
+              {b.source === 'single' && b.firstSignedFileId ? (
                 <DownloadButton fileId={b.firstSignedFileId} size="sm" />
               ) : (
-                b.status === 'completed' && <span className="text-sm text-muted">ไฟล์ถูกลบแล้ว</span>
+                b.status === 'completed' && !b.firstSignedFileId && <span className="text-sm text-muted">ไฟล์ถูกลบแล้ว</span>
               )}
             </li>
           ))}
