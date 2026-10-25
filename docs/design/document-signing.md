@@ -18,8 +18,8 @@
 | ขอบเขตของ signer | signer ไม่ตีความ PDF รับเฉพาะ "ไบต์ตาม /ByteRange" + key สำรอง แล้วคืน CMS (`POST /signatures/cms`) — การเตรียม PDF/ฝังลายมือชื่ออยู่ที่ API/worker |
 | ประทับเวลา | **MSU TSA `https://tsa.msu.ac.th/tsa`** (RFC 3161) ทุกลายมือชื่อ เก็บเป็น `signatureTimeStampToken` — TSA ล่มหรือตอบผิด = ไฟล์นั้นล้มเหลว (ไม่ออกไฟล์ที่ไม่มีเวลา) ใบของ TSA ออกโดย CA ของมหาวิทยาลัยใต้ root ของ TUC ผู้ที่ติดตั้ง root จาก `/root-ca` จึงเชื่อถือได้ |
 | ล็อกเอกสาร | certification signature + DocMDP `P=1` (Acrobat แสดง "Certified" แก้ไขใด ๆ แล้วลายมือชื่อไม่ผ่าน) |
-| ภาพลายเซ็น | อัปโหลด PNG หรือวาดบนจอ ตั้งครั้งเดียว + บรรทัด "ลงนามดิจิทัลโดย <display_name> <วันเวลา>" ใต้ภาพเป็นค่าเริ่มต้น (ปิดได้ ระบบสร้างจากฐานข้อมูล ผู้ใช้แก้ข้อความไม่ได้) ฟอนต์ Sarabun |
-| ตำแหน่ง | ลากวาง + ย่อขยายบน preview (pdf.js) เก็บเป็นสัดส่วนของหน้า ใช้ตำแหน่งเดียวกับทุกไฟล์ในชุด |
+| ภาพลายเซ็น | อัปโหลด PNG หรือวาดบนจอ ตั้งครั้งเดียว เก็บจนผู้ใช้เปลี่ยน/ลบหรือลบบัญชี (ยืนยัน 2026-10-25) + บรรทัด "ลงนามดิจิทัลโดย <display_name>" และ "25 ต.ค. 2569 14:30 น." (พ.ศ. เวลาไทย ไม่มีข้อความอื่น) ใต้ภาพเป็นค่าเริ่มต้น (ปิดได้ ระบบสร้างจากฐานข้อมูล ผู้ใช้แก้ข้อความไม่ได้) ฟอนต์ Sarabun ฝังทั้งไฟล์ (subset ของ pdf-lib ทำ glyph ไทยหายได้) — ยังไม่ตั้งภาพ = แสดงข้อความอย่างเดียวได้ |
+| ตำแหน่ง | ลากวาง + ย่อขยายบน preview (pdf.js) เก็บเป็นสัดส่วนของหน้าที่แสดงผล (CropBox + /Rotate) ใช้ตำแหน่งเดียวกับทุกไฟล์ในชุด — เริ่มต้นมุมขวาล่างของหน้าแรก (ยืนยัน 2026-10-25) |
 | ชุด ZIP | ≤ 100 PDF, ไฟล์ละ ≤ 20 MB, รวมหลังแตก ≤ 500 MB, อัตราบีบอัด ≤ 100 เท่า — อ่านแบบ stream ข้าม path แปลก/ZIP ซ้อน/ไม่ใช่ PDF |
 | เก็บไฟล์ | Garage (VM เดียวกับระบบ, single node, **ไม่ backup**) 7 วันแล้วลบอัตโนมัติ เก็บถาวรเฉพาะประวัติ (SHA-256, เวลา, ใบรับรอง) — PDPA |
 | หลายผู้ลงนาม | ระยะ D4 (incremental update) ระหว่างนั้นไฟล์ที่มีลายมือชื่ออยู่แล้วถูกปฏิเสธ (`ALREADY_SIGNED`) |
@@ -52,7 +52,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 
 - `files`: `bucket`, `object_key` (UUID), `original_name`, `mime_type`, `size`, `sha256`, `uploaded_by`, `expires_at`, `deleted_at`
 - `signing_pins`: `user_id` PK, `pin_hash` (scrypt + salt), `failed_attempts`, `locked_until`
-- `signature_images`: `user_id` PK, `file_id`
+- `signature_images`: `user_id` PK, `file_id`, `width`, `height` (เปลี่ยนภาพ = ไฟล์เดิมหมดอายุทันที, ไฟล์ที่ผูกแล้วไม่มีวันหมดอายุ)
 - `signing_batches`: `user_id`, `certificate_id`, `source` (`single`/`zip`), `appearance` jsonb (visible, page, x, y, w, h เป็นสัดส่วน, showText), `lock_document`, `status`, `expires_at`
 - `signing_jobs`: `batch_id`, `source_file_id`, `signed_file_id`, `original_name`, `status` (`pending`/`signing`/`signed`/`failed`), `error_code`, `document_sha256`, `signed_sha256`, `attempts`, `signed_at` + partial index `WHERE status = 'pending'`
 
@@ -63,7 +63,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 | D0a | เครื่องมือลงนาม: signer `signCms`, `preparePdf`/`embedSignature` (pdf-lib), MSU TSA + ฝัง token, ล็อก DocMDP, สคริปต์ `pnpm --filter api pdf:sign-sample` ทดลองกับ Acrobat | เสร็จ |
 | D0b | Garage บน production (`deploy/compose.yml`, `scripts/init-garage.sh`, nginx `/msumyid-files/`) + storage wrapper `src/storage` + ตาราง `files` (`/me/files` ขอ URL อัปโหลด/ยืนยัน/ดาวน์โหลด, job ลบไฟล์หมดอายุ) + PIN ลงนาม (`/me/signing-pin`, ตั้งใหม่เมื่อลืม = login ใหม่ภายใน 10 นาที) | เสร็จ |
 | D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA — หน้า `/sign`, `/sign/pin`, `POST/GET /me/signing-batches`, worker `src/worker.ts` (service `worker` ใน `deploy/compose.yml`) | เสร็จ |
-| D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย | |
+| D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย — `/sign/signature`, `GET/PUT/DELETE /me/signature-image`, `appearance` ใน `POST /me/signing-batches` (บันทึก file_id ของภาพ ณ ตอนส่ง), `pdf-signing/appearance.ts` | เสร็จ |
 | D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน | |
 | D4 | ไฟล์ที่มีลายมือชื่ออยู่แล้ว (incremental, หลายผู้ลงนาม) + LTV (DSS/CRL ฝังในไฟล์) | |
 
