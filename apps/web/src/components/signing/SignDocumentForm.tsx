@@ -1,39 +1,47 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CircleCheck, Download, EyeOff, FileUp, LoaderCircle, Lock, PenLine, RotateCcw, X } from 'lucide-react';
+import { CircleCheck, EyeOff, FileUp, LoaderCircle, Lock, PenLine, X } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { Button } from '@/components/Button';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { TextField } from '@/components/TextField';
-import { ApiClientError, apiGet, apiMutate, downloadMyFile, uploadToStorage } from '@/lib/api-client';
+import { ApiClientError, apiMutate, uploadToStorage } from '@/lib/api-client';
 import type { Certificate } from '@/lib/certificate';
 import { formatBytes } from '@/lib/verify';
-import { MAX_SIGNING_PDF_BYTES, type SignatureBox, type SignatureImage, type SigningBatch } from '@/lib/signing';
+import {
+  MAX_SIGNING_PDF_BYTES,
+  MAX_SIGNING_ZIP_BYTES,
+  type SignatureBox,
+  type SignatureImage,
+  type SigningBatch,
+} from '@/lib/signing';
+import { firstPdfInZip } from '@/lib/zip-preview';
 import { SignaturePlacement } from './SignaturePlacement';
 import { SigningPinForm } from './SigningPinForm';
 
 const PIN_PATTERN = /^\d{6,12}$/;
-/** ถามสถานะซ้ำทุกกี่ ms ระหว่างรอ worker (ลงนาม 1 ไฟล์ใช้ไม่กี่วินาที) */
-const POLL_INTERVAL_MS = 2000;
+
+const isZipFile = (f: File) =>
+  ['application/zip', 'application/x-zip-compressed'].includes(f.type) || f.name.toLowerCase().endsWith('.zip');
+const isPdfFile = (f: File) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+
+/** ตัวอย่างสำหรับวางลายเซ็น: PDF = ไฟล์นั้น, ZIP = PDF ไฟล์แรกใน ZIP (null = ไม่พบ) */
+type Preview = { status: 'none' } | { status: 'loading' } | { status: 'ready'; file: File } | { status: 'missing' };
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' });
 
-type Step =
-  | { step: 'form' }
-  | { step: 'uploading'; progress: number }
-  | { step: 'submitting' }
-  | { step: 'waiting'; batch: SigningBatch }
-  | { step: 'done'; batch: SigningBatch };
+type Step = { step: 'form' } | { step: 'uploading'; progress: number } | { step: 'submitting' };
 
 type FieldErrors = Partial<Record<'file' | 'pin' | 'appearance', string>>;
 
 type UploadResponse = { file: { id: string }; uploadUrl: string };
 
 /**
- * ลงนาม PDF 1 ไฟล์: อัปโหลดตรงเข้า storage → ส่งเข้าคิวพร้อม PIN → รอ worker → ดาวน์โหลด
+ * ลงนาม PDF 1 ไฟล์ หรือหลายไฟล์ใน ZIP (ระยะ D3): อัปโหลดตรงเข้า storage → ส่งเข้าคิวพร้อม PIN → ไปหน้าผลการลงนาม
+ * ZIP: วางลายเซ็นบนตัวอย่างจาก PDF ไฟล์แรก (อ่านบนเครื่องผู้ใช้) แล้วใช้ตำแหน่งเดียวกันกับทุกไฟล์
  * แสดงลายเซ็นบนเอกสาร (ภาพ + ชื่อ/วันเวลา ณ ตำแหน่งที่ลากวาง) หรือไม่แสดง (ลายมือชื่อดิจิทัลอย่างเดียว)
  * ยังไม่ตั้ง PIN = ให้ตั้งก่อนในหน้าเดียวกัน — ทุกขั้นตอน API ตรวจสิทธิ์ ไฟล์ ใบรับรอง และ PIN อีกครั้ง
  */
@@ -52,6 +60,7 @@ export function SignDocumentForm({
   const router = useRouter();
   const [hasPin, setHasPin] = useState(initialHasPin);
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<Preview>({ status: 'none' });
   const [certificateId, setCertificateId] = useState(certificates[0]?.id ?? '');
   const [lockDocument, setLockDocument] = useState(false);
   const [visible, setVisible] = useState(true);
@@ -64,33 +73,6 @@ export function SignDocumentForm({
   const [state, setState] = useState<Step>({ step: 'form' });
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // รอ worker: ถามสถานะซ้ำจนกว่าชุดจะจบ (ออกจากหน้า = หยุดถาม งานยังทำต่อ ดูผลได้ในประวัติ)
-  const waitingBatchId = state.step === 'waiting' ? state.batch.id : null;
-  useEffect(() => {
-    if (!waitingBatchId) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const { batch } = await apiGet<{ batch: SigningBatch }>(`/me/signing-batches/${waitingBatchId}`, controller.signal);
-        if (batch.status !== 'processing') {
-          setState({ step: 'done', batch });
-          router.refresh();
-          return;
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        // เครือข่ายสะดุด: ถามใหม่รอบถัดไป
-      }
-      timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [waitingBatchId, router]);
 
   if (!hasPin) {
     return (
@@ -107,25 +89,37 @@ export function SignDocumentForm({
     const picked = files?.[0];
     if (inputRef.current) inputRef.current.value = '';
     if (!picked) return;
-    if (picked.type !== 'application/pdf' && !picked.name.toLowerCase().endsWith('.pdf')) {
-      setFieldErrors((e) => ({ ...e, file: 'กรุณาเลือกไฟล์ PDF' }));
+    const zip = isZipFile(picked);
+    if (!zip && !isPdfFile(picked)) {
+      setFieldErrors((e) => ({ ...e, file: 'กรุณาเลือกไฟล์ PDF หรือ ZIP ที่รวม PDF ไว้' }));
       return;
     }
-    if (picked.size === 0 || picked.size > MAX_SIGNING_PDF_BYTES) {
-      setFieldErrors((e) => ({ ...e, file: `ไฟล์ต้องไม่ว่างและไม่เกิน ${formatBytes(MAX_SIGNING_PDF_BYTES)}` }));
+    const max = zip ? MAX_SIGNING_ZIP_BYTES : MAX_SIGNING_PDF_BYTES;
+    if (picked.size === 0 || picked.size > max) {
+      setFieldErrors((e) => ({ ...e, file: `ไฟล์ต้องไม่ว่างและไม่เกิน ${formatBytes(max)}` }));
       return;
     }
     setFile(picked);
     // เลือกไฟล์ใหม่ = ตั้งกรอบเริ่มต้นใหม่ (มุมขวาล่างของหน้าแรก)
     setBox(null);
     setFieldErrors((e) => ({ ...e, file: undefined }));
+    if (!zip) {
+      setPreview({ status: 'ready', file: picked });
+      return;
+    }
+    setPreview({ status: 'loading' });
+    firstPdfInZip(picked).then(
+      (pdf) => setPreview(pdf ? { status: 'ready', file: pdf } : { status: 'missing' }),
+      () => setPreview({ status: 'missing' }),
+    );
   }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const errors: FieldErrors = {};
-    if (!file) errors.file = 'กรุณาเลือกไฟล์ PDF ที่จะลงนาม';
+    if (!file) errors.file = 'กรุณาเลือกไฟล์ PDF หรือ ZIP ที่จะลงนาม';
     if (visible && !useImage && !showText) errors.appearance = 'เลือกแสดงภาพลายเซ็นหรือชื่อและวันเวลาอย่างน้อยหนึ่งอย่าง';
+    else if (visible && file && !box) errors.appearance = 'ยังวางลายเซ็นบนเอกสารไม่ได้ (ไม่พบ PDF สำหรับแสดงตัวอย่าง) — เลือก "ไม่แสดง" หรือเลือกไฟล์อื่น';
     if (!PIN_PATTERN.test(pin)) errors.pin = 'กรุณาใส่ PIN ลงนาม (ตัวเลข 6–12 หลัก)';
     setFieldErrors(errors);
     if (errors.file) return document.getElementById('field-file')?.focus();
@@ -136,15 +130,17 @@ export function SignDocumentForm({
     abortRef.current = controller;
     setError(null);
     setState({ step: 'uploading', progress: 0 });
+    // Windows ส่งชนิด ZIP เป็น application/x-zip-compressed — ส่งชนิดมาตรฐานเสมอ (ต้องตรงกับที่ API เซ็นไว้ใน URL)
+    const contentType = isZipFile(file!) ? 'application/zip' : 'application/pdf';
     try {
       const upload = await apiMutate<UploadResponse>('/me/files', 'POST', {
         purpose: 'signing_source',
         originalName: file!.name,
-        mimeType: 'application/pdf',
+        mimeType: contentType,
         size: file!.size,
       });
       await uploadToStorage(upload.uploadUrl, file!, {
-        contentType: 'application/pdf',
+        contentType,
         signal: controller.signal,
         onProgress: (progress) => setState((s) => (s.step === 'uploading' ? { ...s, progress } : s)),
       });
@@ -161,7 +157,8 @@ export function SignDocumentForm({
         pin,
       });
       setPin('');
-      setState({ step: 'waiting', batch });
+      // ความคืบหน้าและผลอยู่ที่หน้าของชุด (ออกจากหน้าได้ worker ทำต่อ)
+      router.push(`/sign/batches/${batch.id}`);
     } catch (err) {
       setState({ step: 'form' });
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -177,58 +174,12 @@ export function SignDocumentForm({
     }
   }
 
-  function reset() {
-    setFile(null);
-    setBox(null);
-    setPin('');
-    setFieldErrors({});
-    setError(null);
-    setState({ step: 'form' });
-  }
-
-  if (state.step === 'waiting' || state.step === 'submitting') {
+  if (state.step === 'submitting') {
     return (
       <section className="flex flex-col items-center rounded-xl border border-line bg-surface p-8 text-center shadow-card" aria-live="polite">
         <LoaderCircle className="size-10 text-accent motion-safe:animate-spin" aria-hidden />
-        <h2 className="mt-4 font-display text-lg font-semibold">กำลังลงนามเอกสาร</h2>
-        <p className="mt-1 text-sm text-muted">
-          ลงนามและประทับเวลาด้วยบริการของมหาวิทยาลัย ใช้เวลาไม่กี่วินาที ออกจากหน้านี้ได้ ผลจะอยู่ในประวัติด้านล่าง
-        </p>
+        <h2 className="mt-4 font-display text-lg font-semibold">กำลังส่งเอกสารเข้าคิวลงนาม</h2>
       </section>
-    );
-  }
-
-  if (state.step === 'done') {
-    const job = state.batch.jobs[0];
-    const again = (
-      <Button variant="secondary" fullWidth onClick={reset}>
-        <RotateCcw className="size-5" aria-hidden />
-        ลงนามไฟล์อื่น
-      </Button>
-    );
-    if (job?.status === 'signed' && job.signedFileId) {
-      const fileId = job.signedFileId;
-      return (
-        <div className="space-y-4">
-          <Alert tone="success" title="ลงนามเอกสารแล้ว">
-            <span className="break-all">{job.originalName}</span>
-            {state.batch.lockDocument && ' — ล็อกเอกสารแล้ว แก้ไขต่อไม่ได้'} ดาวน์โหลดได้ถึง{' '}
-            {dateFormatter.format(new Date(state.batch.expiresAt))} หลังจากนั้นระบบจะลบไฟล์
-          </Alert>
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            {again}
-            <DownloadButton fileId={fileId} />
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="space-y-4">
-        <Alert tone="danger" title="ลงนามไม่สำเร็จ">
-          {job?.error?.message ?? 'ลงนามไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'}
-        </Alert>
-        <div className="flex justify-end">{again}</div>
-      </div>
     );
   }
 
@@ -251,9 +202,11 @@ export function SignDocumentForm({
               <FileUp className="size-6" aria-hidden />
             </span>
             <span className="min-w-0">
-              <span className="block font-medium break-all">{file ? file.name : 'เลือกไฟล์ PDF'}</span>
+              <span className="block font-medium break-all">{file ? file.name : 'เลือกไฟล์ PDF หรือ ZIP'}</span>
               <span className="block text-sm text-muted">
-                {file ? formatBytes(file.size) : `PDF 1 ไฟล์ ขนาดไม่เกิน ${formatBytes(MAX_SIGNING_PDF_BYTES)} ที่ยังไม่มีลายมือชื่อดิจิทัล`}
+                {file
+                  ? formatBytes(file.size)
+                  : `PDF 1 ไฟล์ (ไม่เกิน ${formatBytes(MAX_SIGNING_PDF_BYTES)}) หรือ ZIP ที่รวม PDF ไม่เกิน 100 ไฟล์ — ไฟล์ต้องยังไม่มีลายมือชื่อดิจิทัล`}
               </span>
             </span>
           </label>
@@ -261,7 +214,7 @@ export function SignDocumentForm({
             ref={inputRef}
             id="field-file"
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,.pdf,application/zip,.zip"
             className="sr-only"
             disabled={uploading}
             aria-invalid={fieldErrors.file ? true : undefined}
@@ -334,15 +287,30 @@ export function SignDocumentForm({
                 </p>
               )}
             </div>
-            {file ? (
-              <SignaturePlacement
-                file={file}
-                box={box}
-                onChange={setBox}
-                image={useImage ? signatureImage : null}
-                showText={showText}
-                signerName={signerName}
-              />
+            {preview.status === 'ready' ? (
+              <>
+                {file && isZipFile(file) && (
+                  <p className="text-sm text-muted">
+                    ตัวอย่างจาก <span className="font-medium break-all">{preview.file.name}</span> — ใช้ตำแหน่งเดียวกันกับทุกไฟล์ใน ZIP
+                    (ไฟล์ที่ไม่มีหน้าที่เลือกจะลงนามไม่สำเร็จ)
+                  </p>
+                )}
+                <SignaturePlacement
+                  file={preview.file}
+                  box={box}
+                  onChange={setBox}
+                  image={useImage ? signatureImage : null}
+                  showText={showText}
+                  signerName={signerName}
+                />
+              </>
+            ) : preview.status === 'loading' ? (
+              <p className="flex items-center gap-2 text-sm text-muted">
+                <LoaderCircle className="size-5 text-accent motion-safe:animate-spin" aria-hidden />
+                กำลังเปิด PDF ไฟล์แรกใน ZIP...
+              </p>
+            ) : preview.status === 'missing' ? (
+              <p className="text-sm text-danger-fg">ไม่พบ PDF ใน ZIP สำหรับแสดงตัวอย่าง จึงวางลายเซ็นไม่ได้</p>
             ) : (
               <p className="text-sm text-muted">เลือกไฟล์ก่อน แล้วลากวางลายเซ็นบนหน้าเอกสารได้ที่นี่</p>
             )}
@@ -450,40 +418,5 @@ export function SignDocumentForm({
         </Button>
       </div>
     </form>
-  );
-}
-
-/** ดาวน์โหลดไฟล์ที่ลงนามแล้ว (ขอ URL อายุ 5 นาทีทุกครั้งที่กด) */
-export function DownloadButton({ fileId, size = 'md' }: { fileId: string; size?: 'md' | 'sm' }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <span className="flex flex-col items-stretch gap-1 sm:items-end">
-      <Button
-        size={size}
-        fullWidth
-        variant={size === 'sm' ? 'secondary' : 'primary'}
-        loading={loading}
-        onClick={async () => {
-          setLoading(true);
-          setError(null);
-          try {
-            await downloadMyFile(fileId);
-          } catch (err) {
-            setError(err instanceof ApiClientError ? err.message : 'ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่');
-          } finally {
-            setLoading(false);
-          }
-        }}
-      >
-        <Download className="size-5" aria-hidden />
-        ดาวน์โหลด
-      </Button>
-      {error && (
-        <span role="alert" className="text-sm text-danger-fg">
-          {error}
-        </span>
-      )}
-    </span>
   );
 }

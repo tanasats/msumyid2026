@@ -21,6 +21,11 @@ export function useMemoryStorage() {
     return o.body;
   });
   vi.spyOn(storage, 'getStream').mockImplementation(async (key) => Readable.from(objects.get(key)?.body ?? Buffer.alloc(0)));
+  vi.spyOn(storage, 'getRangeStream').mockImplementation(async (key, start, end) => {
+    const o = objects.get(key);
+    if (!o) throw new Error(`ไม่มี object ${key}`);
+    return Readable.from([o.body.subarray(start, end)]);
+  });
   vi.spyOn(storage, 'put').mockImplementation(async (key, body, contentType) => {
     objects.set(key, { body, contentType });
   });

@@ -2,6 +2,7 @@ import { CircleAlert, CircleCheck, LoaderCircle, type LucideIcon } from 'lucide-
 import { BATCH_STATUS_LABELS, type SigningBatchStatus } from '@/lib/signing';
 
 const STYLES: Record<SigningBatchStatus, { className: string; icon: LucideIcon }> = {
+  extracting: { className: 'bg-info-soft text-info-fg', icon: LoaderCircle },
   processing: { className: 'bg-info-soft text-info-fg', icon: LoaderCircle },
   completed: { className: 'bg-success-soft text-success-fg', icon: CircleCheck },
   failed: { className: 'bg-danger-soft text-danger-fg', icon: CircleAlert },

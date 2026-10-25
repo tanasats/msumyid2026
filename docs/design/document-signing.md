@@ -20,7 +20,7 @@
 | ล็อกเอกสาร | certification signature + DocMDP `P=1` (Acrobat แสดง "Certified" แก้ไขใด ๆ แล้วลายมือชื่อไม่ผ่าน) |
 | ภาพลายเซ็น | อัปโหลด PNG หรือวาดบนจอ ตั้งครั้งเดียว เก็บจนผู้ใช้เปลี่ยน/ลบหรือลบบัญชี (ยืนยัน 2026-10-25) + บรรทัด "ลงนามดิจิทัลโดย <display_name>" และ "25 ต.ค. 2569 14:30 น." (พ.ศ. เวลาไทย ไม่มีข้อความอื่น) ใต้ภาพเป็นค่าเริ่มต้น (ปิดได้ ระบบสร้างจากฐานข้อมูล ผู้ใช้แก้ข้อความไม่ได้) ฟอนต์ Sarabun ฝังทั้งไฟล์ (subset ของ pdf-lib ทำ glyph ไทยหายได้) — ยังไม่ตั้งภาพ = แสดงข้อความอย่างเดียวได้ |
 | ตำแหน่ง | ลากวาง + ย่อขยายบน preview (pdf.js) เก็บเป็นสัดส่วนของหน้าที่แสดงผล (CropBox + /Rotate) ใช้ตำแหน่งเดียวกับทุกไฟล์ในชุด — เริ่มต้นมุมขวาล่างของหน้าแรก (ยืนยัน 2026-10-25) |
-| ชุด ZIP | ≤ 100 PDF, ไฟล์ละ ≤ 20 MB, รวมหลังแตก ≤ 500 MB, อัตราบีบอัด ≤ 100 เท่า — อ่านแบบ stream ข้าม path แปลก/ZIP ซ้อน/ไม่ใช่ PDF |
+| ชุด ZIP | ≤ 100 PDF, ไฟล์ละ ≤ 20 MB, รวมหลังแตก ≤ 500 MB, อัตราบีบอัด ≤ 100 เท่า — worker อ่านจาก storage ทีละช่วง (HTTP Range) ตรวจ central directory ก่อนแตก, ข้าม (แสดงในรายการ) path แปลก/ZIP ซ้อน/ไม่ใช่ PDF/ชื่อซ้ำ, ปฏิเสธทั้ง ZIP เมื่อเข้าข่ายอันตราย (ZIP bomb, เกินจำนวน/ขนาด), ชื่อไทย TIS-620 (ZIP จาก Windows) ถอดถูก — ตัวอย่างสำหรับวางลายเซ็น = PDF ไฟล์แรกใน ZIP อ่านบนเครื่องผู้ใช้ (`fflate`), ลองใหม่ = ใส่ PIN อีกครั้ง เฉพาะไฟล์ที่ล้มเหลวชั่วคราว, ดาวน์โหลดรวม = API สร้าง ZIP ส่งตรง ไม่เก็บซ้ำ (ยืนยัน 2026-10-25) |
 | เก็บไฟล์ | Garage (VM เดียวกับระบบ, single node, **ไม่ backup**) 7 วันแล้วลบอัตโนมัติ เก็บถาวรเฉพาะประวัติ (SHA-256, เวลา, ใบรับรอง) — PDPA |
 | หลายผู้ลงนาม | ระยะ D4 (incremental update) ระหว่างนั้นไฟล์ที่มีลายมือชื่ออยู่แล้วถูกปฏิเสธ (`ALREADY_SIGNED`) |
 | Permission | `document:sign` — ลงนามเอกสารด้วยใบรับรองของตัวเอง (ยังไม่ผูกกับ role) |
@@ -53,7 +53,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 - `files`: `bucket`, `object_key` (UUID), `original_name`, `mime_type`, `size`, `sha256`, `uploaded_by`, `expires_at`, `deleted_at`
 - `signing_pins`: `user_id` PK, `pin_hash` (scrypt + salt), `failed_attempts`, `locked_until`
 - `signature_images`: `user_id` PK, `file_id`, `width`, `height` (เปลี่ยนภาพ = ไฟล์เดิมหมดอายุทันที, ไฟล์ที่ผูกแล้วไม่มีวันหมดอายุ)
-- `signing_batches`: `user_id`, `certificate_id`, `source` (`single`/`zip`), `appearance` jsonb (visible, page, x, y, w, h เป็นสัดส่วน, showText), `lock_document`, `status`, `expires_at`
+- `signing_batches`: `user_id`, `certificate_id`, `source` (`single`/`zip`), `appearance` jsonb (visible, page, x, y, w, h เป็นสัดส่วน, showText, imageFileId), `lock_document`, `status` (`extracting` สำหรับ ZIP → `processing` → `completed`/`failed`), `source_file_id` (ZIP), `skipped_entries` jsonb, `error_code` (ทั้งชุด), `extract_*` (คิวแตก ZIP), `expires_at`
 - `signing_jobs`: `batch_id`, `source_file_id`, `signed_file_id`, `original_name`, `status` (`pending`/`signing`/`signed`/`failed`), `error_code`, `document_sha256`, `signed_sha256`, `attempts`, `signed_at` + partial index `WHERE status = 'pending'`
 
 ## ลำดับการพัฒนา
@@ -64,7 +64,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 | D0b | Garage บน production (`deploy/compose.yml`, `scripts/init-garage.sh`, nginx `/msumyid-files/`) + storage wrapper `src/storage` + ตาราง `files` (`/me/files` ขอ URL อัปโหลด/ยืนยัน/ดาวน์โหลด, job ลบไฟล์หมดอายุ) + PIN ลงนาม (`/me/signing-pin`, ตั้งใหม่เมื่อลืม = login ใหม่ภายใน 10 นาที) | เสร็จ |
 | D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA — หน้า `/sign`, `/sign/pin`, `POST/GET /me/signing-batches`, worker `src/worker.ts` (service `worker` ใน `deploy/compose.yml`) | เสร็จ |
 | D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย — `/sign/signature`, `GET/PUT/DELETE /me/signature-image`, `appearance` ใน `POST /me/signing-batches` (บันทึก file_id ของภาพ ณ ตอนส่ง), `pdf-signing/appearance.ts` | เสร็จ |
-| D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน | |
+| D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน — `signing-zip.ts`, worker แตก ZIP ก่อนลงนาม, `POST /me/signing-batches/:id/retry`, `GET /me/signing-batches/:id/download`, หน้า `/sign/batches/[id]` | เสร็จ |
 | D4 | ไฟล์ที่มีลายมือชื่ออยู่แล้ว (incremental, หลายผู้ลงนาม) + LTV (DSS/CRL ฝังในไฟล์) | |
 
 Dependency (อนุมัติ 2026-10-25): api `pdf-lib`, `@pdf-lib/fontkit`, `yauzl`, `yazl`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (+ `@signpdf/placeholder-plain` ถ้าจำเป็นใน D4) · web `pdfjs-dist` · ฟอนต์ Sarabun (OFL) — ติดตั้งตามระยะที่ใช้

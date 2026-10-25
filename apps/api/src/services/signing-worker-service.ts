@@ -5,25 +5,35 @@ import { withTransaction } from '../db/transaction.js';
 import { logger } from '../middlewares/logger.js';
 import { insertCertificateAuditLog } from '../repositories/certificate-repository.js';
 import { insertFile } from '../repositories/file-repository.js';
+import type { ZipFile } from 'yauzl';
 import {
+  claimNextExtraction,
   claimNextSigningJob,
   failPendingJobsOfBatch,
+  findExtractionContext,
   findSigningJobContext,
+  insertSigningJob,
+  markBatchFailed,
+  markExtractionDone,
   markSigningJobFailed,
   markSigningJobSigned,
   refreshSigningBatchStatus,
   requeueStaleSigningJobs,
+  retryExtractionLater,
   retrySigningJobLater,
+  type SignerCertificate,
+  type SignerUser,
   type SigningJobContext,
 } from '../repositories/signing-repository.js';
-import { storage } from '../storage/index.js';
+import { storage, StorageError } from '../storage/index.js';
 import { hasPermission, type AuthUser } from './authorization-service.js';
 import { PdfSigningError, signPdf, TimestampError, type SignPdfOptions } from './pdf-signing/index.js';
 import { PERMISSIONS } from './permissions.js';
 import { verifyPdfSignatures } from './signature-verification/index.js';
 import { SignerError, SignerRejectedError } from './signer-client.js';
+import { isStorageFailure, openStoredZip, planZip, readZipEntry, ZipRejectedError } from './signing-zip.js';
 
-// worker ลงนามเอกสาร (process แยกจาก API — src/worker.ts) หยิบงานจาก signing_jobs ทีละงาน:
+// worker ลงนามเอกสาร (process แยกจาก API — src/worker.ts): แตก ZIP ของชุดหลายไฟล์ (D3) แล้วหยิบงานจาก signing_jobs ทีละงาน:
 // ตรวจบัญชี/ใบ/ไฟล์ใหม่จากฐานข้อมูล → อ่านไฟล์จาก storage → signPdf (signer + MSU TSA) → ตรวจซ้ำ
 // → เก็บไฟล์ผลลัพธ์ → บันทึกผล + certificate_audit_logs (sign) ใน transaction เดียว
 // docs/design/document-signing.md
@@ -55,13 +65,17 @@ const retry = (code: string) => new JobOutcome({ kind: 'retry', code });
  * บัญชี/ใบไม่ผ่าน = ทั้งชุดล้มเหลว (ไฟล์อื่นของชุดก็ลงนามไม่ได้เช่นกัน)
  */
 function assertSignable(ctx: SigningJobContext, now: Date): void {
-  const user: AuthUser = { ...ctx.user, pictureUrl: null };
-  if (!ctx.user.isActive || !hasPermission(user, PERMISSIONS.DOCUMENT_SIGN)) throw fail('ACCOUNT_NOT_ALLOWED', true);
-  const c = ctx.certificate;
-  if (c.userId !== ctx.user.id || c.revokedAt || c.notAfter <= now || c.notBefore > now || !c.escrow) {
+  assertSignerAllowed(ctx.user, ctx.certificate, now);
+  if (ctx.sourceFile.deleted || ctx.sourceFile.mimeType !== 'application/pdf') throw fail('SOURCE_MISSING');
+}
+
+/** บัญชีและใบรับรองยังใช้ลงนามได้ (ใช้ทั้งตอนลงนามแต่ละไฟล์และตอนแตก ZIP) — ไม่ผ่าน = ทั้งชุดล้มเหลว */
+function assertSignerAllowed(signer: SignerUser, c: SignerCertificate, now: Date): void {
+  const user: AuthUser = { ...signer, pictureUrl: null };
+  if (!signer.isActive || !hasPermission(user, PERMISSIONS.DOCUMENT_SIGN)) throw fail('ACCOUNT_NOT_ALLOWED', true);
+  if (c.userId !== signer.id || c.revokedAt || c.notAfter <= now || c.notBefore > now || !c.escrow) {
     throw fail('CERTIFICATE_NOT_USABLE', true);
   }
-  if (ctx.sourceFile.deleted || ctx.sourceFile.mimeType !== 'application/pdf') throw fail('SOURCE_MISSING');
 }
 
 /** ชื่อไฟล์ผลลัพธ์: <ชื่อเดิม>-signed.pdf (ตัดชื่อเดิมให้รวมแล้วไม่เกิน 255 ตัวอักษร) */
@@ -251,6 +265,102 @@ export async function requeueStaleJobs(now: Date = new Date()): Promise<number> 
   });
 }
 
+// ---- แตก ZIP (ระยะ D3) ----
+
+/** หยิบชุด ZIP ที่รอแตก 1 ชุด — คืน false เมื่อไม่มี */
+export async function processNextExtraction(now: Date = new Date()): Promise<boolean> {
+  const claimed = await claimNextExtraction(pool, new Date(now.getTime() - STALE_AFTER_MS));
+  if (!claimed) return false;
+  // หยิบซ้ำเกินจำนวนครั้ง = worker ตายกลางทางซ้ำ ๆ (ไฟล์อาจทำให้ worker ล่ม) — หยุดไว้ที่นี่
+  if (claimed.attempts > MAX_ATTEMPTS) {
+    await markBatchFailed(pool, { batchId: claimed.id, errorCode: 'TIMEOUT' });
+    return true;
+  }
+  await runExtraction(claimed.id, claimed.attempts);
+  return true;
+}
+
+/**
+ * แตก ZIP ของชุด: ตรวจบัญชี/ใบก่อน → จำแนกรายการจาก central directory (ยังไม่แตก) → แตก PDF ทีละไฟล์เก็บลง storage
+ * → บันทึกไฟล์ + งานต่อไฟล์ + รายการที่ข้าม แล้วเริ่มลงนาม ใน transaction เดียว
+ * ZIP อันตราย/ใช้ไม่ได้ = ทั้งชุดล้มเหลว, storage ล่ม = ลองใหม่, ล้มเหลวกลางทาง = ลบไฟล์ที่แตกไปแล้ว
+ */
+async function runExtraction(batchId: string, attempts: number): Promise<void> {
+  const log = logger.child({ signingBatchId: batchId });
+  const stored: string[] = [];
+  let zip: ZipFile | null = null;
+  try {
+    const ctx = await findExtractionContext(pool, batchId);
+    if (!ctx) throw fail('INTERNAL');
+    assertSignerAllowed(ctx.user, ctx.certificate, new Date());
+    if (ctx.zip.deleted) throw fail('SOURCE_MISSING');
+
+    zip = await openStoredZip(ctx.zip.objectKey, ctx.zip.size);
+    const plan = await planZip(zip);
+    if (plan.pdfs.length === 0) throw new ZipRejectedError('ZIP_NO_PDF');
+
+    const extracted: { name: string; objectKey: string; size: number }[] = [];
+    for (const pdf of plan.pdfs) {
+      const data = await readZipEntry(zip, pdf.entry);
+      const objectKey = `signing-source/${crypto.randomUUID()}`;
+      await storage.put(objectKey, data, 'application/pdf');
+      stored.push(objectKey);
+      extracted.push({ name: pdf.name, objectKey, size: data.length });
+    }
+
+    const saved = await withTransaction(async (client) => {
+      for (const file of extracted) {
+        const row = await insertFile(client, {
+          bucket: config.s3.bucket,
+          objectKey: file.objectKey,
+          purpose: 'signing_source',
+          originalName: file.name.split('/').at(-1)!,
+          mimeType: 'application/pdf',
+          size: file.size,
+          status: 'uploaded',
+          uploadedBy: ctx.user.id,
+          expiresAt: ctx.batchExpiresAt,
+        });
+        // ชื่องาน = path ใน ZIP (ใช้เป็นชื่อในไฟล์ ZIP ผลลัพธ์ คงโครงสร้างโฟลเดอร์)
+        await insertSigningJob(client, { batchId, sourceFileId: row.id, originalName: file.name });
+      }
+      return markExtractionDone(client, { batchId, skipped: plan.skipped });
+    });
+    if (!saved) throw new Error('ชุดไม่ได้อยู่ในสถานะรอแตก ZIP แล้ว');
+    log.info({ pdfs: extracted.length, skipped: plan.skipped.length }, 'แตก ZIP แล้ว');
+  } catch (err) {
+    await Promise.all(stored.map((key) => removeUnusedResult(key)));
+    await recordExtractionFailure(batchId, err, attempts, log);
+  } finally {
+    zip?.close();
+  }
+}
+
+async function recordExtractionFailure(batchId: string, err: unknown, attempts: number, log: typeof logger): Promise<void> {
+  try {
+    if (err instanceof ZipRejectedError) {
+      log.warn({ code: err.code, cause: err.cause }, 'ZIP ถูกปฏิเสธ');
+      await markBatchFailed(pool, { batchId, errorCode: err.code });
+    } else if (err instanceof JobOutcome) {
+      await markBatchFailed(pool, { batchId, errorCode: err.outcome.code });
+    } else if (err instanceof StorageError || isStorageFailure(err)) {
+      log.warn({ err }, 'อ่าน/เก็บไฟล์ระหว่างแตก ZIP ไม่สำเร็จ');
+      if (attempts < MAX_ATTEMPTS) {
+        const delay = RETRY_DELAYS_MS[attempts - 1] ?? RETRY_DELAYS_MS.at(-1)!;
+        await retryExtractionLater(pool, { batchId, errorCode: 'STORAGE_UNAVAILABLE', runAfter: new Date(Date.now() + delay) });
+      } else {
+        await markBatchFailed(pool, { batchId, errorCode: 'STORAGE_UNAVAILABLE' });
+      }
+    } else {
+      log.error({ err }, 'แตก ZIP ผิดพลาดโดยไม่คาดคิด');
+      await markBatchFailed(pool, { batchId, errorCode: 'INTERNAL' });
+    }
+  } catch (dbErr) {
+    // ฐานข้อมูลล่ม: ชุดค้างสถานะ extracting แล้วถูกหยิบใหม่เมื่อเกินเวลา
+    log.error({ err: dbErr }, 'บันทึกผลการแตก ZIP ไม่สำเร็จ');
+  }
+}
+
 /**
  * เริ่ม worker: ทำงานในคิวจนหมด แล้วรอ pollIntervalMs ก่อนดูคิวใหม่ — onTick เรียกหลังทุกรอบที่สำเร็จ (ใช้ทำ heartbeat)
  * stop() รอให้งานที่กำลังทำเสร็จก่อน (graceful shutdown) งานที่ยังไม่หยิบอยู่ในคิวให้ worker ตัวถัดไป
@@ -264,7 +374,8 @@ export function startSigningWorker(pollIntervalMs: number, onTick?: () => Promis
     try {
       const requeued = await requeueStaleJobs();
       if (requeued > 0) logger.warn({ batches: requeued }, 'คืนงานลงนามที่ค้างนานเกินเข้าคิว');
-      while (!stopped && (await processNextSigningJob())) {
+      // แตก ZIP ก่อน (สร้างงานต่อไฟล์) แล้วลงนามทีละไฟล์ จนทั้งสองคิวว่าง
+      while (!stopped && ((await processNextExtraction()) || (await processNextSigningJob()))) {
         // ทำต่อจนคิวว่าง
       }
       await onTick?.();

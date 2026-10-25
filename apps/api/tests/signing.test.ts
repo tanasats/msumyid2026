@@ -150,18 +150,16 @@ describe('ส่งเข้าคิวลงนาม', () => {
     expect(Math.round((Date.parse(batch.expiresAt) - Date.now()) / DAY)).toBe(7);
   });
 
-  it('ไฟล์ของคนอื่น / ยังไม่ยืนยันอัปโหลด / ZIP → ปฏิเสธ ไม่สร้างชุด', async () => {
+  it('ไฟล์ของคนอื่น / ยังไม่ยืนยันอัปโหลด → ปฏิเสธ ไม่สร้างชุด (ZIP ดู signing-zip.test.ts)', async () => {
     const user = await signerUser();
     const certificateId = await insertCertificate(user.id);
     const other = await signerUser();
     const othersFile = await uploadPdf(other.cookie, await samplePdf());
     const pending = await uploadPdf(user.cookie, await samplePdf(), { complete: false });
-    const zip = await uploadPdf(user.cookie, Buffer.from('PK\u0003\u0004zip'), { name: 'a.zip', mimeType: 'application/zip' });
 
     const body = { certificateId, lockDocument: false, pin: PIN };
     expect((await submit(user.cookie, { ...body, fileId: othersFile })).body.error.code).toBe('FILE_NOT_FOUND');
     expect((await submit(user.cookie, { ...body, fileId: pending })).body.error.code).toBe('FILE_NOT_READY');
-    expect((await submit(user.cookie, { ...body, fileId: zip })).body.error.code).toBe('FILE_TYPE_NOT_ALLOWED');
     expect((await pool.query('SELECT count(*)::int AS n FROM signing_batches')).rows[0].n).toBe(0);
   });
 

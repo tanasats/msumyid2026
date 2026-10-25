@@ -25,6 +25,8 @@ export type Storage = {
   head(key: string): Promise<ObjectInfo | null>;
   getBuffer(key: string): Promise<Buffer>;
   getStream(key: string): Promise<Readable>;
+  /** อ่านเฉพาะช่วงไบต์ [start, end) ด้วย HTTP Range — ใช้อ่าน ZIP ใหญ่โดยไม่โหลดทั้งไฟล์ */
+  getRangeStream(key: string, start: number, end: number): Promise<Readable>;
   put(key: string, body: Buffer, contentType: string): Promise<void>;
   /** ลบแล้วไม่พบก็ถือว่าสำเร็จ (ลบซ้ำได้) */
   remove(key: string): Promise<void>;
@@ -107,6 +109,13 @@ function s3Storage(): Storage {
     getStream: (key) =>
       call(async () => {
         const res = await internal.send(new GetObjectCommand({ Bucket, Key: key }));
+        if (!res.Body) throw new Error('ไม่มีข้อมูลไฟล์');
+        return res.Body as Readable;
+      }),
+    getRangeStream: (key, start, end) =>
+      call(async () => {
+        // HTTP Range ระบุไบต์สุดท้ายแบบรวม (inclusive)
+        const res = await internal.send(new GetObjectCommand({ Bucket, Key: key, Range: `bytes=${start}-${end - 1}` }));
         if (!res.Body) throw new Error('ไม่มีข้อมูลไฟล์');
         return res.Body as Readable;
       }),
