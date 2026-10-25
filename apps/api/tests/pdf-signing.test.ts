@@ -69,6 +69,30 @@ describe('signPdf', () => {
     expect((await verifyPdfSignatures(tampered)).signatures[0]!.coversWholeDocument).toBe(false);
   });
 
+  it('ต้นฉบับที่เลข object หายเป็นช่วง (เช่น ไฟล์จาก Word): xref ของไฟล์ที่ลงนามเป็นส่วนย่อยเดียวเริ่มที่ 0 ครบตาม /Size', async () => {
+    // object stream ที่ pdf-lib แตกออกตอนอ่านทำให้เลข object หายกลางไฟล์ — xref หลายส่วนย่อยทำให้ Acrobat ถือว่า
+    // เอกสารที่ล็อกถูกแก้หลังลงนาม (พบกับไฟล์ Word 2010 บน production 2026-10-25)
+    const xrefSubsections = (pdf: Buffer) => {
+      const text = pdf.toString('latin1');
+      const xref = text.slice(text.lastIndexOf('\nxref\n') + 1, text.lastIndexOf('trailer'));
+      const size = Number(/\/Size (\d+)/.exec(text.slice(text.lastIndexOf('trailer')))![1]);
+      return { subsections: xref.split('\n').filter((line) => /^\d+ \d+$/.test(line.trim())), size };
+    };
+    // ต้นฉบับ: ลบ object กลางไฟล์ออก 3 ตัว แล้วบันทึกแบบตาราง xref → มีหลายส่วนย่อย
+    const doc = await PDFDocument.load(await samplePdf(3, { classicTrailer: true }));
+    const refs = Array.from({ length: 5 }, () => doc.context.register(doc.context.obj({ Unused: true })));
+    for (const ref of refs.slice(1, 4)) doc.context.delete(ref);
+    for (let i = 0; i < 2; i++) doc.context.register(doc.context.obj({ After: i }));
+    const source = Buffer.from(await doc.save({ useObjectStreams: false }));
+    expect(xrefSubsections(source).subsections.length).toBeGreaterThan(1);
+
+    mockSigner();
+    const { pdf } = await sign(source, { lock: true });
+    const { subsections, size } = xrefSubsections(pdf);
+    expect(subsections).toEqual([`0 ${size}`]);
+    expect((await verifyPdfSignatures(pdf)).signatures[0]).toMatchObject({ integrity: 'ok', coversWholeDocument: true });
+  });
+
   it('TSA ล่ม → TimestampError (ไม่ออกไฟล์ที่ไม่มีเวลา)', async () => {
     mockSigner();
     const down: TsaTransport = async () => {
