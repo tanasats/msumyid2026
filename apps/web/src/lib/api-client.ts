@@ -103,3 +103,42 @@ export async function apiMutate<T = void>(
   if (!res.ok) throw await toApiError(res);
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
+
+/**
+ * อัปโหลดไฟล์ตรงเข้า storage ด้วย presigned URL ที่ API ออกให้ (PUT ไม่ผ่าน API — CLAUDE.md หัวข้อ 11)
+ * Content-Type ต้องตรงกับที่ API ลงนามไว้ใน URL ไม่ส่ง cookie (storage ตรวจสิทธิ์จากลายเซ็นของ URL)
+ */
+export function uploadToStorage(
+  url: string,
+  file: File,
+  { contentType, onProgress, signal }: { contentType: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new ApiClientError(xhr.status, 'UPLOAD_FAILED', 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'));
+    };
+    xhr.onerror = () =>
+      reject(new ApiClientError(0, 'NETWORK_ERROR', 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่'));
+    xhr.onabort = () => reject(new DOMException('ยกเลิกแล้ว', 'AbortError'));
+
+    if (signal?.aborted) {
+      reject(new DOMException('ยกเลิกแล้ว', 'AbortError'));
+      return;
+    }
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
+
+/** ดาวน์โหลดไฟล์ของตัวเองจาก storage: ขอ URL อายุสั้นจาก API แล้วให้ browser เปิด (ชื่อไฟล์มากับ Content-Disposition) */
+export async function downloadMyFile(fileId: string): Promise<void> {
+  const { url } = await apiGet<{ url: string }>(`/me/files/${fileId}/download`);
+  window.location.assign(url);
+}
