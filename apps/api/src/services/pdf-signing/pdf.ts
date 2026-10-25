@@ -92,7 +92,7 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
 
   // มองเห็น: Rect ตามตำแหน่งที่เลือก + appearance stream (/AP /N) / มองไม่เห็น: Rect 0
   let rect: [number, number, number, number] = [0, 0, 0, 0];
-  let appearanceRef: PDFRef | null = null;
+  let appearanceRef: PDFRef;
   if (options.appearance) {
     const placed = placeAppearance(page, options.appearance);
     rect = placed.rect;
@@ -108,7 +108,7 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
     Subtype: 'Widget',
     FT: 'Sig',
     Rect: rect,
-    ...(appearanceRef ? { AP: context.obj({ N: appearanceRef }) } : {}),
+    AP: context.obj({ N: appearanceRef }),
     V: signatureRef,
     T: PDFHexString.fromText(`Signature${Date.now()}`),
     F: 132,
@@ -151,20 +151,6 @@ function addToAcroForm(doc: PDFDocument, widgetRef: PDFRef): void {
   if (fields) fields.push(widgetRef);
   else acroForm.set(PDFName.of('Fields'), context.obj([widgetRef]));
   acroForm.set(PDFName.of('SigFlags'), context.obj(3));
-}
-
-/**
- * เติมเลข object ที่ขาดหายด้วย null ให้ตาราง xref เป็นส่วนย่อยเดียวเริ่มจาก 0
- * ไฟล์ที่อ่านมา (เช่น จาก Word) มักมีเลขที่หายไป (object stream / xref stream ที่ pdf-lib แตกออกแล้วไม่ได้เขียนกลับ)
- * pdf-lib จึงเขียน xref หลายส่วนย่อย — ISO 32000-1 ข้อ 7.5.4 กำหนดให้ไฟล์ที่ไม่เคย incremental update มีส่วนย่อยเดียว
- * Acrobat ตีความว่าไฟล์ถูกแก้หลังลงนาม ทำให้เอกสารที่ล็อก (certification) ขึ้นว่าลายมือชื่อไม่ถูกต้อง
- */
-function fillObjectNumberGaps(doc: PDFDocument): void {
-  const { context } = doc;
-  const used = new Set(context.enumerateIndirectObjects().map(([ref]) => ref.objectNumber));
-  for (let n = 1; n <= context.largestObjectNumber; n++) {
-    if (!used.has(n)) context.assign(PDFRef.of(n), PDFNull);
-  }
 }
 
 /** หาตำแหน่ง placeholder ในไฟล์ที่บันทึกแล้ว แล้วเขียน /ByteRange จริง (ความยาวเท่าเดิม ตำแหน่งไบต์จึงไม่เลื่อน) */
