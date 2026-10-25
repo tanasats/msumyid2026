@@ -110,7 +110,7 @@ export async function apiMutate<T = void>(
  */
 export function uploadToStorage(
   url: string,
-  file: File,
+  file: Blob,
   { contentType, onProgress, signal }: { contentType: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
