@@ -45,6 +45,8 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 - ตรวจก่อนลงนามทุกไฟล์: ใบยังใช้งานได้ (ไม่หมดอายุ/ไม่ถูกเพิกถอน) บัญชียังเปิดอยู่ — ไม่ผ่าน = งานที่เหลือของชุดล้มเหลวทั้งหมด (signer ปฏิเสธใบที่ไม่อยู่ในช่วงอายุอีกชั้น)
 - จองช่อง `/Contents` 32 KB (ใบผู้ลงนาม + สายใบ CA + timestamp token พร้อมใบของ TSA ราว 12–16 KB)
 - ประวัติการลงนาม: `certificate_audit_logs` action `sign` หนึ่งแถวต่อไฟล์ เก็บ SHA-256 ไม่เก็บชื่อไฟล์ (log ลบไม่ได้)
+- worker (`src/services/signing-worker-service.ts`): หยิบงานด้วย `FOR UPDATE SKIP LOCKED` (รันหลายตัวได้) ตรวจบัญชี/สิทธิ์/ใบ/ไฟล์ใหม่ตอนลงนาม — ล้มเหลวชั่วคราว (TSA/signer/storage ล่ม) ลองใหม่หลัง 30 วินาที และ 2 นาที รวมไม่เกิน 3 ครั้ง, ล้มเหลวถาวร (ไฟล์เสีย/มีลายมือชื่อแล้ว/ใบใช้ไม่ได้) ไม่ลองใหม่, งานค้างสถานะ signing เกิน 10 นาที (worker ตาย) คืนเข้าคิว
+- PIN ตรวจที่ API ตอนส่งเข้าคิว (ตรวจไฟล์และใบก่อน PIN) worker ไม่ได้รับ PIN
 
 ## ตาราง (ร่าง — สร้างในระยะ D0b–D3)
 
@@ -60,7 +62,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 |---|---|---|
 | D0a | เครื่องมือลงนาม: signer `signCms`, `preparePdf`/`embedSignature` (pdf-lib), MSU TSA + ฝัง token, ล็อก DocMDP, สคริปต์ `pnpm --filter api pdf:sign-sample` ทดลองกับ Acrobat | เสร็จ |
 | D0b | Garage บน production (`deploy/compose.yml`, `scripts/init-garage.sh`, nginx `/msumyid-files/`) + storage wrapper `src/storage` + ตาราง `files` (`/me/files` ขอ URL อัปโหลด/ยืนยัน/ดาวน์โหลด, job ลบไฟล์หมดอายุ) + PIN ลงนาม (`/me/signing-pin`, ตั้งใหม่เมื่อลืม = login ใหม่ภายใน 10 นาที) | เสร็จ |
-| D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA | |
+| D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA — หน้า `/sign`, `/sign/pin`, `POST/GET /me/signing-batches`, worker `src/worker.ts` (service `worker` ใน `deploy/compose.yml`) | เสร็จ |
 | D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย | |
 | D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน | |
 | D4 | ไฟล์ที่มีลายมือชื่ออยู่แล้ว (incremental, หลายผู้ลงนาม) + LTV (DSS/CRL ฝังในไฟล์) | |

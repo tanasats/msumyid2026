@@ -16,7 +16,7 @@ docker compose up -d --wait postgres
 "$ROOT/scripts/backup.sh" "pre-$TAG"
 
 log "pull image $TAG"
-APP_TAG="$TAG" docker compose --profile tools pull signer api web migrate \
+APP_TAG="$TAG" docker compose --profile tools pull signer api web worker migrate \
   || die "pull ไม่สำเร็จ — ยังไม่ได้เปลี่ยนอะไร (ตรวจ docker login ghcr.io และแท็ก)"
 
 log "migrate"
@@ -26,7 +26,7 @@ APP_TAG="$TAG" docker compose run --rm migrate \
 log "สลับเป็น $TAG"
 if ! switch_to "$TAG"; then
   log "เวอร์ชันใหม่ไม่ healthy — กลับไป $PREV"
-  docker compose logs --tail 50 signer api web || true
+  docker compose logs --tail 50 signer api web worker || true
   switch_to "$PREV" || die "กลับเวอร์ชันเดิมไม่สำเร็จ ตรวจด้วย docker compose ps / logs"
   printf '%s %s rollback-auto (from %s)\n' "$(date -Is)" "$PREV" "$TAG" >> deployed.log
   die "deploy $TAG ไม่สำเร็จ ระบบกลับไปใช้ $PREV แล้ว"
