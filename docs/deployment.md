@@ -236,6 +236,8 @@ downtime ระหว่างสลับ container ไม่กี่วิน
 4. nginx: `sudo cp /opt/msumyid/nginx/msumyid.conf /etc/nginx/sites-available/msumyid.conf && sudo nginx -t && sudo systemctl reload nginx`
 5. `./scripts/deploy.sh sha-<commit>` ตามปกติ (deploy.sh ตรวจว่ามี secret ของ Garage ครบก่อน)
 
+**เพิ่ม worker ลงนามเอกสาร (D1, ครั้งเดียว):** คัดลอก `deploy/compose.yml` และ `deploy/scripts/` ไปที่ `/opt/msumyid` ก่อน deploy เวอร์ชันที่มี worker — `deploy.sh` สลับ `worker` (image เดียวกับ api, ไม่เปิด port, healthcheck จากไฟล์ heartbeat) พร้อม signer/api/web ส่วน rollback ไปเวอร์ชันก่อน D1 จะหยุด worker ให้เอง (งานที่รออยู่ค้างในคิว ไม่หาย) — ตรวจ: `docker compose ps worker` ต้อง healthy และ `docker compose logs --tail 20 worker`
+
 **ค่าตั้งที่ย้ายจาก env ไปฐานข้อมูล (2026-10-24):** `ALLOWED_EMAIL_DOMAINS`, `SESSION_TTL_DAYS`, `CRL_VALIDITY_DAYS`, `CRL_REISSUE_HOURS` อยู่ในตาราง `system_settings` แก้ที่ `/admin/settings` (super_admin) มีผลทันทีไม่ต้อง restart — migration ตั้งค่าเริ่มต้น `msu.ac.th` / 7 / 7 / 24 ถ้า `env/api.env` บน VM ตั้งค่าอื่นไว้ ให้แก้ในหน้าตั้งค่าหลัง deploy แล้วลบ 4 บรรทัดนี้ออกจาก `env/api.env` (API ไม่อ่านแล้ว)
 
 ## 7. Rollback

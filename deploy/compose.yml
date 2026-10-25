@@ -109,6 +109,38 @@ services:
       retries: 6
       start_period: 10s
 
+  # worker ลงนามเอกสาร (docs/design/document-signing.md) — image เดียวกับ api คนละคำสั่ง ไม่เปิด port
+  # หยิบงานจาก signing_jobs ด้วย FOR UPDATE SKIP LOCKED จึงเพิ่มจำนวนได้ (docker compose up -d --scale worker=2)
+  worker:
+    <<: *app
+    image: ${IMAGE_PREFIX:?}-api:${APP_TAG:?}
+    env_file: env/api.env
+    command: ["node", "--enable-source-maps", "dist/src/worker.js"]
+    environment:
+      # config ของ API บังคับมี PORT — worker ไม่ได้เปิด port จริง
+      PORT: "4000"
+      SIGNER_URL: http://signer:4020
+      SIGNER_TOKEN_FILE: /run/secrets/signer_token
+      S3_ENDPOINT: http://garage:3900
+      S3_ACCESS_KEY_FILE: /run/secrets/s3_access_key
+      S3_SECRET_KEY_FILE: /run/secrets/s3_secret_key
+    secrets: [signer_token, s3_access_key, s3_secret_key]
+    # app = ออกอินเทอร์เน็ต (MSU TSA), db = postgres, signer = ลงนาม CMS, storage = อ่าน/เก็บไฟล์
+    networks: [app, db, signer, storage]
+    depends_on:
+      postgres: { condition: service_healthy }
+      signer: { condition: service_healthy }
+      garage: { condition: service_started }
+    # worker เขียน /tmp/signing-worker-alive ทุกรอบที่ดึงคิวสำเร็จ (ไม่แก้เกิน 1 นาที = ฐานข้อมูลล่มหรือ worker ค้าง)
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/signing-worker-alive -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 15s
+    # รองานที่กำลังลงนามให้เสร็จก่อนปิด (signer + TSA timeout รวมไม่เกิน ~45 วินาที)
+    stop_grace_period: 60s
+
   web:
     <<: *app
     image: ${IMAGE_PREFIX:?}-web:${APP_TAG:?}

@@ -43,9 +43,21 @@ check_files() {
   docker compose config -q || die "docker compose config ไม่ผ่าน"
 }
 
-# สลับ signer/api/web ไปแท็กที่ระบุ แล้วรอจน healthy
+# image ของ api แท็กนี้มี worker ลงนามเอกสารหรือไม่ (เวอร์ชันก่อน D1 ไม่มี dist/src/worker.js)
+has_worker() {
+  docker run --rm --entrypoint test "$(env_get IMAGE_PREFIX)-api:$1" -f dist/src/worker.js
+}
+
+# สลับ signer/api/web/worker ไปแท็กที่ระบุ แล้วรอจน healthy
+# rollback ไปเวอร์ชันที่ยังไม่มี worker: หยุด worker ตัวเดิม (งานที่ค้างรออยู่ในคิว ไม่หาย) แล้วสลับเฉพาะ signer/api/web
 switch_to() {
-  local tag="$1"
+  local tag="$1" services=(signer api web)
   env_set APP_TAG "$tag"
-  docker compose up -d --wait --wait-timeout 180 signer api web
+  if has_worker "$tag"; then
+    services+=(worker)
+  else
+    log "$tag ไม่มี worker ลงนามเอกสาร — หยุด worker"
+    docker compose stop worker || true
+  fi
+  docker compose up -d --wait --wait-timeout 180 "${services[@]}"
 }

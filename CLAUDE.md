@@ -149,6 +149,7 @@ docker-compose.yml      # postgres + garage สำหรับ dev
 - เปิด Postgres + Garage: `docker compose up -d`
 - รัน web: `pnpm --filter web dev`
 - รัน api: `pnpm --filter api dev` (ใช้ `tsx watch`)
+- รัน worker ลงนามเอกสาร: `pnpm --filter api worker` (ต้องเปิด signer ด้วย — ไม่เปิด worker = งานลงนามค้างในคิว)
 - รัน signer: `pnpm --filter signer dev` (ต้องมี OpenSSL CLI — บน Windows มากับ Git Bash)
 - นำเข้าใบรับรองเดิมจาก openssl ca: `pnpm --filter api cert:import -- --dir <โฟลเดอร์ CA> [--dry-run]` (ต้องเปิด signer — ลำดับการย้ายระบบดู `docs/design/certificates.md`)
 - สร้าง CA ปลอมสำหรับ dev: `pnpm --filter signer dev-ca` (รันซ้ำได้ ไม่สร้างทับ — แสดงค่า env ที่ต้องใส่ใน `apps/signer/.env`)

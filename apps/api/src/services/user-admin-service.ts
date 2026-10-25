@@ -39,6 +39,7 @@ import { erasePersonalDataFromRequests } from '../repositories/supplementary-cer
 import { erasePersonalDataFromPrimaryRequests } from '../repositories/primary-certificate-request-repository.js';
 import { expireFilesOfUser } from '../repositories/file-repository.js';
 import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
+import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -465,7 +466,9 @@ export async function deleteUser(
     const erasedRequests = await erasePersonalDataFromRequests(client, userId);
     const erasedPrimaryRequests = await erasePersonalDataFromPrimaryRequests(client, userId);
     // ไฟล์ของการลงนาม/ภาพลายเซ็น: ล้างชื่อไฟล์และให้หมดอายุทันที (job ลบ object ใน storage) + ลบ PIN ลงนาม
+    // งานลงนามที่ยังรอคิว worker ตั้งล้มเหลวเอง (บัญชีถูกลบ = ACCOUNT_NOT_ALLOWED)
     const expiredFiles = await expireFilesOfUser(client, userId);
+    const erasedSigningJobs = await eraseSigningJobNamesOfUser(client, userId);
     await deleteSigningPin(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
@@ -481,6 +484,7 @@ export async function deleteUser(
         erasedSupplementaryRequests: erasedRequests,
         erasedPrimaryRequests,
         expiredFiles,
+        erasedSigningJobs,
         deletedKeyEscrows: erased.keyEscrows,
       },
       reason,

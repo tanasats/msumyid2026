@@ -16,7 +16,7 @@ fi
 valid_tag "$TARGET" || die "แท็กไม่ถูกต้อง: $TARGET"
 
 log "rollback $CURRENT → $TARGET (ไม่ย้อน migration)"
-APP_TAG="$TARGET" docker compose pull signer api web || die "pull $TARGET ไม่สำเร็จ"
+APP_TAG="$TARGET" docker compose pull signer api web worker || die "pull $TARGET ไม่สำเร็จ"
 if ! switch_to "$TARGET"; then
   log "$TARGET ไม่ healthy — กลับไป $CURRENT"
   switch_to "$CURRENT" || die "กลับไป $CURRENT ไม่สำเร็จ ตรวจด้วย docker compose ps / logs"

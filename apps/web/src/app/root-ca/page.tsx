@@ -11,8 +11,8 @@ import { ROOT_CA_FILE_NAME, getRootCa } from '@/lib/root-ca';
 
 export const metadata: Metadata = { title: 'ติดตั้งใบรับรองหลัก (Root)' };
 
-// TSA สาธารณะ (ใบรับรองอยู่ในรายชื่อที่ Acrobat เชื่อถือ) ใช้ระหว่างรอ TSA ของมหาวิทยาลัย — พร้อมแล้วเปลี่ยนเป็นของมหาวิทยาลัย
-const TSA_URL = 'http://timestamp.digicert.com';
+// MSU TSA (RFC 3161) — ตัวเดียวกับที่ระบบใช้ลงนามบนเว็บ ใบของ TSA ออกโดย CA ของมหาวิทยาลัยใต้ root ที่ติดตั้งจากหน้านี้
+const TSA_URL = 'https://tsa.msu.ac.th/tsa';
 
 const dateFormatter =new Intl.DateTimeFormat('th-TH', { dateStyle: 'long' });
 

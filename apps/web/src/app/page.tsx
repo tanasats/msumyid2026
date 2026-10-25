@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ChevronRight, FileBadge, FileSearch, ShieldCheck, UserRound, Users, type LucideIcon } from 'lucide-react';
+import { ChevronRight, FileBadge, FilePen, FileSearch, ShieldCheck, UserRound, Users, type LucideIcon } from 'lucide-react';
 import { BentoGrid, cardClasses } from '@/components/Card';
 import { IdentityCard } from '@/components/IdentityCard';
 import { Landing } from '@/components/landing/Landing';
@@ -17,7 +17,7 @@ export default async function HomePage() {
   if (!user) return <Landing theme={await getThemePreference()} />;
   if (user.approvalStatus !== 'approved') redirect('/pending');
 
-  // แถวล่าง 3 ช่องเท่ากัน — ช่องที่ 3 เป็นงานผู้ดูแลถ้ามีสิทธิ์ (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์เสมอ)
+  // แถวล่าง 3 ช่องเท่ากัน — ช่องที่ 3 เป็นงานผู้ดูแลถ้ามีสิทธิ์ ลงนามเอกสารเป็นแถวกว้างของตัวเอง (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์เสมอ)
   const tiles: Tile[] = [
     {
       href: '/certificates',
@@ -25,6 +25,18 @@ export default async function HomePage() {
       title: 'ใบรับรองของฉัน',
       detail: 'ขอและดาวน์โหลดใบรับรองสำหรับลงนามเอกสารและเข้ารหัสอีเมล',
     },
+    ...(user.permissions.includes('document:sign')
+      ? [
+          {
+            href: '/sign',
+            icon: FilePen,
+            title: 'ลงนามเอกสาร',
+            detail: 'ลงลายมือชื่อดิจิทัลบน PDF ด้วยใบรับรองของคุณ ประทับเวลาด้วยบริการของมหาวิทยาลัย',
+            // กว้างเต็มแถว: ช่องอื่นยังเต็มแถวพอดีทั้ง 2 และ 3 คอลัมน์
+            className: 'md:col-span-2 lg:col-span-3',
+          },
+        ]
+      : []),
     {
       href: '/verify',
       icon: FileSearch,

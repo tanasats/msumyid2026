@@ -1,77 +1,22 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { PdfSigningError, signPdf, TimestampError } from '../src/services/pdf-signing/index.js';
 import type { TsaTransport } from '../src/services/pdf-signing/timestamp.js';
 import { verifyPdfSignatures } from '../src/services/signature-verification/index.js';
-import { signer } from '../src/services/signer-client.js';
+import { createFakeSigning } from './helpers/fake-signing.js';
 
 // เครื่องมือลงนาม PDF (ระยะ D0): ใช้ OpenSSL จริงแทน signer (key ทดสอบ) และ TSA จำลองด้วย openssl ts
 // แล้วตรวจผลด้วยตัวตรวจเดียวกับหน้า /verify — ไม่เรียก signer และ MSU TSA จริง
 
-let dir: string;
-const file = (name: string) => path.join(dir, name);
-const openssl = (args: string[], input?: Buffer) => execFileSync('openssl', args, { input, stdio: ['pipe', 'pipe', 'pipe'] });
-/** OpenSSL 3.2+ มี cms -cades (runner ของ GitHub เป็น 3.0) — แบบเดียวกับ supportsCmsCades ของ signer */
-const cadesFlag = (() => {
-  const help = spawnSync('openssl', ['cms', '-help'], { encoding: 'utf8' });
-  return `${help.stdout}${help.stderr}`.includes('-cades') ? ['-cades'] : [];
-})();
-
-beforeAll(() => {
-  dir = mkdtempSync(path.join(tmpdir(), 'msumyid-pdf-signing-'));
-  // ผู้ลงนาม (self-signed) และ TSA (EKU timeStamping แบบ critical ตาม RFC 3161)
-  openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', file('signer.key'), '-out', file('signer.pem'), '-days', '2', '-subj', '/CN=Test Signer']);
-  writeFileSync(
-    file('tsa-ext.cnf'),
-    ['[ ext ]', 'basicConstraints = CA:FALSE', 'keyUsage = critical, digitalSignature', 'extendedKeyUsage = critical, timeStamping', ''].join('\n'),
-  );
-  openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', file('tsa.key'), '-out', file('tsa.pem'), '-days', '2', '-subj', '/CN=Test TSA', '-config', file('tsa-ext.cnf'), '-extensions', 'ext', '-section', 'ext']);
-  writeFileSync(file('tsaserial'), '01\n');
-  writeFileSync(
-    file('ts.cnf'),
-    [
-      '[ tsa ]',
-      'default_tsa = tsa_config',
-      '[ tsa_config ]',
-      `serial = ${file('tsaserial').replaceAll('\\', '/')}`,
-      'default_policy = 1.2.3.4.1',
-      'signer_digest = sha256',
-      'digests = sha256',
-      'accuracy = secs:1',
-      'ess_cert_id_alg = sha256',
-      'ess_cert_id_chain = no',
-      '',
-    ].join('\n'),
-  );
-});
+const { mockSigner, fakeTsa, cleanup } = createFakeSigning();
 
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true });
+  cleanup();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-/** signer ทดสอบ: openssl cms -sign -cades แบบเดียวกับ apps/signer */
-function mockSigner() {
-  return vi.spyOn(signer, 'signCms').mockImplementation(async ({ content }) => {
-    writeFileSync(file('content.bin'), content);
-    openssl(['cms', '-sign', '-binary', '-in', file('content.bin'), '-signer', file('signer.pem'), '-inkey', file('signer.key'), '-md', 'sha256', ...cadesFlag, '-nosmimecap', '-outform', 'DER', '-out', file('sig.der')]);
-    return readFileSync(file('sig.der'));
-  });
-}
-
-/** TSA จำลอง: ตอบคำขอจริงด้วย openssl ts -reply */
-const fakeTsa: TsaTransport = async (query) => {
-  writeFileSync(file('req.tsq'), query);
-  openssl(['ts', '-reply', '-queryfile', file('req.tsq'), '-signer', file('tsa.pem'), '-inkey', file('tsa.key'), '-config', file('ts.cnf'), '-out', file('resp.tsr')]);
-  return readFileSync(file('resp.tsr'));
-};
 
 const certificate = { serialNumber: '1', certificatePem: '-----BEGIN CERTIFICATE-----', escrow: { kekId: 't', encryptedKey: Buffer.alloc(1), wrappedDataKey: Buffer.alloc(1) } };
 
