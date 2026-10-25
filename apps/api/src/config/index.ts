@@ -49,6 +49,8 @@ const envSchema = z.object({
   // ประทับเวลาลายมือชื่อบน PDF (RFC 3161) — MSU TSA (ตัดสินใจ 2026-10-25) ล่ม = ไม่ลงนาม (ไม่ออกไฟล์ที่ไม่มีเวลา)
   TSA_URL: z.url().default('https://tsa.msu.ac.th/tsa'),
   TSA_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  // worker ลงนามเอกสาร (src/worker.ts): รอกี่ ms ก่อนดูคิวใหม่เมื่อคิวว่าง
+  SIGNING_WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(500).max(60_000).default(2000),
   // รอบตรวจว่าต้องออก CRL ใหม่หรือไม่ (ออกใหม่ทันทีเมื่อเพิกถอนอยู่แล้ว รอบนี้ใช้ลองใหม่เมื่อ signer ล่ม)
   CRL_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
   // รูปแบบไฟล์ที่เผยแพร่: pem = แบบเดียวกับที่ openssl ca -gencrl ของระบบเดิมสร้าง, der = ตาม RFC 5280
@@ -132,6 +134,9 @@ export const config = {
   tsa: {
     url: env.TSA_URL,
     timeoutMs: env.TSA_TIMEOUT_MS,
+  },
+  signingWorker: {
+    pollIntervalMs: env.SIGNING_WORKER_POLL_INTERVAL_MS,
   },
   crl: {
     checkIntervalMs: env.CRL_CHECK_INTERVAL_MS,
