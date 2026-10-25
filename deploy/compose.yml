@@ -73,7 +73,8 @@ services:
     secrets: [garage_rpc_secret, garage_admin_token]
     ports:
       - "127.0.0.1:${GARAGE_S3_PORT:-3900}:3900"
-    networks: [storage]
+    # Docker ไม่เปิด ports: ให้ container ที่อยู่แต่ใน network internal (ไม่แจ้ง error) จึงต้องมี storage_edge ด้วย
+    networks: [storage, storage_edge]
     logging:
       driver: json-file
       options:
@@ -163,6 +164,8 @@ networks:
     internal: true
   storage:
     internal: true
+  # มีแค่ garage — ใช้เปิด S3 API ที่ 127.0.0.1 ให้ nginx (api คุยกับ garage ผ่าน storage)
+  storage_edge: {}
 
 volumes:
   msumyid_prod_pgdata:
