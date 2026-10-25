@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { FileBadge, History, KeyRound } from 'lucide-react';
+import { FileBadge, History, KeyRound, Signature } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
@@ -12,14 +12,14 @@ import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser } from '@/lib/auth';
 import { getMyCertificates } from '@/lib/certificates';
 import { canSignWith, type SigningBatchSummary } from '@/lib/signing';
-import { getMySigningBatches, getSigningPinStatus } from '@/lib/signing-batches';
+import { getMySignatureImage, getMySigningBatches, getSigningPinStatus } from '@/lib/signing-batches';
 
 export const metadata: Metadata = { title: 'ลงนามเอกสาร' };
 
 const dateTimeFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' });
 
 // ลงนาม PDF ด้วยใบรับรองของตัวเอง (document:sign — API ตรวจสิทธิ์ ใบ และ PIN อีกครั้งทุกครั้ง)
-// docs/design/document-signing.md ระยะ D1: ไฟล์เดียว ลายมือชื่อแบบมองไม่เห็น เลือกล็อกเอกสารได้
+// docs/design/document-signing.md ระยะ D1–D2: ไฟล์เดียว แสดงลายเซ็น (ภาพ/ชื่อและวันเวลา) ณ ตำแหน่งที่ลากวาง หรือไม่แสดง เลือกล็อกเอกสารได้
 export default async function SignPage({
   searchParams,
 }: {
@@ -30,10 +30,11 @@ export default async function SignPage({
   if (user.approvalStatus !== 'approved') redirect('/pending');
   if (!user.permissions.includes('document:sign')) redirect('/forbidden');
 
-  const [{ certificates }, pinStatus, batches, params] = await Promise.all([
+  const [{ certificates }, pinStatus, batches, signatureImage, params] = await Promise.all([
     getMyCertificates(),
     getSigningPinStatus(),
     getMySigningBatches(),
+    getMySignatureImage(),
     searchParams,
   ]);
   const usable = certificates.filter((c) => canSignWith(c));
@@ -55,17 +56,26 @@ export default async function SignPage({
             ต้องมีใบรับรองที่ยังใช้งานได้และมี key สำรองในระบบ (ใบที่นำเข้าจากระบบเดิมโดยไม่มี key ใช้ลงนามบนเว็บไม่ได้)
           </StatusState>
         ) : (
-          <SignDocumentForm certificates={usable} hasPin={pinStatus.hasPin} />
+          <SignDocumentForm
+            certificates={usable}
+            hasPin={pinStatus.hasPin}
+            signatureImage={signatureImage}
+            signerName={user.name}
+          />
         )}
         <SigningHistory batches={batches} />
-        {pinStatus.hasPin && (
-          <div className="flex justify-center">
+        <div className="flex flex-wrap justify-center gap-2">
+          <Link href="/sign/signature" className={buttonClasses({ variant: 'ghost', size: 'sm' })}>
+            <Signature className="size-5" aria-hidden />
+            {signatureImage ? 'เปลี่ยนภาพลายเซ็น' : 'ตั้งภาพลายเซ็น'}
+          </Link>
+          {pinStatus.hasPin && (
             <Link href="/sign/pin" className={buttonClasses({ variant: 'ghost', size: 'sm' })}>
               <KeyRound className="size-5" aria-hidden />
               เปลี่ยน PIN ลงนาม
             </Link>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </PageShell>
   );

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument, StandardFonts } from 'pdf-lib';
 import { config } from '../src/config/index.js';
 import { signPdf } from '../src/services/pdf-signing/index.js';
 import { verifyPdfSignatures } from '../src/services/signature-verification/index.js';
@@ -10,13 +10,15 @@ import { signer } from '../src/services/signer-client.js';
 // ทดลองลงนาม PDF ครบวงจรบนเครื่อง dev (ระยะ D0 ของ docs/design/document-signing.md):
 // ออกใบรับรองชั่วคราวจาก signer (CA ปลอมของ dev ไม่บันทึกลงฐานข้อมูล) → ลงนาม → ประทับเวลาด้วย TSA จริง → ตรวจด้วยตัวตรวจของ /verify
 // ใช้: pnpm --filter api pdf:sign-sample -- --out <โฟลเดอร์> [--in <ไฟล์.pdf>] [--lock] [--profile primary|supplementary]
+//      [--visible [--image <ภาพ.png>] [--no-text] [--page N] [--rotate 0|90|180|270]]  ลายมือชื่อแบบมองเห็นมุมขวาล่าง (ระยะ D2)
 // ห้ามใช้กับ production (ใบที่ออกจะไม่อยู่ในฐานข้อมูล จึงเพิกถอนผ่านระบบไม่ได้)
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function samplePdf(): Promise<Buffer> {
+async function samplePdf(rotate: number): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
+  page.setRotation(degrees(rotate));
   const font = await doc.embedFont(StandardFonts.Helvetica);
   page.drawText('MSU Digital ID - sample document for signing test', { x: 60, y: 760, size: 16, font });
   page.drawText(`Generated ${new Date().toISOString()}`, { x: 60, y: 730, size: 11, font });
@@ -36,6 +38,11 @@ async function main(): Promise<number> {
       in: { type: 'string' },
       lock: { type: 'boolean', default: false },
       profile: { type: 'string', default: 'supplementary' },
+      visible: { type: 'boolean', default: false },
+      image: { type: 'string' },
+      'no-text': { type: 'boolean', default: false },
+      page: { type: 'string', default: '1' },
+      rotate: { type: 'string', default: '0' },
     },
   });
   if (!values.out) {
@@ -55,14 +62,28 @@ async function main(): Promise<number> {
       : { profile: 'document_signing', notBefore: new Date(now), notAfter: new Date(now + 7 * DAY) }),
   });
 
-  const input = values.in ? await readFile(values.in) : await samplePdf();
+  const input = values.in ? await readFile(values.in) : await samplePdf(Number(values.rotate));
+  // กล่อง 30% × 12% ของหน้าที่แสดงผล ห่างขอบขวาและขอบล่าง 6%
+  const appearance = values.visible
+    ? {
+        page: Number(values.page),
+        x: 0.64,
+        y: 0.82,
+        w: 0.3,
+        h: 0.12,
+        image: values.image ? await readFile(values.image) : null,
+        showText: !values['no-text'],
+      }
+    : undefined;
   const { pdf, timestampTime } = await signPdf(input, {
     certificate: { serialNumber: issued.serialNumber, certificatePem: issued.certificatePem, escrow: issued.escrow },
     signerName: 'ทดสอบ ลงนามเอกสาร',
     lock: values.lock,
+    appearance,
   });
 
-  const name = `signed-${values.profile}${values.lock ? '-locked' : ''}.pdf`;
+  const suffix = `${values.lock ? '-locked' : ''}${values.visible ? `-visible-r${values.rotate}` : ''}`;
+  const name = `signed-${values.profile}${suffix}.pdf`;
   await writeFile(path.join(values.out, name), pdf);
   await writeFile(path.join(values.out, `signer-${values.profile}.p12`), issued.p12);
 

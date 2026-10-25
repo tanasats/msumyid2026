@@ -18,7 +18,7 @@ import {
 } from '../repositories/signing-repository.js';
 import { storage } from '../storage/index.js';
 import { hasPermission, type AuthUser } from './authorization-service.js';
-import { PdfSigningError, signPdf, TimestampError } from './pdf-signing/index.js';
+import { PdfSigningError, signPdf, TimestampError, type SignPdfOptions } from './pdf-signing/index.js';
 import { PERMISSIONS } from './permissions.js';
 import { verifyPdfSignatures } from './signature-verification/index.js';
 import { SignerError, SignerRejectedError } from './signer-client.js';
@@ -82,6 +82,26 @@ function classifySigningError(err: unknown): JobOutcome {
   throw err;
 }
 
+/**
+ * ลายมือชื่อแบบมองเห็นของชุด (ระยะ D2): อ่านภาพลายเซ็นที่บันทึกไว้ตอนส่งคำขอจาก storage
+ * ภาพถูกลบไปแล้ว = ล้มเหลว (ไม่ลงนามโดยไม่มีภาพที่ผู้ใช้เลือก) / storage ล่ม = ลองใหม่
+ */
+async function loadAppearance(ctx: SigningJobContext, log: typeof logger): Promise<SignPdfOptions['appearance']> {
+  const a = ctx.appearance;
+  if (!a.visible) return undefined;
+  let image: Buffer | null = null;
+  if (a.imageFileId) {
+    if (!ctx.imageObjectKey) throw fail('SIGNATURE_IMAGE_MISSING');
+    try {
+      image = await storage.getBuffer(ctx.imageObjectKey);
+    } catch (err) {
+      log.warn({ err }, 'อ่านภาพลายเซ็นจาก storage ไม่สำเร็จ');
+      throw retry('STORAGE_UNAVAILABLE');
+    }
+  }
+  return { page: a.page, x: a.x, y: a.y, w: a.w, h: a.h, image, showText: a.showText };
+}
+
 /** ลงนาม 1 งานที่หยิบมาแล้ว (status = signing) — ไม่ throw: ทุกผลถูกบันทึกลง signing_jobs */
 async function runJob(jobId: string, attempts: number): Promise<void> {
   const log = logger.child({ signingJobId: jobId });
@@ -101,6 +121,7 @@ async function runJob(jobId: string, attempts: number): Promise<void> {
       throw retry('STORAGE_UNAVAILABLE');
     }
     documentSha256 = sha256(source);
+    const appearance = await loadAppearance(ctx, log);
 
     let signed: Buffer;
     try {
@@ -108,6 +129,7 @@ async function runJob(jobId: string, attempts: number): Promise<void> {
         certificate: { serialNumber: ctx.certificate.serialNumber, certificatePem: ctx.certificate.certificatePem, escrow: ctx.certificate.escrow! },
         signerName: ctx.user.name,
         lock: ctx.lockDocument,
+        appearance,
       });
       signed = result.pdf;
     } catch (err) {

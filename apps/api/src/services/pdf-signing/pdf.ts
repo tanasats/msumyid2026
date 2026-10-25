@@ -1,5 +1,6 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNull, PDFRef, PDFString } from 'pdf-lib';
 import { extractPdfSignatures, isPdf } from '../signature-verification/pdf-signatures.js';
+import { buildAppearanceStream, placeAppearance, type AppearanceContent, type AppearancePlacement } from './appearance.js';
 
 // เตรียม PDF ให้มีช่องลายมือชื่อ + placeholder แล้วฝัง CMS ที่ได้ — ไม่ถือ key (การลงนามจริงอยู่ที่ signer)
 // docs/design/document-signing.md
@@ -12,7 +13,7 @@ const BYTE_RANGE_PLACEHOLDER = '**********';
 /** ไฟล์ลงนามไม่ได้ — ผู้เรียกแสดงเป็นความล้มเหลวของไฟล์นั้น (เหตุผลภาษาไทยในข้อความ) */
 export class PdfSigningError extends Error {
   constructor(
-    public readonly code: 'NOT_PDF' | 'ENCRYPTED' | 'ALREADY_SIGNED' | 'INVALID_PDF' | 'SIGNATURE_TOO_LARGE',
+    public readonly code: 'NOT_PDF' | 'ENCRYPTED' | 'ALREADY_SIGNED' | 'INVALID_PDF' | 'SIGNATURE_TOO_LARGE' | 'PAGE_NOT_FOUND',
     message: string,
     options?: { cause?: unknown },
   ) {
@@ -27,6 +28,8 @@ export type PrepareOptions = {
   /** ชื่อผู้ลงนาม (display_name) — ใส่ใน /Name ให้โปรแกรมอ่าน PDF แสดง */
   signerName: string;
   signingTime: Date;
+  /** ลายมือชื่อแบบมองเห็น (ภาพ/ข้อความ ณ ตำแหน่งที่เลือก) — ไม่ระบุ = มองไม่เห็นบนหน้าแรก */
+  appearance?: AppearancePlacement & AppearanceContent;
 };
 
 export type PreparedPdf = {
@@ -36,7 +39,7 @@ export type PreparedPdf = {
 };
 
 /**
- * เพิ่มช่องลายมือชื่อ (มองไม่เห็น) บนหน้าแรก + dictionary ลายมือชื่อที่มี placeholder ของ /ByteRange และ /Contents
+ * เพิ่มช่องลายมือชื่อ (มองไม่เห็นบนหน้าแรก หรือมองเห็นตาม options.appearance) + dictionary ลายมือชื่อที่มี placeholder ของ /ByteRange และ /Contents
  * - ไฟล์ที่มีลายมือชื่ออยู่แล้วยังไม่รองรับ (pdf-lib บันทึกทั้งไฟล์ใหม่ ลายมือชื่อเดิมจะเสีย — ระยะ D4 ใช้ incremental update)
  * - บันทึกแบบไม่ใช้ object stream: dictionary ลายมือชื่อต้องเป็นข้อความธรรมดา จึงแก้ /ByteRange ทีหลังได้
  */
@@ -56,8 +59,12 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
   if (doc.isEncrypted) {
     throw new PdfSigningError('ENCRYPTED', 'ไฟล์นี้ตั้งรหัสผ่านหรือจำกัดสิทธิ์ไว้ กรุณาปลดล็อกก่อนลงนาม');
   }
-  const page = doc.getPages()[0];
-  if (!page) throw new PdfSigningError('INVALID_PDF', 'ไฟล์ PDF ไม่มีหน้า');
+  const pages = doc.getPages();
+  if (pages.length === 0) throw new PdfSigningError('INVALID_PDF', 'ไฟล์ PDF ไม่มีหน้า');
+  const page = pages[(options.appearance?.page ?? 1) - 1];
+  if (!page) {
+    throw new PdfSigningError('PAGE_NOT_FOUND', `ไฟล์นี้มี ${pages.length} หน้า ไม่มีหน้าที่เลือกวางลายเซ็น`);
+  }
 
   const { context, catalog } = doc;
   const signature = context.obj({
@@ -83,12 +90,25 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
   });
   const signatureRef = context.register(signature);
 
-  // F = 132 (Print + Locked) — ช่องลายมือชื่อแบบมองไม่เห็น (Rect 0) อยู่บนหน้าแรก
+  // มองเห็น: Rect ตามตำแหน่งที่เลือก + appearance stream (/AP /N) / มองไม่เห็น: Rect 0
+  let rect: [number, number, number, number] = [0, 0, 0, 0];
+  let appearanceRef: PDFRef;
+  if (options.appearance) {
+    const placed = placeAppearance(page, options.appearance);
+    rect = placed.rect;
+    appearanceRef = await buildAppearanceStream(doc, placed, options.appearance);
+  } else {
+    // มองไม่เห็นก็ใส่ appearance ว่าง — PDF/A กำหนดให้ annotation ทุกตัวมี /AP (เครื่องมืออื่น เช่น iText ทำแบบเดียวกัน)
+    appearanceRef = context.register(context.formXObject([], { BBox: [0, 0, 0, 0] }));
+  }
+
+  // F = 132 (Print + Locked) — ผู้อ่านย้าย/ซ่อนช่องลายมือชื่อไม่ได้
   const widget = context.obj({
     Type: 'Annot',
     Subtype: 'Widget',
     FT: 'Sig',
-    Rect: [0, 0, 0, 0],
+    Rect: rect,
+    AP: context.obj({ N: appearanceRef }),
     V: signatureRef,
     T: PDFHexString.fromText(`Signature${Date.now()}`),
     F: 132,

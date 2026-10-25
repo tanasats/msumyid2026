@@ -23,6 +23,7 @@ import { verifyRouter } from './routes/verify.js';
 import { filesRouter } from './routes/files.js';
 import { signingPinRouter } from './routes/signing-pin.js';
 import { signingRouter } from './routes/signing.js';
+import { signatureImageRouter } from './routes/signature-image.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -59,6 +60,7 @@ export function createApp() {
   app.use(filesRouter);
   app.use(signingPinRouter);
   app.use(signingRouter);
+  app.use(signatureImageRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

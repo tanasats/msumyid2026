@@ -1,15 +1,18 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CircleCheck, Download, FileUp, LoaderCircle, Lock, RotateCcw, X } from 'lucide-react';
+import { CircleCheck, Download, EyeOff, FileUp, LoaderCircle, Lock, PenLine, RotateCcw, X } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { Button } from '@/components/Button';
+import { SegmentedControl } from '@/components/SegmentedControl';
 import { TextField } from '@/components/TextField';
 import { ApiClientError, apiGet, apiMutate, downloadMyFile, uploadToStorage } from '@/lib/api-client';
 import type { Certificate } from '@/lib/certificate';
 import { formatBytes } from '@/lib/verify';
-import { MAX_SIGNING_PDF_BYTES, type SigningBatch } from '@/lib/signing';
+import { MAX_SIGNING_PDF_BYTES, type SignatureBox, type SignatureImage, type SigningBatch } from '@/lib/signing';
+import { SignaturePlacement } from './SignaturePlacement';
 import { SigningPinForm } from './SigningPinForm';
 
 const PIN_PATTERN = /^\d{6,12}$/;
@@ -25,20 +28,36 @@ type Step =
   | { step: 'waiting'; batch: SigningBatch }
   | { step: 'done'; batch: SigningBatch };
 
-type FieldErrors = Partial<Record<'file' | 'pin', string>>;
+type FieldErrors = Partial<Record<'file' | 'pin' | 'appearance', string>>;
 
 type UploadResponse = { file: { id: string }; uploadUrl: string };
 
 /**
- * ลงนาม PDF 1 ไฟล์ (มองไม่เห็น): อัปโหลดตรงเข้า storage → ส่งเข้าคิวพร้อม PIN → รอ worker → ดาวน์โหลด
+ * ลงนาม PDF 1 ไฟล์: อัปโหลดตรงเข้า storage → ส่งเข้าคิวพร้อม PIN → รอ worker → ดาวน์โหลด
+ * แสดงลายเซ็นบนเอกสาร (ภาพ + ชื่อ/วันเวลา ณ ตำแหน่งที่ลากวาง) หรือไม่แสดง (ลายมือชื่อดิจิทัลอย่างเดียว)
  * ยังไม่ตั้ง PIN = ให้ตั้งก่อนในหน้าเดียวกัน — ทุกขั้นตอน API ตรวจสิทธิ์ ไฟล์ ใบรับรอง และ PIN อีกครั้ง
  */
-export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { certificates: Certificate[]; hasPin: boolean }) {
+export function SignDocumentForm({
+  certificates,
+  hasPin: initialHasPin,
+  signatureImage,
+  signerName,
+}: {
+  certificates: Certificate[];
+  hasPin: boolean;
+  signatureImage: SignatureImage | null;
+  /** ชื่อแสดง (display_name) — ใช้แสดงตัวอย่างข้อความใต้ลายเซ็น */
+  signerName: string;
+}) {
   const router = useRouter();
   const [hasPin, setHasPin] = useState(initialHasPin);
   const [file, setFile] = useState<File | null>(null);
   const [certificateId, setCertificateId] = useState(certificates[0]?.id ?? '');
   const [lockDocument, setLockDocument] = useState(false);
+  const [visible, setVisible] = useState(true);
+  const [useImage, setUseImage] = useState(signatureImage !== null);
+  const [showText, setShowText] = useState(true);
+  const [box, setBox] = useState<SignatureBox | null>(null);
   const [pin, setPin] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +116,8 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
       return;
     }
     setFile(picked);
+    // เลือกไฟล์ใหม่ = ตั้งกรอบเริ่มต้นใหม่ (มุมขวาล่างของหน้าแรก)
+    setBox(null);
     setFieldErrors((e) => ({ ...e, file: undefined }));
   }
 
@@ -104,9 +125,11 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
     event.preventDefault();
     const errors: FieldErrors = {};
     if (!file) errors.file = 'กรุณาเลือกไฟล์ PDF ที่จะลงนาม';
+    if (visible && !useImage && !showText) errors.appearance = 'เลือกแสดงภาพลายเซ็นหรือชื่อและวันเวลาอย่างน้อยหนึ่งอย่าง';
     if (!PIN_PATTERN.test(pin)) errors.pin = 'กรุณาใส่ PIN ลงนาม (ตัวเลข 6–12 หลัก)';
     setFieldErrors(errors);
     if (errors.file) return document.getElementById('field-file')?.focus();
+    if (errors.appearance) return document.getElementById('appearance-section')?.scrollIntoView({ block: 'center' });
     if (errors.pin) return document.getElementById('field-pin')?.focus();
 
     const controller = new AbortController();
@@ -131,6 +154,10 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
         fileId: upload.file.id,
         certificateId,
         lockDocument,
+        appearance:
+          visible && box
+            ? { visible: true, ...box, showText, useImage: useImage && signatureImage !== null }
+            : { visible: false },
         pin,
       });
       setPin('');
@@ -152,6 +179,7 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
 
   function reset() {
     setFile(null);
+    setBox(null);
     setPin('');
     setFieldErrors({});
     setError(null);
@@ -248,8 +276,86 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
         </div>
       </section>
 
+      <section id="appearance-section" className="space-y-4 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
+        <h2 className="font-display text-lg font-semibold">2. ลายเซ็นบนเอกสาร</h2>
+        <SegmentedControl<'visible' | 'invisible'>
+          label="รูปแบบลายเซ็น"
+          value={visible ? 'visible' : 'invisible'}
+          onChange={(value) => setVisible(value === 'visible')}
+          options={[
+            { value: 'visible', label: 'แสดงลายเซ็น', icon: PenLine },
+            { value: 'invisible', label: 'ไม่แสดง', icon: EyeOff },
+          ]}
+        />
+        {visible ? (
+          <>
+            <div className="space-y-2">
+              <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={useImage && signatureImage !== null}
+                  disabled={!signatureImage}
+                  onChange={(e) => setUseImage(e.target.checked)}
+                  className="mt-0.5 size-5 shrink-0 accent-primary"
+                />
+                <span className="text-sm">
+                  <span className="block font-medium">แสดงภาพลายเซ็น</span>
+                  <span className="block text-muted">
+                    {signatureImage ? (
+                      <Link href="/sign/signature" className="text-accent underline">
+                        เปลี่ยนภาพลายเซ็น
+                      </Link>
+                    ) : (
+                      <>
+                        ยังไม่ได้ตั้งภาพ —{' '}
+                        <Link href="/sign/signature" className="text-accent underline">
+                          ตั้งภาพลายเซ็น
+                        </Link>
+                      </>
+                    )}
+                  </span>
+                </span>
+              </label>
+              <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={showText}
+                  onChange={(e) => setShowText(e.target.checked)}
+                  className="mt-0.5 size-5 shrink-0 accent-primary"
+                />
+                <span className="text-sm">
+                  <span className="block font-medium">แสดงชื่อและวันเวลาที่ลงนาม</span>
+                  <span className="block text-muted">ระบบสร้างจากชื่อในบัญชีและเวลาที่ลงนามจริง แก้ไขไม่ได้</span>
+                </span>
+              </label>
+              {fieldErrors.appearance && (
+                <p role="alert" className="text-sm text-danger-fg">
+                  {fieldErrors.appearance}
+                </p>
+              )}
+            </div>
+            {file ? (
+              <SignaturePlacement
+                file={file}
+                box={box}
+                onChange={setBox}
+                image={useImage ? signatureImage : null}
+                showText={showText}
+                signerName={signerName}
+              />
+            ) : (
+              <p className="text-sm text-muted">เลือกไฟล์ก่อน แล้วลากวางลายเซ็นบนหน้าเอกสารได้ที่นี่</p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted">
+            ลายมือชื่อดิจิทัลยังอยู่ในไฟล์และตรวจได้ใน Acrobat หรือหน้าตรวจสอบลายมือชื่อ แต่ไม่มีภาพบนหน้าเอกสาร
+          </p>
+        )}
+      </section>
+
       <section className="space-y-4 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
-        <h2 className="font-display text-lg font-semibold">2. ใบรับรองและการล็อก</h2>
+        <h2 className="font-display text-lg font-semibold">3. ใบรับรองและการล็อก</h2>
         <fieldset className="space-y-2">
           <legend className="mb-2 text-sm font-medium">ลงนามด้วยใบรับรอง</legend>
           {certificates.map((c) => (
@@ -299,7 +405,7 @@ export function SignDocumentForm({ certificates, hasPin: initialHasPin }: { cert
       </section>
 
       <section className="space-y-4 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
-        <h2 className="font-display text-lg font-semibold">3. ยืนยันด้วย PIN</h2>
+        <h2 className="font-display text-lg font-semibold">4. ยืนยันด้วย PIN</h2>
         <TextField
           name="pin"
           label="PIN ลงนาม"
