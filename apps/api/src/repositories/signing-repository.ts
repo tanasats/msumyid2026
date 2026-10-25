@@ -4,7 +4,8 @@ import type { AccountType, ApprovalStatus } from './session-repository.js';
 
 // ชุดการลงนาม (signing_batches) และงานลงนามทีละไฟล์ (signing_jobs) — docs/design/document-signing.md
 
-export type SigningBatchStatus = 'processing' | 'completed' | 'failed';
+/** extracting = รอ/กำลังแตก ZIP (ชุดแบบ zip) */
+export type SigningBatchStatus = 'extracting' | 'processing' | 'completed' | 'failed';
 export type SigningJobStatus = 'pending' | 'signing' | 'signed' | 'failed';
 
 export type SigningBatchRow = {
@@ -14,6 +15,11 @@ export type SigningBatchRow = {
   source: 'single' | 'zip';
   lockDocument: boolean;
   status: SigningBatchStatus;
+  /** ชื่อไฟล์ ZIP ต้นฉบับ (null = ชุดไฟล์เดียว) */
+  zipName: string | null;
+  skippedEntries: { name: string; reason: string }[];
+  /** เหตุที่ทั้งชุดล้มเหลว (เช่น ZIP เสีย) — null = ดูที่แต่ละไฟล์ */
+  errorCode: string | null;
   expiresAt: Date;
   createdAt: Date;
 };
@@ -36,6 +42,9 @@ const BATCH_COLUMNS = `b.id,
             b.source,
             b.lock_document  AS "lockDocument",
             b.status,
+            (SELECT z.original_name FROM files z WHERE z.id = b.source_file_id) AS "zipName",
+            b.skipped_entries AS "skippedEntries",
+            b.error_code     AS "errorCode",
             b.expires_at     AS "expiresAt",
             b.created_at     AS "createdAt"`;
 
@@ -62,17 +71,27 @@ export async function insertSigningBatch(
   input: {
     userId: string;
     certificateId: string;
-    source: 'single' | 'zip';
     lockDocument: boolean;
     appearance: SigningAppearance;
     expiresAt: Date;
-  },
+  } & ({ source: 'single' } | { source: 'zip'; zipFileId: string }),
 ): Promise<{ id: string }> {
+  // ชุด zip เริ่มที่ extracting (worker แตกไฟล์ก่อน) ชุดไฟล์เดียวเริ่มที่ processing
+  const zip = input.source === 'zip';
   const result = await db.query<{ id: string }>(
-    `INSERT INTO signing_batches (user_id, certificate_id, source, lock_document, appearance, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO signing_batches (user_id, certificate_id, source, lock_document, appearance, expires_at, status, source_file_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
-    [input.userId, input.certificateId, input.source, input.lockDocument, JSON.stringify(input.appearance), input.expiresAt],
+    [
+      input.userId,
+      input.certificateId,
+      input.source,
+      input.lockDocument,
+      JSON.stringify(input.appearance),
+      input.expiresAt,
+      zip ? 'extracting' : 'processing',
+      zip ? input.zipFileId : null,
+    ],
   );
   return result.rows[0]!;
 }
@@ -116,7 +135,7 @@ export async function listSigningJobsOfBatch(db: Queryable, batchId: string, lim
 }
 
 export type SigningBatchSummaryRow = SigningBatchRow & {
-  /** ชื่อไฟล์แรกของชุด (ชุดไฟล์เดียว = ชื่อไฟล์นั้น) */
+  /** ชื่อไฟล์แรกของชุด (ชุดไฟล์เดียว = ชื่อไฟล์นั้น — ชุด ZIP ใช้ zipName) */
   firstName: string | null;
   /** ไฟล์ที่ลงนามแล้วไฟล์แรก (ชุดไฟล์เดียวดาวน์โหลดจากหน้าประวัติได้) */
   firstSignedFileId: string | null;
@@ -178,90 +197,61 @@ export async function claimNextSigningJob(db: Queryable): Promise<{ id: string; 
   return result.rows[0] ?? null;
 }
 
-export type SigningJobContext = {
-  jobId: string;
-  batchId: string;
-  originalName: string;
-  lockDocument: boolean;
-  appearance: SigningAppearance;
-  /** object key ของภาพลายเซ็นที่ชุดนี้ใช้ — null = ไม่ใช้ภาพ หรือไฟล์ภาพถูกลบไปแล้ว (ดู appearance.imageFileId) */
-  imageObjectKey: string | null;
-  batchExpiresAt: Date;
-  user: {
-    id: string;
-    email: string;
-    /** users.display_name — ใส่เป็นชื่อผู้ลงนามใน PDF */
-    name: string;
-    accountType: AccountType;
-    approvalStatus: ApprovalStatus;
-    /** is_active และยังไม่ถึงวันหมดอายุของบัญชี และยังไม่ถูกลบ */
-    isActive: boolean;
-    roles: string[];
-    permissions: string[];
-  };
-  certificate: {
-    id: string;
-    userId: string | null;
-    kind: CertificateKind;
-    serialNumber: string;
-    certificatePem: string;
-    notBefore: Date;
-    notAfter: Date;
-    revokedAt: Date | null;
-    revocationReason: RevocationReason | null;
-    escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer } | null;
-  };
-  sourceFile: { id: string; objectKey: string; mimeType: string; size: number; deleted: boolean };
+/** ผู้ลงนาม ณ ตอนที่ worker ทำงาน (สิทธิ์ล่าสุด) */
+export type SignerUser = {
+  id: string;
+  email: string;
+  /** users.display_name — ใส่เป็นชื่อผู้ลงนามใน PDF */
+  name: string;
+  accountType: AccountType;
+  approvalStatus: ApprovalStatus;
+  /** is_active และยังไม่ถึงวันหมดอายุของบัญชี และยังไม่ถูกลบ */
+  isActive: boolean;
+  roles: string[];
+  permissions: string[];
+};
+
+export type SignerCertificate = {
+  id: string;
+  userId: string | null;
+  kind: CertificateKind;
+  serialNumber: string;
+  certificatePem: string;
+  notBefore: Date;
+  notAfter: Date;
+  revokedAt: Date | null;
+  revocationReason: RevocationReason | null;
+  escrow: { kekId: string; encryptedKey: Buffer; wrappedDataKey: Buffer } | null;
+};
+
+type SignerRow = {
+  user_id: string;
+  email: string;
+  display_name: string;
+  account_type: AccountType;
+  approval_status: ApprovalStatus;
+  is_active: boolean;
+  roles: string[];
+  permissions: string[];
+  certificate_id: string;
+  certificate_user_id: string | null;
+  kind: CertificateKind;
+  serial_number: string;
+  certificate_pem: string;
+  not_before: Date;
+  not_after: Date;
+  revoked_at: Date | null;
+  revocation_reason: RevocationReason | null;
+  kek_id: string | null;
+  encrypted_key: Buffer | null;
+  wrapped_data_key: Buffer | null;
 };
 
 /**
- * ข้อมูลทั้งหมดที่ worker ต้องใช้ตรวจก่อนลงนาม อ่านใหม่จากฐานข้อมูลตอนลงนาม (ไม่ใช้ค่าตอนส่งคำขอ):
- * สถานะบัญชีและสิทธิ์ล่าสุด (role/permission แบบเดียวกับ findSessionUser), สถานะใบ + key สำรอง, ไฟล์ต้นฉบับ
+ * คอลัมน์ผู้ใช้ + ใบรับรอง + key สำรอง ของชุด b (ต้องมี SIGNER_JOINS) — role/permission แบบเดียวกับ findSessionUser
  * LEFT JOIN escrow: ใบที่ไม่มี key สำรองยังได้แถวกลับมา (escrow = null) เพื่อให้ worker แจ้งเหตุผลได้
  */
-export async function findSigningJobContext(db: Queryable, jobId: string): Promise<SigningJobContext | null> {
-  const result = await db.query<{
-    job_id: string;
-    batch_id: string;
-    original_name: string;
-    lock_document: boolean;
-    appearance: SigningAppearance;
-    image_object_key: string | null;
-    batch_expires_at: Date;
-    user_id: string;
-    email: string;
-    display_name: string;
-    account_type: AccountType;
-    approval_status: ApprovalStatus;
-    is_active: boolean;
-    roles: string[];
-    permissions: string[];
-    certificate_id: string;
-    certificate_user_id: string | null;
-    kind: CertificateKind;
-    serial_number: string;
-    certificate_pem: string;
-    not_before: Date;
-    not_after: Date;
-    revoked_at: Date | null;
-    revocation_reason: RevocationReason | null;
-    kek_id: string | null;
-    encrypted_key: Buffer | null;
-    wrapped_data_key: Buffer | null;
-    file_id: string;
-    object_key: string;
-    mime_type: string;
-    size: number;
-    file_deleted: boolean;
-  }>(
-    `SELECT j.id              AS job_id,
-            j.batch_id,
-            j.original_name,
-            b.lock_document,
-            b.appearance,
-            img.object_key     AS image_object_key,
-            b.expires_at       AS batch_expires_at,
-            u.id               AS user_id,
+const SIGNER_COLUMNS = `u.id               AS user_id,
             u.email,
             u.display_name,
             u.account_type,
@@ -294,33 +284,14 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
             c.revocation_reason,
             e.kek_id,
             e.encrypted_key,
-            e.wrapped_data_key,
-            f.id               AS file_id,
-            f.object_key,
-            f.mime_type,
-            f.size::float8     AS size,
-            (f.deleted_at IS NOT NULL OR f.status <> 'uploaded') AS file_deleted
-     FROM signing_jobs j
-     JOIN signing_batches b ON b.id = j.batch_id
-     JOIN users u ON u.id = b.user_id
+            e.wrapped_data_key`;
+
+const SIGNER_JOINS = `JOIN users u ON u.id = b.user_id
      JOIN certificates c ON c.id = b.certificate_id
-     LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id
-     JOIN files f ON f.id = j.source_file_id
-     -- ภาพลายเซ็นที่บันทึกไว้ใน appearance ตอนส่งคำขอ (ไฟล์ถูกลบแล้ว = NULL → worker แจ้งว่าไม่พบภาพ)
-     LEFT JOIN files img ON img.id = (b.appearance->>'imageFileId')::uuid AND img.deleted_at IS NULL
-     WHERE j.id = $1`,
-    [jobId],
-  );
-  const row = result.rows[0];
-  if (!row) return null;
+     LEFT JOIN certificate_key_escrows e ON e.certificate_id = c.id`;
+
+function toSigner(row: SignerRow): { user: SignerUser; certificate: SignerCertificate } {
   return {
-    jobId: row.job_id,
-    batchId: row.batch_id,
-    originalName: row.original_name,
-    lockDocument: row.lock_document,
-    appearance: row.appearance,
-    imageObjectKey: row.image_object_key,
-    batchExpiresAt: row.batch_expires_at,
     user: {
       id: row.user_id,
       email: row.email,
@@ -346,6 +317,77 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
           ? { kekId: row.kek_id, encryptedKey: row.encrypted_key, wrappedDataKey: row.wrapped_data_key }
           : null,
     },
+  };
+}
+
+export type SigningJobContext = {
+  jobId: string;
+  batchId: string;
+  originalName: string;
+  lockDocument: boolean;
+  appearance: SigningAppearance;
+  /** object key ของภาพลายเซ็นที่ชุดนี้ใช้ — null = ไม่ใช้ภาพ หรือไฟล์ภาพถูกลบไปแล้ว (ดู appearance.imageFileId) */
+  imageObjectKey: string | null;
+  batchExpiresAt: Date;
+  user: SignerUser;
+  certificate: SignerCertificate;
+  sourceFile: { id: string; objectKey: string; mimeType: string; size: number; deleted: boolean };
+};
+
+/**
+ * ข้อมูลทั้งหมดที่ worker ต้องใช้ตรวจก่อนลงนาม อ่านใหม่จากฐานข้อมูลตอนลงนาม (ไม่ใช้ค่าตอนส่งคำขอ):
+ * สถานะบัญชีและสิทธิ์ล่าสุด, สถานะใบ + key สำรอง, ไฟล์ต้นฉบับ, ภาพลายเซ็นของชุด
+ */
+export async function findSigningJobContext(db: Queryable, jobId: string): Promise<SigningJobContext | null> {
+  const result = await db.query<
+    SignerRow & {
+      job_id: string;
+      batch_id: string;
+      original_name: string;
+      lock_document: boolean;
+      appearance: SigningAppearance;
+      image_object_key: string | null;
+      batch_expires_at: Date;
+      file_id: string;
+      object_key: string;
+      mime_type: string;
+      size: number;
+      file_deleted: boolean;
+    }
+  >(
+    `SELECT j.id              AS job_id,
+            j.batch_id,
+            j.original_name,
+            b.lock_document,
+            b.appearance,
+            img.object_key     AS image_object_key,
+            b.expires_at       AS batch_expires_at,
+            ${SIGNER_COLUMNS},
+            f.id               AS file_id,
+            f.object_key,
+            f.mime_type,
+            f.size::float8     AS size,
+            (f.deleted_at IS NOT NULL OR f.status <> 'uploaded') AS file_deleted
+     FROM signing_jobs j
+     JOIN signing_batches b ON b.id = j.batch_id
+     ${SIGNER_JOINS}
+     JOIN files f ON f.id = j.source_file_id
+     -- ภาพลายเซ็นที่บันทึกไว้ใน appearance ตอนส่งคำขอ (ไฟล์ถูกลบแล้ว = NULL → worker แจ้งว่าไม่พบภาพ)
+     LEFT JOIN files img ON img.id = (b.appearance->>'imageFileId')::uuid AND img.deleted_at IS NULL
+     WHERE j.id = $1`,
+    [jobId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    jobId: row.job_id,
+    batchId: row.batch_id,
+    originalName: row.original_name,
+    lockDocument: row.lock_document,
+    appearance: row.appearance,
+    imageObjectKey: row.image_object_key,
+    batchExpiresAt: row.batch_expires_at,
+    ...toSigner(row),
     sourceFile: {
       id: row.file_id,
       objectKey: row.object_key,
@@ -438,8 +480,12 @@ export async function refreshSigningBatchStatus(db: Queryable, batchId: string):
   );
 }
 
-/** ลบบัญชี (PDPA): ล้างชื่อไฟล์ในงานลงนามทั้งหมดของผู้ใช้ — คืนจำนวนแถวที่แก้ */
+/** ลบบัญชี (PDPA): ล้างชื่อไฟล์ในงานลงนามและรายการที่ข้ามใน ZIP ของผู้ใช้ — คืนจำนวนงานที่แก้ */
 export async function eraseSigningJobNamesOfUser(db: Queryable, userId: string): Promise<number> {
+  await db.query(
+    `UPDATE signing_batches SET skipped_entries = '[]'::jsonb WHERE user_id = $1 AND skipped_entries <> '[]'::jsonb`,
+    [userId],
+  );
   const result = await db.query(
     `UPDATE signing_jobs j
      SET original_name = 'deleted'
@@ -490,4 +536,164 @@ export async function findSigningCertificate(db: Queryable, id: string): Promise
     [id],
   );
   return result.rows[0] ?? null;
+}
+
+/**
+ * หยิบชุด ZIP ถัดไปที่รอแตก (ใช้ partial index signing_batches_extracting_idx) แล้วตั้งเวลาเริ่มในคำสั่งเดียว
+ * หยิบได้เมื่อยังไม่มีใครทำ (extract_started_at NULL) หรือค้างเกิน staleBefore (worker ตายกลางทาง) — FOR UPDATE SKIP LOCKED กันหยิบซ้ำ
+ */
+export async function claimNextExtraction(db: Queryable, staleBefore: Date): Promise<{ id: string; attempts: number } | null> {
+  const result = await db.query<{ id: string; attempts: number }>(
+    `UPDATE signing_batches
+     SET extract_attempts = extract_attempts + 1, extract_started_at = now()
+     WHERE id = (
+       SELECT id
+       FROM signing_batches
+       WHERE status = 'extracting'
+         AND extract_run_after <= now()
+         AND (extract_started_at IS NULL OR extract_started_at < $1)
+       ORDER BY extract_run_after
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, extract_attempts AS attempts`,
+    [staleBefore],
+  );
+  return result.rows[0] ?? null;
+}
+
+export type ExtractionContext = {
+  batchId: string;
+  batchExpiresAt: Date;
+  user: SignerUser;
+  certificate: SignerCertificate;
+  zip: { id: string; objectKey: string; size: number; deleted: boolean };
+};
+
+/** ข้อมูลที่ต้องใช้แตก ZIP ของชุด — ผู้ใช้/ใบอ่านใหม่ตอนแตกไฟล์ (ตรวจสิทธิ์ก่อนแตก) */
+export async function findExtractionContext(db: Queryable, batchId: string): Promise<ExtractionContext | null> {
+  const result = await db.query<
+    SignerRow & { batch_id: string; batch_expires_at: Date; zip_id: string; object_key: string; size: number; zip_deleted: boolean }
+  >(
+    `SELECT b.id               AS batch_id,
+            b.expires_at       AS batch_expires_at,
+            ${SIGNER_COLUMNS},
+            z.id               AS zip_id,
+            z.object_key,
+            z.size::float8     AS size,
+            (z.deleted_at IS NOT NULL OR z.status <> 'uploaded') AS zip_deleted
+     FROM signing_batches b
+     ${SIGNER_JOINS}
+     JOIN files z ON z.id = b.source_file_id
+     WHERE b.id = $1`,
+    [batchId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    batchId: row.batch_id,
+    batchExpiresAt: row.batch_expires_at,
+    ...toSigner(row),
+    zip: { id: row.zip_id, objectKey: row.object_key, size: row.size, deleted: row.zip_deleted },
+  };
+}
+
+/**
+ * แตก ZIP เสร็จ: บันทึกรายการที่ข้าม แล้วเริ่มลงนาม (processing) — เงื่อนไข status = 'extracting' กันบันทึกซ้อน
+ * คืน false ถ้าชุดไม่ได้อยู่ในสถานะรอแตกแล้ว (ผู้เรียกต้อง rollback)
+ */
+export async function markExtractionDone(db: Queryable, input: { batchId: string; skipped: { name: string; reason: string }[] }): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE signing_batches
+     SET status = 'processing', skipped_entries = $2, error_code = NULL, extract_started_at = NULL
+     WHERE id = $1
+       AND status = 'extracting'`,
+    [input.batchId, JSON.stringify(input.skipped)],
+  );
+  return result.rowCount === 1;
+}
+
+/** ทั้งชุดล้มเหลว (ZIP ใช้ไม่ได้ / บัญชีหรือใบใช้ไม่ได้ / ลองครบแล้ว) — เก็บรายการที่ข้ามไว้แสดงด้วยถ้ามี */
+export async function markBatchFailed(
+  db: Queryable,
+  input: { batchId: string; errorCode: string; skipped?: { name: string; reason: string }[] },
+): Promise<void> {
+  await db.query(
+    `UPDATE signing_batches
+     SET status = 'failed', error_code = $2, skipped_entries = COALESCE($3, skipped_entries), extract_started_at = NULL
+     WHERE id = $1
+       AND status IN ('extracting', 'processing')`,
+    [input.batchId, input.errorCode, input.skipped ? JSON.stringify(input.skipped) : null],
+  );
+}
+
+/** แตก ZIP ไม่สำเร็จชั่วคราว (storage ล่ม): ลองใหม่หลัง runAfter */
+export async function retryExtractionLater(db: Queryable, input: { batchId: string; errorCode: string; runAfter: Date }): Promise<void> {
+  await db.query(
+    `UPDATE signing_batches
+     SET error_code = $2, extract_run_after = $3, extract_started_at = NULL
+     WHERE id = $1
+       AND status = 'extracting'`,
+    [input.batchId, input.errorCode, input.runAfter],
+  );
+}
+
+/** ชุดของผู้ใช้พร้อมล็อกแถว (ลองใหม่ — กันกดซ้อนกัน 2 ครั้ง) */
+export async function lockSigningBatchOfUser(db: Queryable, batchId: string, userId: string): Promise<SigningBatchRow | null> {
+  const result = await db.query<SigningBatchRow>(
+    `SELECT ${BATCH_COLUMNS}
+     FROM signing_batches b
+     WHERE b.id = $1
+       AND b.user_id = $2
+     FOR UPDATE OF b`,
+    [batchId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** ลองแตก ZIP ใหม่ทั้งชุด (ชุดล้มเหลวด้วยเหตุชั่วคราวระหว่างแตกไฟล์) */
+export async function restartExtraction(db: Queryable, batchId: string): Promise<void> {
+  await db.query(
+    `UPDATE signing_batches
+     SET status = 'extracting', error_code = NULL, extract_attempts = 0, extract_run_after = now(), extract_started_at = NULL
+     WHERE id = $1`,
+    [batchId],
+  );
+}
+
+/**
+ * คืนไฟล์ที่ล้มเหลวด้วยเหตุชั่วคราว (errorCodes) เข้าคิวใหม่ แล้วตั้งชุดเป็น processing — คืนจำนวนไฟล์ที่คืนเข้าคิว
+ * ไฟล์ที่ล้มเหลวถาวร (ไฟล์เสีย/มีลายมือชื่อแล้ว) ไม่ถูกแตะ
+ */
+export async function requeueFailedJobs(db: Queryable, input: { batchId: string; errorCodes: readonly string[] }): Promise<number> {
+  const result = await db.query(
+    `UPDATE signing_jobs
+     SET status = 'pending', error_code = NULL, attempts = 0, run_after = now(), started_at = NULL
+     WHERE batch_id = $1
+       AND status = 'failed'
+       AND error_code = ANY($2::text[])`,
+    [input.batchId, input.errorCodes],
+  );
+  const count = result.rowCount ?? 0;
+  if (count > 0) {
+    await db.query(`UPDATE signing_batches SET status = 'processing', error_code = NULL WHERE id = $1`, [input.batchId]);
+  }
+  return count;
+}
+
+/** ไฟล์ที่ลงนามแล้วของชุด (ยังไม่ถูกลบ) สำหรับดาวน์โหลดรวมเป็น ZIP — ชื่อในชุด + object key เรียงตามลำดับในชุด */
+export async function listSignedFilesOfBatch(db: Queryable, batchId: string, limit: number): Promise<{ name: string; objectKey: string }[]> {
+  const result = await db.query<{ name: string; objectKey: string }>(
+    `SELECT j.original_name AS name,
+            f.object_key    AS "objectKey"
+     FROM signing_jobs j
+     JOIN files f ON f.id = j.signed_file_id
+     WHERE j.batch_id = $1
+       AND j.status = 'signed'
+       AND f.deleted_at IS NULL
+     ORDER BY j.id
+     LIMIT $2`,
+    [batchId, limit],
+  );
+  return result.rows;
 }

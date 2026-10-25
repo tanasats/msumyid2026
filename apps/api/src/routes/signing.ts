@@ -3,7 +3,14 @@ import { z } from 'zod';
 import { requirePermission } from '../middlewares/auth.js';
 import { PERMISSIONS } from '../services/permissions.js';
 import { PIN_PATTERN } from '../services/signing-pin-service.js';
-import { createSigningBatch, getMySigningBatch, listMySigningBatches } from '../services/signing-service.js';
+import {
+  createSigningBatch,
+  downloadMySignedBatch,
+  getMySigningBatch,
+  listMySigningBatches,
+  retryMySigningBatch,
+} from '../services/signing-service.js';
+import { contentDisposition } from '../storage/index.js';
 
 // ลงนามเอกสารบนเว็บ (docs/design/document-signing.md) — ส่งเข้าคิวแล้ว worker ลงนาม หน้าเว็บถามสถานะซ้ำจนจบ
 export const signingRouter = Router();
@@ -44,6 +51,25 @@ signingRouter.post('/me/signing-batches', requirePermission(PERMISSIONS.DOCUMENT
 signingRouter.get('/me/signing-batches', requirePermission(PERMISSIONS.DOCUMENT_SIGN), async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ batches: await listMySigningBatches(req.user!) });
+});
+
+const retryBody = z.object({ pin: z.string().regex(PIN_PATTERN, 'PIN ต้องเป็นตัวเลข 6–12 หลัก') });
+
+// สิทธิ์: document:sign — ลองใหม่เฉพาะไฟล์ที่ล้มเหลวด้วยเหตุชั่วคราว (ใส่ PIN อีกครั้ง)
+signingRouter.post('/me/signing-batches/:id/retry', requirePermission(PERMISSIONS.DOCUMENT_SIGN), async (req, res) => {
+  const { id } = batchParams.parse(req.params);
+  const { pin } = retryBody.parse(req.body);
+  res.status(202).json({ batch: await retryMySigningBatch(req.user!, id, pin) });
+});
+
+// สิทธิ์: document:sign — ดาวน์โหลดไฟล์ที่ลงนามแล้วทั้งชุดเป็น ZIP (สร้างส่งตรง ไม่เก็บใน storage)
+signingRouter.get('/me/signing-batches/:id/download', requirePermission(PERMISSIONS.DOCUMENT_SIGN), async (req, res) => {
+  const { id } = batchParams.parse(req.params);
+  const { fileName, stream } = await downloadMySignedBatch(req.user!, id);
+  res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': contentDisposition(fileName), 'Cache-Control': 'no-store' });
+  // ส่ง header ไปแล้ว — อ่านไฟล์ล้มกลางทาง = ตัดการเชื่อมต่อ (browser เห็นว่าดาวน์โหลดไม่สำเร็จ)
+  stream.on('error', () => res.destroy());
+  stream.pipe(res);
 });
 
 // สิทธิ์: document:sign — สถานะของชุดและไฟล์ที่ลงนามแล้ว (ชุดของคนอื่น = 404)
