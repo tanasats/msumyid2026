@@ -18,6 +18,13 @@ const PIN_PATTERN = /^\d{6,12}$/;
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' });
 
+/** LTV (ระยะ D4b): มีข้อมูลตรวจสอบสถานะใบรับรองฝังในไฟล์ — โปรแกรมอ่าน PDF ตรวจได้แม้ใบหมดอายุหรือออฟไลน์ */
+const LTV_LABELS: Record<NonNullable<SigningJob['ltv']>, string> = {
+  embedded: 'มีข้อมูลตรวจสอบระยะยาว (LTV)',
+  skipped_locked: 'ไม่มีข้อมูลตรวจสอบระยะยาว (LTV) — เอกสารที่ล็อกเพิ่มข้อมูลหลังลงนามไม่ได้',
+  unavailable: 'ไม่ได้ฝังข้อมูลตรวจสอบระยะยาว (LTV) — ดึงข้อมูลสถานะใบรับรองไม่สำเร็จ',
+};
+
 /**
  * ความคืบหน้าและผลของชุดการลงนาม (ไฟล์เดียวหรือ ZIP) — ถามสถานะซ้ำจนชุดจบ
  * จบแล้ว: ดาวน์โหลดทีละไฟล์/ทั้งชุดเป็น ZIP, รายการที่ข้าม, ลองใหม่เฉพาะไฟล์ที่ล้มเหลวชั่วคราว (ใส่ PIN อีกครั้ง)
@@ -130,7 +137,7 @@ export function BatchProgress({ initial }: { initial: SigningBatch }) {
 
       {batch.canRetry && <RetryForm batchId={batch.id} onRetried={setBatch} />}
 
-      {total > 0 && (zip || failed > 0) && (
+      {total > 0 && (
         <section className="space-y-3" aria-labelledby="batch-files">
           <h2 id="batch-files" className="font-display text-lg font-semibold">
             ไฟล์ในชุด
@@ -184,6 +191,7 @@ function JobRow({ job }: { job: SigningJob }) {
         <span className="min-w-0">
           <span className="block text-sm font-medium break-all">{job.originalName}</span>
           {job.error && <span className="block text-sm text-danger-fg">{job.error.message}</span>}
+          {job.ltv && <span className="block text-xs text-muted">{LTV_LABELS[job.ltv]}</span>}
         </span>
       </div>
       {job.signedFileId && <DownloadButton fileId={job.signedFileId} size="sm" />}

@@ -27,6 +27,8 @@ export type SignatureReport = {
   reason: string | null;
   location: string | null;
   coversWholeDocument: boolean;
+  /** สิ่งที่ต่อท้ายหลังลายมือชื่อ: ltv = ข้อมูลตรวจสอบระยะยาวล้วน (ไม่ใช่การแก้ไข) */
+  addedAfter: 'none' | 'ltv' | 'changes';
   integrity: 'ok' | 'failed' | 'unsupported';
   signer: CertificateSummary | null;
   chain: { status: 'trusted' | 'untrusted'; anchor: string | null; path: { subject: string; issuer: string }[] };

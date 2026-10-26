@@ -367,6 +367,7 @@ export function SignDocumentForm({
             </span>
             <span id="lock-hint" className="block text-sm text-muted">
               Acrobat แสดงเป็นเอกสารรับรอง (Certified) ห้ามแก้ไขและห้ามผู้อื่นลงนามเพิ่ม — เลือกเมื่อเป็นฉบับสุดท้าย ล็อกได้เฉพาะไฟล์ที่ยังไม่มีลายมือชื่อ
+              และเอกสารที่ล็อกจะไม่มีข้อมูลตรวจสอบระยะยาว (LTV)
             </span>
           </span>
         </label>
