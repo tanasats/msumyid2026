@@ -55,6 +55,8 @@ const envSchema = z.object({
   CRL_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
   // รูปแบบไฟล์ที่เผยแพร่: pem = แบบเดียวกับที่ openssl ca -gencrl ของระบบเดิมสร้าง, der = ตาม RFC 5280
   CRL_PUBLISH_FORMAT: z.enum(['pem', 'der']).default('pem'),
+  // LTV (ระยะ D4b): ดึง CRL ของ CA อื่นในสายใบ (เช่น TUC) จาก URL ในใบรับรอง — เกินเวลา = ลงนามต่อแบบไม่มี LTV
+  CRL_FETCH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 });
@@ -141,6 +143,7 @@ export const config = {
   crl: {
     checkIntervalMs: env.CRL_CHECK_INTERVAL_MS,
     publishFormat: env.CRL_PUBLISH_FORMAT,
+    fetchTimeoutMs: env.CRL_FETCH_TIMEOUT_MS,
   },
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

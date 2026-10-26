@@ -21,6 +21,7 @@ import {
   requeueStaleSigningJobs,
   retryExtractionLater,
   retrySigningJobLater,
+  type LtvStatus,
   type SignerCertificate,
   type SignerUser,
   type SigningJobContext,
@@ -30,6 +31,8 @@ import { hasPermission, type AuthUser } from './authorization-service.js';
 import { PdfSigningError, signPdf, TimestampError, type SignPdfOptions } from './pdf-signing/index.js';
 import { PERMISSIONS } from './permissions.js';
 import { verifyPdfSignatures } from './signature-verification/index.js';
+import { collectRevocationMaterial } from './ltv-service.js';
+import { appendDss } from './pdf-signing/ltv.js';
 import { SignerError, SignerRejectedError } from './signer-client.js';
 import { isStorageFailure, openStoredZip, planZip, readZipEntry, ZipRejectedError } from './signing-zip.js';
 
@@ -46,7 +49,36 @@ const RETRY_DELAYS_MS = [30_000, 120_000];
 const STALE_AFTER_MS = 10 * 60_000;
 
 /** ใช้แทนเครื่องมือลงนามใน test (TSA จำลอง) — โค้ดจริงเรียกผ่าน object นี้เสมอ */
-export const signingEngine = { signPdf };
+export const signingEngine = { signPdf, collectRevocationMaterial };
+
+/**
+ * ฝัง LTV (DSS) ต่อท้ายไฟล์ที่ลงนามแล้ว — ตรวจซ้ำว่าลายมือชื่อทุกตัวได้ผลเหมือนก่อนฝัง และสิ่งที่ต่อท้ายเป็น LTV ล้วน
+ * ได้ไม่ครบหรือผิดพลาดใด ๆ = คืนไฟล์เดิม (ไม่มี LTV) ไม่ทำให้การลงนามล้ม (ยืนยัน 2026-10-26)
+ */
+async function embedLtv(
+  signed: Buffer,
+  before: Awaited<ReturnType<typeof verifyPdfSignatures>>['signatures'],
+  log: typeof logger,
+): Promise<{ pdf: Buffer; status: LtvStatus }> {
+  try {
+    const collected = await signingEngine.collectRevocationMaterial(signed);
+    if (!collected.material) {
+      log.warn({ reason: collected.reason }, 'ไม่ได้ฝัง LTV');
+      return { pdf: signed, status: 'unavailable' };
+    }
+    const withDss = await appendDss(signed, collected.material);
+    const after = (await verifyPdfSignatures(withDss)).signatures;
+    const intact = after.length === before.length && before.every((s, i) => after[i]?.integrity === s.integrity);
+    if (!intact || after.at(-1)?.addedAfter !== 'ltv') {
+      log.error({ intact, addedAfter: after.at(-1)?.addedAfter }, 'ฝัง LTV แล้วตรวจไม่ผ่าน ใช้ไฟล์ที่ไม่มี LTV');
+      return { pdf: signed, status: 'unavailable' };
+    }
+    return { pdf: withDss, status: 'embedded' };
+  } catch (err) {
+    log.error({ err }, 'ฝัง LTV ไม่สำเร็จ ใช้ไฟล์ที่ไม่มี LTV');
+    return { pdf: signed, status: 'unavailable' };
+  }
+}
 
 type Outcome = { kind: 'fail'; code: string; batchWide?: boolean } | { kind: 'retry'; code: string };
 
@@ -163,6 +195,12 @@ async function runJob(jobId: string, attempts: number): Promise<void> {
       throw fail('VERIFY_FAILED');
     }
 
+    // LTV (ระยะ D4b): เอกสารที่ล็อกไม่ใส่ (Acrobat ถือว่า DSS ที่ต่อท้ายเป็นการแก้ไข) / ได้ไม่ครบ = ลงนามต่อแบบไม่มี LTV
+    const ltv: { pdf: Buffer; status: LtvStatus } = ctx.lockDocument
+      ? { pdf: signed, status: 'skipped_locked' }
+      : await embedLtv(signed, after, log);
+    signed = ltv.pdf;
+
     const signedSha256 = sha256(signed);
     resultKey = `signing-result/${crypto.randomUUID()}`;
     try {
@@ -188,7 +226,7 @@ async function runJob(jobId: string, attempts: number): Promise<void> {
         expiresAt: context.batchExpiresAt,
       });
       // งานถูกคืนเข้าคิวระหว่างนี้ (ค้างนานเกิน) = ไม่บันทึกผลซ้อน
-      if (!(await markSigningJobSigned(client, { jobId, signedFileId: file.id, documentSha256: documentSha256!, signedSha256 }))) {
+      if (!(await markSigningJobSigned(client, { jobId, signedFileId: file.id, documentSha256: documentSha256!, signedSha256, ltvStatus: ltv.status }))) {
         return false;
       }
       // ประวัติถาวร: SHA-256 ก่อน/หลังลงนาม ไม่เก็บชื่อไฟล์ (log ลบไม่ได้ — PDPA)

@@ -34,7 +34,11 @@ export type SigningJobRow = {
   documentSha256: string | null;
   signedSha256: string | null;
   signedAt: Date | null;
+  ltvStatus: LtvStatus | null;
 };
+
+/** LTV ของไฟล์ที่ลงนามแล้ว (ระยะ D4b) — ดู migration add-ltv-status-to-signing-jobs */
+export type LtvStatus = 'embedded' | 'skipped_locked' | 'unavailable';
 
 const BATCH_COLUMNS = `b.id,
             b.user_id        AS "userId",
@@ -56,7 +60,8 @@ const JOB_COLUMNS = `j.id,
             j.signed_file_id  AS "signedFileId",
             j.document_sha256 AS "documentSha256",
             j.signed_sha256   AS "signedSha256",
-            j.signed_at       AS "signedAt"`;
+            j.signed_at       AS "signedAt",
+            j.ltv_status      AS "ltvStatus"`;
 
 /**
  * signing_batches.appearance (jsonb): มองไม่เห็น = { visible: false }
@@ -401,14 +406,15 @@ export async function findSigningJobContext(db: Queryable, jobId: string): Promi
 /** เงื่อนไข status = 'signing' ทุกคำสั่งด้านล่าง: งานที่ถูกคืนเข้าคิว (ค้างนานเกิน) แล้วจะไม่ถูก worker ตัวเดิมเขียนทับ */
 export async function markSigningJobSigned(
   db: Queryable,
-  input: { jobId: string; signedFileId: string; documentSha256: string; signedSha256: string },
+  input: { jobId: string; signedFileId: string; documentSha256: string; signedSha256: string; ltvStatus: LtvStatus },
 ): Promise<boolean> {
   const result = await db.query(
     `UPDATE signing_jobs
-     SET status = 'signed', signed_file_id = $2, document_sha256 = $3, signed_sha256 = $4, signed_at = now(), error_code = NULL
+     SET status = 'signed', signed_file_id = $2, document_sha256 = $3, signed_sha256 = $4, signed_at = now(), error_code = NULL,
+         ltv_status = $5
      WHERE id = $1
        AND status = 'signing'`,
-    [input.jobId, input.signedFileId, input.documentSha256, input.signedSha256],
+    [input.jobId, input.signedFileId, input.documentSha256, input.signedSha256, input.ltvStatus],
   );
   return result.rowCount === 1;
 }

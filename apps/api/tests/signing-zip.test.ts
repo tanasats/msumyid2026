@@ -47,6 +47,8 @@ const post = (cookie: string, path: string, body: object = {}) =>
 function useFakeSigning(tsa = fake.fakeTsa) {
   fake.mockSigner();
   vi.spyOn(signingEngine, 'signPdf').mockImplementation((pdf, options) => signPdf(pdf, { ...options, tsaTransport: tsa }));
+  // LTV ทดสอบแยกใน ltv.test.ts / signing.test.ts — ที่นี่ปิดไว้ ไฟล์ผลลัพธ์จึงครอบคลุมทั้งไฟล์เหมือนเดิม
+  vi.spyOn(signingEngine, 'collectRevocationMaterial').mockResolvedValue({ material: null, reason: 'ปิดใน test' });
 }
 
 async function signerUser() {

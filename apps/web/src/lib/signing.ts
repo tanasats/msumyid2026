@@ -23,6 +23,8 @@ export type SigningJob = {
   /** ดาวน์โหลดผ่าน GET /me/files/:id/download — null เมื่อยังไม่เสร็จหรือเลย 7 วันแล้ว */
   signedFileId: string | null;
   signedAt: string | null;
+  /** LTV: embedded = ฝังแล้ว, skipped_locked = เอกสารที่ล็อกไม่ใส่, unavailable = ได้ข้อมูลไม่ครบ, null = ยังไม่ลงนาม/ลงนามก่อนมี LTV */
+  ltv: 'embedded' | 'skipped_locked' | 'unavailable' | null;
 };
 
 export type SigningBatch = {

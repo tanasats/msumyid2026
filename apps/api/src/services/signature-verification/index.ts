@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { pool } from '../../db/pool.js';
 import { findCertificateRevocationStatus } from '../../repositories/certificate-repository.js';
+import { lockedNoChanges, onlyLtvAddedAfter } from './later-revisions.js';
 import { extractPdfSignatures, type PdfSignature } from './pdf-signatures.js';
 import {
   allowsDigitalSignature,
@@ -35,6 +36,8 @@ export type SignatureReport = {
   reason: string | null;
   location: string | null;
   coversWholeDocument: boolean;
+  /** สิ่งที่ต่อท้ายหลังลายมือชื่อนี้: none = ไม่มี, ltv = ข้อมูลตรวจสอบระยะยาว (DSS) ล้วน ไม่ใช่การแก้ไข, changes = อย่างอื่น (เช่น ลายมือชื่อถัดไป) */
+  addedAfter: 'none' | 'ltv' | 'changes';
   /** ok = เอกสารไม่ถูกแก้ไขในช่วงที่ลงนาม และลายมือชื่อตรงกับใบรับรอง */
   integrity: 'ok' | 'failed' | 'unsupported';
   signer: CertificateSummary | null;
@@ -69,7 +72,22 @@ export async function verifyPdfSignatures(pdf: Buffer, now: Date = new Date()): 
   const signatures = extractPdfSignatures(pdf);
   const reports: SignatureReport[] = [];
   for (const signature of signatures) {
-    reports.push(await verifySignature(signature, signatures.length, store, now));
+    // ลายมือชื่อตัวสุดท้ายที่ไม่ครอบคลุมทั้งไฟล์: ดูว่าที่ต่อท้ายเป็น LTV ล้วนหรือไม่ (ตัวก่อนหน้ามีลายมือชื่อถัดไปต่อท้ายเสมอ)
+    const end = signature.byteRange[2] + signature.byteRange[3];
+    const addedAfter = signature.coversWholeDocument
+      ? 'none'
+      : signature.index === signatures.length - 1 && (await onlyLtvAddedAfter(pdf, end))
+        ? 'ltv'
+        : 'changes';
+    const report = await verifySignature(signature, signatures.length, addedAfter, store, now);
+    // เอกสารที่ล็อกแบบห้ามแก้ไข (DocMDP P=1): ต่อท้ายอะไรก็ตามหลังลายมือชื่อที่ล็อก (รวม DSS) = certification ไม่ถูกต้อง
+    // ตรงกับ Acrobat (ทดสอบ 2026-10-26)
+    if (!signature.coversWholeDocument && (await lockedNoChanges(pdf, signature))) {
+      report.addedAfter = 'changes';
+      report.findings.push({ level: 'error', message: 'เอกสารนี้ถูกล็อกห้ามแก้ไขไว้ แต่มีการเพิ่มเติมหลังลงนาม การรับรองเอกสารจึงไม่ถูกต้อง' });
+      report.verdict = 'invalid';
+    }
+    reports.push(report);
   }
   return { verifiedAt: now.toISOString(), signatures: reports };
 }
@@ -77,6 +95,7 @@ export async function verifyPdfSignatures(pdf: Buffer, now: Date = new Date()): 
 async function verifySignature(
   sig: PdfSignature,
   total: number,
+  addedAfter: SignatureReport['addedAfter'],
   store: TrustStore,
   now: Date,
 ): Promise<SignatureReport> {
@@ -90,6 +109,7 @@ async function verifySignature(
     reason: sig.reason,
     location: sig.location,
     coversWholeDocument: sig.coversWholeDocument,
+    addedAfter,
     integrity: 'unsupported',
     signer: null,
     chain: { status: 'untrusted', anchor: null, path: [] },
@@ -99,7 +119,9 @@ async function verifySignature(
     issuedByUniversity: false,
   };
 
-  if (!sig.coversWholeDocument) {
+  if (addedAfter === 'ltv') {
+    findings.push({ level: 'info', message: 'มีข้อมูลตรวจสอบระยะยาว (LTV) เพิ่มหลังลงนาม — ไม่ใช่การแก้ไขเอกสาร' });
+  } else if (!sig.coversWholeDocument) {
     const later = total - 1 - sig.index;
     findings.push({
       level: 'warning',

@@ -155,6 +155,8 @@ describe('ลงนามแบบมองเห็น', () => {
   function useFakeSigning() {
     fake.mockSigner();
     vi.spyOn(signingEngine, 'signPdf').mockImplementation((pdf, options) => signPdf(pdf, { ...options, tsaTransport: fake.fakeTsa }));
+    // LTV ทดสอบแยกใน ltv.test.ts / signing.test.ts — ที่นี่ปิดไว้ ไฟล์ผลลัพธ์จึงครอบคลุมทั้งไฟล์เหมือนเดิม
+    vi.spyOn(signingEngine, 'collectRevocationMaterial').mockResolvedValue({ material: null, reason: 'ปิดใน test' });
   }
 
   async function signedPdfOf(batchId: string): Promise<Buffer> {

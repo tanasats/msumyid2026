@@ -101,7 +101,10 @@ export function SignatureResultCard({ report, total }: { report: SignatureReport
         {report.location && <InfoRow label="สถานที่">{report.location}</InfoRow>}
         <InfoRow label="ความครบถ้วน">
           {INTEGRITY_LABELS[report.integrity]}
-          {report.integrity === 'ok' && !report.coversWholeDocument && (
+          {report.integrity === 'ok' && report.addedAfter === 'ltv' && (
+            <span className="block text-xs text-muted">มีข้อมูลตรวจสอบระยะยาว (LTV) เพิ่มหลังลงนาม — ไม่ใช่การแก้ไขเอกสาร</span>
+          )}
+          {report.integrity === 'ok' && report.addedAfter === 'changes' && (
             <span className="block text-xs text-muted">มีการเพิ่มเติมเอกสารหลังลายมือชื่อนี้</span>
           )}
         </InfoRow>
