@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { EditUserForm } from '@/components/admin/EditUserForm';
 import { PageShell } from '@/components/PageShell';
 import { getUserDetail, listOrgUnits } from '@/lib/admin-users';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'แก้ไขข้อมูลผู้ใช้' };
 
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'แก้ไขข้อมูลผ
 export default async function EditUserPage({ params }: { params: Promise<{ id: string }> }) {
   const currentUser = await getCurrentUser();
   if (!currentUser) redirect('/login');
-  if (currentUser.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(currentUser);
   if (!currentUser.permissions.includes('user:update')) redirect('/forbidden');
 
   const { id } = await params;

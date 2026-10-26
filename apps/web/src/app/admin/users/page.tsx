@@ -8,7 +8,7 @@ import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { Tag, UserStatusBadge } from '@/components/UserStatusBadge';
 import { listUsers, type UserListQuery } from '@/lib/admin-users';
-import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'จัดการผู้ใช้' };
 
@@ -43,7 +43,7 @@ export default async function AdminUsersPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   const params = await searchParams;
   const query: UserListQuery = {

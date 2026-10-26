@@ -1,11 +1,10 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ChevronRight, FileBadge, FilePen, FileSearch, ShieldCheck, UserRound, Users, type LucideIcon } from 'lucide-react';
 import { BentoGrid, cardClasses } from '@/components/Card';
 import { IdentityCard } from '@/components/IdentityCard';
 import { Landing } from '@/components/landing/Landing';
 import { PageShell } from '@/components/PageShell';
-import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getThemePreference } from '@/lib/theme-server';
 
 type Tile = { href: string; icon: LucideIcon; title: string; detail: string; className?: string };
@@ -15,7 +14,7 @@ export default async function HomePage() {
   const user = await getCurrentUser();
   // ไม่มี session หรือ cookie หมดอายุ/ถูกเพิกถอน (proxy ตรวจแค่ว่ามี cookie)
   if (!user) return <Landing theme={await getThemePreference()} />;
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   // แถวล่าง 3 ช่องเท่ากัน — ช่องที่ 3 เป็นงานผู้ดูแลถ้ามีสิทธิ์ ลงนามเอกสารเป็นแถวกว้างของตัวเอง (ซ่อนเพื่อ UX เท่านั้น API ตรวจสิทธิ์เสมอ)
   const tiles: Tile[] = [

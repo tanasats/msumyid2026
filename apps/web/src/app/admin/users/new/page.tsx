@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { CreateUserForm } from '@/components/admin/CreateUserForm';
 import { PageShell } from '@/components/PageShell';
 import { listOrgUnits } from '@/lib/admin-users';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'ลงทะเบียนผู้ใช้' };
 
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'ลงทะเบียนผู้
 export default async function NewUserPage() {
   const currentUser = await getCurrentUser();
   if (!currentUser) redirect('/login');
-  if (currentUser.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(currentUser);
   if (!currentUser.permissions.includes('user:create')) redirect('/forbidden');
 
   const orgUnits = await listOrgUnits();

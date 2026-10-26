@@ -8,7 +8,7 @@ import { PageShell } from '@/components/PageShell';
 import { StaffProfileCard } from '@/components/StaffProfileCard';
 import { TextSizeSwitcher } from '@/components/TextSizeSwitcher';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
-import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMyStaffProfile } from '@/lib/staff-profile';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
 
@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: 'บัญชีของฉัน' }
 export default async function AccountPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   const staffProfile = user.accountType === 'staff' ? await getMyStaffProfile() : null;
   const [theme, textSize] = await Promise.all([getThemePreference(), getTextSize()]);

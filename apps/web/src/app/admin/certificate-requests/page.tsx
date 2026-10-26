@@ -7,7 +7,7 @@ import { AdminPrimaryRequestCard } from '@/components/certificates/AdminPrimaryR
 import { AdminSupplementaryRequestCard } from '@/components/certificates/AdminSupplementaryRequestCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { listAdminPrimaryRequests } from '@/lib/primary-certificate-requests';
 import { SUPPLEMENTARY_STATUS_LABELS } from '@/lib/supplementary-certificate';
 import { listAdminSupplementaryRequests, type AdminRequestView } from '@/lib/supplementary-certificates';
@@ -41,7 +41,7 @@ export default async function AdminCertificateRequestsPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('certificate:approve')) redirect('/forbidden');
 
   const params = await searchParams;

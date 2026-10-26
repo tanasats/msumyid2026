@@ -12,7 +12,7 @@ import { SupplementaryRequestCard } from '@/components/certificates/Supplementar
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { canRedownload, isKeyCompromised, type Certificate } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
 import { getMyPrimaryRequests } from '@/lib/primary-certificate-requests';
@@ -32,7 +32,7 @@ export default async function CertificatesPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   const [{ certificates, primaryRequest }, supplementary, primaryRequests, params] = await Promise.all([
     getMyCertificates(),

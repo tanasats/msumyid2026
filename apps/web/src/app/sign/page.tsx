@@ -10,7 +10,7 @@ import { DownloadButton } from '@/components/signing/DownloadButton';
 import { SignDocumentForm } from '@/components/signing/SignDocumentForm';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMyCertificates } from '@/lib/certificates';
 import { canSignWith, type SigningBatchSummary } from '@/lib/signing';
 import { getMySignatureImage, getMySigningBatches, getSigningPinStatus } from '@/lib/signing-batches';
@@ -29,7 +29,7 @@ export default async function SignPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('document:sign')) redirect('/forbidden');
 
   const [{ certificates }, pinStatus, batches, signatureImage, params] = await Promise.all([

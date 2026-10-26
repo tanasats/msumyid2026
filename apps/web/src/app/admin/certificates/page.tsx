@@ -7,7 +7,7 @@ import { AdminCertificateCard } from '@/components/certificates/AdminCertificate
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { searchAdminCertificates, type AdminCertificateQuery } from '@/lib/admin-certificates';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { CERTIFICATE_STATUS_LABELS, type CertificateStatus } from '@/lib/certificate';
 
 export const metadata: Metadata = { title: 'ใบรับรองทั้งหมด' };
@@ -27,7 +27,7 @@ export default async function AdminCertificatesPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('certificate:read')) redirect('/forbidden');
 
   const params = await searchParams;

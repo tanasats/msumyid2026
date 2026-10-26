@@ -16,6 +16,7 @@ import {
 import { MsuMark } from '@/components/BrandLogo';
 import { buttonClasses } from '@/components/Button';
 import { PageShell } from '@/components/PageShell';
+import { SiteCredit } from '@/components/SiteCredit';
 import { SecurityPattern } from '@/components/SecurityPattern';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { PdfVerifier } from '@/components/verify/PdfVerifier';
@@ -234,7 +235,10 @@ export function Landing({ theme }: { theme: ThemePreference }) {
 
       <footer className="border-t border-line">
         <div className={`${CONTAINER} flex flex-col items-start gap-4 py-6 sm:flex-row sm:items-center sm:justify-between`}>
-          <p className="text-sm text-muted">MSU Digital ID ระบบใบรับรองดิจิทัล มหาวิทยาลัยมหาสารคาม</p>
+          <div className="space-y-2">
+            <p className="text-sm text-muted">MSU Digital ID ระบบใบรับรองดิจิทัล มหาวิทยาลัยมหาสารคาม</p>
+            <SiteCredit />
+          </div>
           <ThemeSwitcher initial={theme} compact />
         </div>
       </footer>

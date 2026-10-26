@@ -7,7 +7,7 @@ import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { getCertificatePolicyForAdmin } from '@/lib/admin-certificate-policy';
 import { getRoleAdminOverview } from '@/lib/admin-roles';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { describePolicyChanges } from '@/lib/certificate-policy';
 
 export const metadata: Metadata = { title: 'นโยบายอายุใบรับรอง' };
@@ -22,7 +22,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat('th-TH', {
 export default async function CertificatePolicyPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('certificate_policy:manage')) redirect('/forbidden');
 
   // วิธีขอใบของแต่ละบทบาทแก้ได้เฉพาะ super_admin (capabilities.manageRoles) — ผู้มีแค่ certificate_policy:manage ไม่เห็นส่วนนี้

@@ -6,7 +6,7 @@ import { buttonClasses } from '@/components/Button';
 import { RequestCertificateForm } from '@/components/certificates/RequestCertificateForm';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMyCertificates } from '@/lib/certificates';
 
 export const metadata: Metadata = { title: 'ขอใบรับรองใหม่' };
@@ -17,7 +17,7 @@ const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', time
 export default async function NewCertificatePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('certificate:request')) redirect('/forbidden');
 
   const { primaryRequest } = await getMyCertificates();

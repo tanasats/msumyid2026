@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { redirect } from 'next/navigation';
 import type { AccountType } from './account-type';
 import { ApiError, apiFetch } from './api-server';
 
@@ -9,6 +10,8 @@ export type CurrentUser = {
   pictureUrl: string | null;
   accountType: AccountType;
   approvalStatus: 'pending' | 'approved' | 'rejected';
+  /** รับทราบประกาศความเป็นส่วนตัวฉบับปัจจุบันแล้ว (docs/design/pdpa.md) */
+  privacyAcknowledged: boolean;
   roles: string[];
   /** ใช้ซ่อน/แสดงเมนูเท่านั้น การตรวจสิทธิ์จริงอยู่ที่ API */
   permissions: string[];
@@ -30,6 +33,15 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     throw err;
   }
 });
+
+/**
+ * หน้าที่ต้องใช้บัญชีที่พร้อมใช้งาน: ยังไม่รับทราบประกาศความเป็นส่วนตัว → /privacy, ยังไม่อนุมัติ → /pending
+ * (เพื่อ UX เท่านั้น — API ตรวจเองใน requireAuth)
+ */
+export function redirectUnlessReady(user: CurrentUser): void {
+  if (!user.privacyAcknowledged) redirect('/privacy');
+  if (user.approvalStatus !== 'approved') redirect('/pending');
+}
 
 // Server Component ยัง import จากที่นี่ได้ ส่วน Client Component ให้ import จาก ./account-type โดยตรง
 export { ACCOUNT_TYPE_LABELS } from './account-type';
