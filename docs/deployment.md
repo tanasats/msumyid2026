@@ -83,6 +83,7 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
   scripts/deploy.sh           ตรวจไฟล์ → backup → pull → migrate → สลับ → รอ healthy (ไม่ผ่าน = กลับเวอร์ชันเดิมอัตโนมัติ)
   scripts/rollback.sh         กลับไปเวอร์ชันก่อนหน้า (ไม่ย้อน migration)
   scripts/backup.sh           pg_dump + env (ไม่รวม secrets/ และ ca/) + ลบของเก่า + rsync ออกนอก VM
+  scripts/archive-logs.sh     เก็บ log ของ container รายวันลง logs/<วันที่>/ + ลบที่เก่ากว่า LOG_KEEP_DAYS (90)
   scripts/init-secrets.sh     สร้าง signer_token / escrow_kek ครั้งแรก (ไม่สร้างทับ)
   scripts/recover-env.sh      กู้ env/*.env ที่หายจาก container ที่ยังอยู่
   scripts/update-cloudflare-realip.sh  ช่วง IP ของ Cloudflare ให้ nginx (nginx -t ไม่ผ่าน = คืนไฟล์เดิม)
@@ -186,6 +187,8 @@ sudo ln -s /etc/nginx/sites-available/msumyid.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 curl -s --resolve did.msu.ac.th:443:127.0.0.1 https://did.msu.ac.th/api/health   # ทดสอบก่อนมี DNS/Cloudflare
 ```
+**ระยะเก็บ log ของ nginx = 90 วัน** (ประกาศความเป็นส่วนตัว + พ.ร.บ.คอมพิวเตอร์ ม.26 — `docs/design/pdpa.md`) ค่าเริ่มต้นของ Ubuntu เก็บ 14 วัน ให้แก้ `/etc/logrotate.d/nginx` เป็น `daily` + `rotate 90` แล้วตรวจด้วย `sudo logrotate -d /etc/logrotate.d/nginx`
+
 ถ้าเปลี่ยน `WEB_PORT`/`API_PORT`/`GARAGE_S3_PORT` ใน `.env` ต้องแก้ upstream / location `/msumyid-files/` ใน `msumyid.conf` ให้ตรง
 
 **ใบ TLS `*.msu.ac.th` หมดอายุ 2027-03-05** — ต่ออายุล่วงหน้าอย่างน้อย 1 เดือน แล้วทำขั้นตอนข้างบนซ้ำ (เฉพาะส่วนใบรับรอง) และ `sudo systemctl reload nginx`
@@ -200,7 +203,9 @@ docker compose run --rm api node dist/scripts/seed-super-admin.js
 **5.9 สำรองข้อมูลอัตโนมัติ** (`crontab -e` ของผู้ใช้ deploy)
 ```
 0 2 * * * /opt/msumyid/scripts/backup.sh daily >> /opt/msumyid/backups/cron.log 2>&1
+15 0 * * * /opt/msumyid/scripts/archive-logs.sh >> /opt/msumyid/logs/cron.log 2>&1
 ```
+`archive-logs.sh` ต้องมีโฟลเดอร์ `logs/` ก่อน (`mkdir -m 700 /opt/msumyid/logs`) — log ของ Docker หายเมื่อ container ถูกสร้างใหม่ `deploy.sh`/`rollback.sh` จึงเก็บ log ของวันนั้นไว้ก่อนสลับเวอร์ชันทุกครั้ง (`logs/<วันที่>/<service>-<เวลา>.log.gz`) — อย่าสั่ง `docker compose up`/`down` กับ api/web/worker เองโดยไม่เก็บ log ก่อน
 
 **5.10 Firewall**: เปิดเฉพาะ 22 (จำกัด IP ถ้าทำได้), 80, 443
 
@@ -377,6 +382,7 @@ sudo systemctl enable --now msu-crl.timer
 - [ ] ใบรับรอง TLS รวม intermediate chain (`openssl s_client -connect did.msu.ac.th:443 -servername did.msu.ac.th`)
 - [ ] นำเข้าใบเดิมครบ และ CRL มีใบที่เพิกถอนเดิมครบ ก่อนตั้ง timer บน cdp
 - [ ] cron backup ทำงาน และกำหนด `BACKUP_REMOTE` แล้ว
+- [ ] cron `archive-logs.sh` ทำงาน และ logrotate ของ nginx เก็บ 90 วัน (`docs/design/pdpa.md`)
 - [ ] ทดลอง restore อย่างน้อย 1 ครั้ง (รวมดาวน์โหลด `.p12` ซ้ำจาก key สำรองหลัง restore)
 - [ ] super_admin คนแรกเข้าใช้ได้
 

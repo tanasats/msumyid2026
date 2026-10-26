@@ -48,10 +48,12 @@ has_worker() {
   docker run --rm --entrypoint test "$(env_get IMAGE_PREFIX)-api:$1" -f dist/src/worker.js
 }
 
-# สลับ signer/api/web/worker ไปแท็กที่ระบุ แล้วรอจน healthy
+# สลับ signer/api/web/worker ไปแท็กที่ระบุ แล้วรอจน healthy (เก็บ log ของ container เดิมก่อน — archive_logs)
 # rollback ไปเวอร์ชันที่ยังไม่มี worker: หยุด worker ตัวเดิม (งานที่ค้างรออยู่ในคิว ไม่หาย) แล้วสลับเฉพาะ signer/api/web
 switch_to() {
   local tag="$1" services=(signer api web)
+  # container เดิมจะถูกสร้างใหม่ (log หาย) → เก็บ log ตั้งแต่ต้นวันถึงตอนนี้ไว้ก่อน
+  archive_logs "$(date +%Y-%m-%dT00:00:00%:z)" "$(date +%Y-%m-%dT%H:%M:%S%:z)" "$(date +%Y-%m-%d)" "-$(date +%H%M%S)"
   env_set APP_TAG "$tag"
   if has_worker "$tag"; then
     services+=(worker)
@@ -60,4 +62,17 @@ switch_to() {
     docker compose stop worker || true
   fi
   docker compose up -d --wait --wait-timeout 180 "${services[@]}"
+}
+
+# เก็บ log ของ container ลง logs/<วันที่>/<service>[-<เวลา>].log.gz (PDPA + พ.ร.บ.คอมพิวเตอร์: เก็บ 90 วัน — docs/design/pdpa.md)
+# log ของ Docker อยู่กับ container สร้างใหม่ (deploy) แล้วหาย และหมุนตามขนาด จึงต้องคัดลอกออกมาเก็บเอง
+#   archive_logs <since> <until> <วันที่> [ต่อท้ายชื่อไฟล์]   since/until = เวลาแบบ RFC 3339
+archive_logs() {
+  local since="$1" until="$2" day="$3" suffix="${4:-}" svc
+  local dir="logs/$day"
+  (umask 077; mkdir -p "$dir")
+  for svc in $(docker compose ps --services); do
+    (umask 077; docker compose logs --no-color --timestamps --since "$since" --until "$until" "$svc" | gzip > "$dir/$svc$suffix.log.gz") \
+      || log "คำเตือน: เก็บ log ของ $svc ไม่สำเร็จ"
+  done
 }
