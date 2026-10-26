@@ -47,6 +47,8 @@ afterAll(async () => {
 /** ลงนามด้วย signer และ TSA จำลอง (แทนที่ระดับเครื่องมือลงนาม ส่วนอื่นของ worker เป็นของจริง) */
 function useFakeSigning(tsa = fake.fakeTsa) {
   fake.mockSigner();
+  // LTV ทดสอบแยกใน ltv.test.ts และ describe LTV ด้านล่าง — ที่นี่ปิดไว้ ไฟล์ผลลัพธ์จึงครอบคลุมทั้งไฟล์เหมือนเดิม
+  vi.spyOn(signingEngine, 'collectRevocationMaterial').mockResolvedValue({ material: null, reason: 'ปิดใน test' });
   return vi.spyOn(signingEngine, 'signPdf').mockImplementation((pdf, options) => signPdf(pdf, { ...options, tsaTransport: tsa }));
 }
 
@@ -370,6 +372,47 @@ describe('worker ลงนาม', () => {
     await pool.query(`UPDATE signing_batches SET expires_at = now() - interval '1 minute' WHERE id = $1`, [batch.id]);
     expect((await getBatch(user.cookie, batch.id)).body.batch.jobs[0]).toMatchObject({ status: 'signed', signedFileId: null });
     expect((await request(app).get('/me/signing-batches').set('Cookie', user.cookie)).body.batches[0].firstSignedFileId).toBeNull();
+  });
+});
+
+describe('LTV (ระยะ D4b)', () => {
+  const material = { certs: [Buffer.from('3003020100', 'hex')], crls: [] };
+  const ltvOf = async (batchId: string) =>
+    (await pool.query('SELECT ltv_status FROM signing_jobs WHERE batch_id = $1', [batchId])).rows[0].ltv_status as string;
+  const signedFile = async (batchId: string) => {
+    const { rows } = await pool.query('SELECT f.object_key FROM signing_jobs j JOIN files f ON f.id = j.signed_file_id WHERE j.batch_id = $1', [batchId]);
+    return memory.objects.get(rows[0].object_key)!.body;
+  };
+
+  it('ไม่ล็อก + ได้ข้อมูลครบ → ฝัง DSS (embedded) ตัวตรวจระบุว่าที่ต่อท้ายเป็น LTV / หน้าผลแสดงสถานะ', async () => {
+    useFakeSigning();
+    vi.spyOn(signingEngine, 'collectRevocationMaterial').mockResolvedValue({ material });
+    const { user, batch } = await submitted();
+    await processNextSigningJob();
+    expect(await ltvOf(batch.id)).toBe('embedded');
+    expect((await verifyPdfSignatures(await signedFile(batch.id))).signatures[0]).toMatchObject({ integrity: 'ok', addedAfter: 'ltv' });
+    expect((await getBatch(user.cookie, batch.id)).body.batch.jobs[0].ltv).toBe('embedded');
+  });
+
+  it('ล็อกเอกสาร → ไม่ใส่ LTV (skipped_locked) ไม่เรียกรวบรวมข้อมูล / ได้ข้อมูลไม่ครบหรือผิดพลาด → ลงนามต่อแบบไม่มี LTV (unavailable)', async () => {
+    useFakeSigning();
+    const collect = vi.spyOn(signingEngine, 'collectRevocationMaterial').mockResolvedValue({ material });
+    const locked = await submitted({ lockDocument: true });
+    await processNextSigningJob();
+    expect(await ltvOf(locked.batch.id)).toBe('skipped_locked');
+    expect(collect).not.toHaveBeenCalled();
+    expect((await verifyPdfSignatures(await signedFile(locked.batch.id))).signatures[0]!.coversWholeDocument).toBe(true);
+
+    collect.mockResolvedValue({ material: null, reason: 'ดึง CRL ไม่ได้' });
+    const missing = await submitted();
+    await processNextSigningJob();
+    expect(await jobRow(missing.batch.id)).toMatchObject({ status: 'signed' });
+    expect(await ltvOf(missing.batch.id)).toBe('unavailable');
+
+    collect.mockRejectedValue(new Error('ล่ม'));
+    const broken = await submitted();
+    await processNextSigningJob();
+    expect(await ltvOf(broken.batch.id)).toBe('unavailable');
   });
 });
 

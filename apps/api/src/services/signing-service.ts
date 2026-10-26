@@ -17,6 +17,7 @@ import {
   lockSigningBatchOfUser,
   requeueFailedJobs,
   restartExtraction,
+  type LtvStatus,
   type SigningAppearance,
   type SigningBatchRow,
   type SigningBatchStatus,
@@ -98,6 +99,8 @@ export type SigningJob = {
   /** ดาวน์โหลดผ่าน GET /me/files/:id/download */
   signedFileId: string | null;
   signedAt: Date | null;
+  /** LTV ของไฟล์ที่ลงนามแล้ว (ระยะ D4b) — null = ยังไม่ได้ลงนาม หรือลงนามก่อนมี LTV */
+  ltv: LtvStatus | null;
 };
 
 export type SigningBatch = {
@@ -129,6 +132,7 @@ const toJob = (job: SigningJobRow, filesAvailable: boolean): SigningJob => ({
   error: job.status === 'failed' ? toError(job.errorCode) : null,
   signedFileId: job.status === 'signed' && filesAvailable ? job.signedFileId : null,
   signedAt: job.signedAt,
+  ltv: job.status === 'signed' ? job.ltvStatus : null,
 });
 
 const toBatch = (batch: SigningBatchRow, jobs: SigningJobRow[]): SigningBatch => {
