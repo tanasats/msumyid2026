@@ -152,12 +152,14 @@ async function runJob(jobId: string, attempts: number): Promise<void> {
       throw outcome;
     }
 
-    // ตรวจซ้ำด้วยตัวตรวจเดียวกับหน้า /verify: ต้องมีลายมือชื่อเดียว ครอบคลุมทั้งไฟล์ และตรวจความถูกต้องของข้อมูลผ่าน
-    // (ไม่ตรวจความน่าเชื่อถือของสายใบ — ขึ้นกับ trust store ของเครื่องที่รัน)
-    const report = await verifyPdfSignatures(signed);
-    const [signature, ...others] = report.signatures;
-    if (!signature || others.length > 0 || signature.integrity !== 'ok' || !signature.coversWholeDocument) {
-      log.error({ signatures: report.signatures.length, integrity: signature?.integrity }, 'ไฟล์ที่ลงนามแล้วตรวจไม่ผ่าน');
+    // ตรวจซ้ำด้วยตัวตรวจเดียวกับหน้า /verify (ไม่ตรวจความน่าเชื่อถือของสายใบ — ขึ้นกับ trust store ของเครื่องที่รัน):
+    // ลายมือชื่อใหม่ต้องเป็นตัวสุดท้าย ครอบคลุมทั้งไฟล์ และข้อมูลไม่ถูกแก้ / ลายมือชื่อเดิม (ระยะ D4a) ต้องได้ผลเหมือนก่อนลงนาม
+    const before = (await verifyPdfSignatures(source)).signatures;
+    const after = (await verifyPdfSignatures(signed)).signatures;
+    const added = after.at(-1);
+    const previousIntact = before.every((s, i) => after[i]?.integrity === s.integrity);
+    if (after.length !== before.length + 1 || !added || added.integrity !== 'ok' || !added.coversWholeDocument || !previousIntact) {
+      log.error({ before: before.length, after: after.length, integrity: added?.integrity, previousIntact }, 'ไฟล์ที่ลงนามแล้วตรวจไม่ผ่าน');
       throw fail('VERIFY_FAILED');
     }
 

@@ -1,5 +1,12 @@
-import { PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  docMdpPermission,
+  firstRevisionHasXrefGaps,
+  reserveExistingObjectNumbers,
+  snapshotObjects,
+  writeIncrementalUpdate,
+} from '../src/services/pdf-signing/incremental.js';
 import { PdfSigningError, signPdf, TimestampError } from '../src/services/pdf-signing/index.js';
 import type { TsaTransport } from '../src/services/pdf-signing/timestamp.js';
 import { verifyPdfSignatures } from '../src/services/signature-verification/index.js';
@@ -114,7 +121,7 @@ describe('signPdf', () => {
     await expect(sign(await samplePdf(), { tsa: garbage })).rejects.toBeInstanceOf(TimestampError);
   });
 
-  it('ไม่ใช่ PDF / มีลายมือชื่ออยู่แล้ว / เข้ารหัส → PdfSigningError ตามเหตุผล และไม่เรียก signer', async () => {
+  it('ไม่ใช่ PDF / ล็อกไว้แล้ว (P=1) / ล็อกไฟล์ที่มีลายมือชื่อแล้ว / เข้ารหัส → PdfSigningError ตามเหตุผล และไม่เรียก signer', async () => {
     const send = mockSigner();
     const reject = async (pdf: Buffer) => {
       const err = await sign(pdf).catch((e: unknown) => e);
@@ -123,9 +130,12 @@ describe('signPdf', () => {
     };
     expect(await reject(Buffer.from('not a pdf'))).toBe('NOT_PDF');
 
+    const { pdf: locked } = await sign(await samplePdf(), { lock: true });
     const { pdf: signed } = await sign(await samplePdf());
     send.mockClear();
-    expect(await reject(signed)).toBe('ALREADY_SIGNED');
+    expect(await reject(locked)).toBe('DOCUMENT_LOCKED');
+    const lockErr = await sign(signed, { lock: true }).catch((e: unknown) => e);
+    expect((lockErr as PdfSigningError).code).toBe('LOCK_NOT_FIRST');
 
     // trailer ที่มี /Encrypt = ไฟล์ตั้งรหัสผ่าน/จำกัดสิทธิ์
     const classic = (await samplePdf(1, { classicTrailer: true })).toString('latin1');
@@ -133,5 +143,99 @@ describe('signPdf', () => {
     const encrypted = Buffer.from(classic.replace(/trailer\s*<</, 'trailer\n<<\n/Encrypt << /Filter /Standard /V 1 >>'), 'latin1');
     expect(await reject(encrypted)).toBe('ENCRYPTED');
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('ลงนามเพิ่มบนไฟล์ที่มีลายมือชื่อแล้ว (incremental update, ระยะ D4a)', () => {
+  const xrefSections = (pdf: Buffer) => pdf.toString('latin1').match(/startxref\s+\d+\s+%%EOF/g)?.length ?? 0;
+
+  it('ลงนามคนที่ 2 และ 3: ไบต์เดิมไม่เปลี่ยน ลายมือชื่อเดิมยังผ่าน (ครอบคลุมฉบับก่อน) ลายมือชื่อใหม่ครอบคลุมทั้งไฟล์', async () => {
+    mockSigner();
+    const { pdf: first } = await sign(await samplePdf(), { lock: false });
+    const { pdf: second } = await sign(first);
+    expect(second.subarray(0, first.length).equals(first)).toBe(true);
+    expect(xrefSections(second)).toBe(xrefSections(first) + 1);
+
+    const third = (
+      await signPdf(second, {
+        certificate,
+        signerName: 'ผู้ลงนามคนที่ 3',
+        lock: false,
+        tsaTransport: fakeTsa,
+        appearance: { page: 2, x: 0.1, y: 0.1, w: 0.3, h: 0.1, image: null, showText: true },
+      })
+    ).pdf;
+    const report = await verifyPdfSignatures(third);
+    expect(report.signatures.map((x) => [x.integrity, x.coversWholeDocument, x.name])).toEqual([
+      ['ok', false, 'ผู้ลงนาม ทดสอบ'],
+      ['ok', false, 'ผู้ลงนาม ทดสอบ'],
+      ['ok', true, 'ผู้ลงนามคนที่ 3'],
+    ]);
+    // ส่วนต่อท้ายต้องไม่แตะเนื้อหาหน้า (/Contents, /Resources) — เปลี่ยนแล้ว Acrobat ถือว่าแก้เนื้อหาหลังลงนาม ลายมือชื่อเดิม invalid
+    // (pdf-lib addAnnot ห่อเนื้อหาด้วย q/Q — พบกับ Acrobat 2026-10-26)
+    const pageEntries = async (pdf: Buffer) => {
+      const node = (await PDFDocument.load(pdf)).getPage(0).node;
+      return ['Contents', 'Resources'].map((k) => node.get(PDFName.of(k))?.toString());
+    };
+    expect(await pageEntries(second)).toEqual(await pageEntries(first));
+    expect(await pageEntries(third)).toEqual(await pageEntries(first));
+    // pdf-lib อ่านไฟล์หลายส่วนได้: AcroForm มีครบ 3 ช่อง และหน้าแรกมีช่องลายมือชื่อเดิม 2 ช่อง
+    const doc = await PDFDocument.load(third);
+    const fields = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict).lookup(PDFName.of('Fields'), PDFArray);
+    expect(fields.size()).toBe(3);
+  });
+
+  it('เอกสารที่รับรองแบบ P=2 (กรอกฟอร์ม/ลงนามได้) ลงนามเพิ่มได้', async () => {
+    mockSigner();
+    const { pdf: locked } = await sign(await samplePdf(), { lock: true });
+    // แก้ P 1 → P 2 (ความยาวเท่าเดิม ตำแหน่งไบต์ไม่เลื่อน) จำลองเอกสารที่ผู้อื่นรับรองแบบอนุญาตให้ลงนาม
+    const p2 = Buffer.from(locked.toString('latin1').replace('/P 1', '/P 2'), 'latin1');
+    const { pdf } = await sign(p2);
+    expect((await verifyPdfSignatures(pdf)).signatures).toHaveLength(2);
+  });
+
+  it('ไฟล์ที่ส่วนล่าสุดเป็น xref stream: ส่วนต่อท้ายเป็น xref stream ด้วย และอ่านได้ครบ', async () => {
+    const source = await samplePdf(2);
+    expect(source.toString('latin1')).toContain('/Type /XRef');
+    const doc = await PDFDocument.load(source, { updateMetadata: false });
+    doc.getPages();
+    const snapshot = snapshotObjects(doc);
+    reserveExistingObjectNumbers(source, doc);
+    const added = doc.context.register(doc.context.obj({ Added: true }));
+    doc.catalog.set(PDFName.of('Marker'), added);
+    const updated = writeIncrementalUpdate(source, doc, snapshot);
+
+    expect(updated.subarray(0, source.length).equals(source)).toBe(true);
+    const tail = updated.subarray(source.length).toString('latin1');
+    expect(tail).toContain('/Type /XRef');
+    expect(tail).toMatch(/\/Prev \d+/);
+    const reloaded = await PDFDocument.load(updated);
+    expect(reloaded.catalog.lookup(PDFName.of('Marker'), PDFDict).get(PDFName.of('Added'))?.toString()).toBe('true');
+    expect(reloaded.getPageCount()).toBe(2);
+  });
+
+  it('firstRevisionHasXrefGaps: ฉบับแรกที่ xref หลายช่วง (เช่น ระบบนี้ก่อน PR #31) = true / ไฟล์ที่ระบบลงนามตอนนี้และส่วนต่อท้าย = false', async () => {
+    mockSigner();
+    // ต้นฉบับที่เลข object หายตรงกลาง บันทึกแบบตาราง xref → หลายช่วง
+    const doc = await PDFDocument.load(await samplePdf(2, { classicTrailer: true }));
+    const refs = Array.from({ length: 4 }, () => doc.context.register(doc.context.obj({ Unused: true })));
+    for (const ref of refs.slice(1, 3)) doc.context.delete(ref);
+    doc.context.register(doc.context.obj({ After: true }));
+    const gappy = Buffer.from(await doc.save({ useObjectStreams: false }));
+    expect(firstRevisionHasXrefGaps(gappy)).toBe(true);
+
+    const { pdf: first } = await sign(gappy);
+    expect(firstRevisionHasXrefGaps(first)).toBe(false);
+    const { pdf: second } = await sign(first);
+    expect(firstRevisionHasXrefGaps(second)).toBe(false);
+    // xref stream ยังไม่ได้ทดสอบกับ Acrobat — ไม่ถือว่าเป็นไฟล์รุ่นก่อน
+    expect(firstRevisionHasXrefGaps(await samplePdf())).toBe(false);
+  });
+
+  it('docMdpPermission: ไม่ได้รับรอง = null / ล็อกของระบบ = 1', async () => {
+    mockSigner();
+    expect(docMdpPermission(await PDFDocument.load(await samplePdf()))).toBeNull();
+    const { pdf } = await sign(await samplePdf(), { lock: true });
+    expect(docMdpPermission(await PDFDocument.load(pdf))).toBe(1);
   });
 });

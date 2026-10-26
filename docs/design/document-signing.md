@@ -22,7 +22,7 @@
 | ตำแหน่ง | ลากวาง + ย่อขยายบน preview (pdf.js) เก็บเป็นสัดส่วนของหน้าที่แสดงผล (CropBox + /Rotate) ใช้ตำแหน่งเดียวกับทุกไฟล์ในชุด — เริ่มต้นมุมขวาล่างของหน้าแรก (ยืนยัน 2026-10-25) |
 | ชุด ZIP | ≤ 100 PDF, ไฟล์ละ ≤ 20 MB, รวมหลังแตก ≤ 500 MB, อัตราบีบอัด ≤ 100 เท่า — worker อ่านจาก storage ทีละช่วง (HTTP Range) ตรวจ central directory ก่อนแตก, ข้าม (แสดงในรายการ) path แปลก/ZIP ซ้อน/ไม่ใช่ PDF/ชื่อซ้ำ, ปฏิเสธทั้ง ZIP เมื่อเข้าข่ายอันตราย (ZIP bomb, เกินจำนวน/ขนาด), ชื่อไทย TIS-620 (ZIP จาก Windows) ถอดถูก — ตัวอย่างสำหรับวางลายเซ็น = PDF ไฟล์แรกใน ZIP อ่านบนเครื่องผู้ใช้ (`fflate`), ลองใหม่ = ใส่ PIN อีกครั้ง เฉพาะไฟล์ที่ล้มเหลวชั่วคราว, ดาวน์โหลดรวม = API สร้าง ZIP ส่งตรง ไม่เก็บซ้ำ (ยืนยัน 2026-10-25) |
 | เก็บไฟล์ | Garage (VM เดียวกับระบบ, single node, **ไม่ backup**) 7 วันแล้วลบอัตโนมัติ เก็บถาวรเฉพาะประวัติ (SHA-256, เวลา, ใบรับรอง) — PDPA |
-| หลายผู้ลงนาม | ระยะ D4 (incremental update) ระหว่างนั้นไฟล์ที่มีลายมือชื่ออยู่แล้วถูกปฏิเสธ (`ALREADY_SIGNED`) |
+| หลายผู้ลงนาม | ระยะ D4a: ไฟล์ที่มีลายมือชื่ออยู่แล้วเขียนต่อท้ายไฟล์ (incremental update, `pdf-signing/incremental.ts`) ไบต์เดิมไม่เปลี่ยน — ไฟล์ที่ยังไม่มีลายมือชื่อคงเขียนทั้งไฟล์ใหม่ (ยืนยัน 2026-10-26) · ปฏิเสธ: ล็อกไว้ P=1 (`DOCUMENT_LOCKED`), ล็อกไฟล์ที่มีลายมือชื่อแล้ว (`LOCK_NOT_FIRST`), ฉบับแรกที่ xref แบบตารางหลายช่วง เช่น ไฟล์จากโปรแกรมที่เขียน PDF ใหม่โดยไม่เรียงเลข object (รวมระบบนี้ก่อน PR #31) (`COSIGN_UNSAFE_STRUCTURE` — ลงนามเพิ่มแล้ว Acrobat แสดงลายมือชื่อเดิม "altered or corrupted"), เกิน 20 ลายมือชื่อ · ห้ามใช้ `page.node.addAnnot` ของ pdf-lib (ห่อเนื้อหาหน้าด้วย q/Q = Acrobat ถือว่าแก้หน้าหลังลงนาม) · ยืนยันกับ Acrobat Reader 2026.002 แล้ว |
 | Permission | `document:sign` — ลงนามเอกสารด้วยใบรับรองของตัวเอง (ยังไม่ผูกกับ role) |
 | กฎหมาย | ให้ฝ่ายกฎหมาย/DPO ตรวจเรื่อง server ลงนามด้วย key สำรอง (พ.ร.บ.ธุรกรรมทางอิเล็กทรอนิกส์ ม.26) **ก่อนเปิดใช้จริง** — ไม่บล็อกการพัฒนา |
 
@@ -65,6 +65,7 @@ API ── signing_batch + signing_jobs ──► worker (image เดียว�
 | D1 | ลงนามไฟล์เดียวบนเว็บ (มองไม่เห็น) + ล็อก + ดาวน์โหลด + audit ผ่าน worker + ปรับ TSA ที่แนะนำในหน้า `/root-ca` เป็น MSU TSA — หน้า `/sign`, `/sign/pin`, `POST/GET /me/signing-batches`, worker `src/worker.ts` (service `worker` ใน `deploy/compose.yml`) | เสร็จ |
 | D2 | ภาพลายเซ็น (อัปโหลด/วาด) + preview pdf.js + ลากวาง/ย่อขยาย + บรรทัดข้อความไทย — `/sign/signature`, `GET/PUT/DELETE /me/signature-image`, `appearance` ใน `POST /me/signing-batches` (บันทึก file_id ของภาพ ณ ตอนส่ง), `pdf-signing/appearance.ts` | เสร็จ |
 | D3 | ZIP: อัปโหลด แตกอย่างปลอดภัย คิว ความคืบหน้า ลองใหม่ ดาวน์โหลด ZIP ลบอัตโนมัติ 7 วัน — `signing-zip.ts`, worker แตก ZIP ก่อนลงนาม, `POST /me/signing-batches/:id/retry`, `GET /me/signing-batches/:id/download`, หน้า `/sign/batches/[id]` | เสร็จ |
-| D4 | ไฟล์ที่มีลายมือชื่ออยู่แล้ว (incremental, หลายผู้ลงนาม) + LTV (DSS/CRL ฝังในไฟล์) | |
+| D4a | ไฟล์ที่มีลายมือชื่ออยู่แล้ว (incremental, หลายผู้ลงนาม) | เสร็จ |
+| D4b | LTV: DSS (สายใบ + CRL ของ MSU CA และ TUC `https://cdp.kku.ac.th/tuc-ca.crl`) ต่อท้ายหลังลงนาม เปิดเสมอ — ดึง CRL ไม่ได้ = ลงนามต่อแบบไม่มี LTV และแจ้งในผล (ยืนยัน 2026-10-26) | |
 
 Dependency (อนุมัติ 2026-10-25): api `pdf-lib`, `@pdf-lib/fontkit`, `yauzl`, `yazl`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (+ `@signpdf/placeholder-plain` ถ้าจำเป็นใน D4) · web `pdfjs-dist` · ฟอนต์ Sarabun (OFL) — ติดตั้งตามระยะที่ใช้

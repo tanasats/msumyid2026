@@ -300,21 +300,41 @@ describe('worker ลงนาม', () => {
     expect([...memory.objects.keys()].some((k) => k.startsWith('signing-result/'))).toBe(false);
   });
 
-  it('ไฟล์ไม่ใช่ PDF / มีลายมือชื่ออยู่แล้ว → ล้มเหลวทันที (ไม่ลองใหม่)', async () => {
+  it('ไฟล์ไม่ใช่ PDF → ล้มเหลวทันที (ไม่ลองใหม่) / มีลายมือชื่ออยู่แล้ว → ลงนามเพิ่มได้ (D4a) แต่ล็อกไม่ได้ / ล็อกไว้แล้ว → ลงนามไม่ได้', async () => {
     useFakeSigning();
     const notPdf = await submitted({ pdf: Buffer.from('not a pdf at all') });
     await processNextSigningJob();
     expect(await jobRow(notPdf.batch.id)).toMatchObject({ status: 'failed', error_code: 'NOT_PDF', attempts: 1 });
 
-    const first = await signPdf(await samplePdf(), {
-      certificate: { serialNumber: '1', certificatePem: 'x', escrow: { kekId: 't', encryptedKey: Buffer.alloc(1), wrappedDataKey: Buffer.alloc(1) } },
-      signerName: 'ผู้อื่น',
-      lock: false,
-      tsaTransport: fake.fakeTsa,
-    });
-    const already = await submitted({ pdf: first.pdf });
+    // ไฟล์ที่ผู้อื่นลงนามไว้แล้ว (lock = รับรองแบบห้ามแก้ไข)
+    const signedByOther = async (lock: boolean) =>
+      signPdf(await samplePdf(), {
+        certificate: { serialNumber: '1', certificatePem: 'x', escrow: { kekId: 't', encryptedKey: Buffer.alloc(1), wrappedDataKey: Buffer.alloc(1) } },
+        signerName: 'ผู้อื่น',
+        lock,
+        tsaTransport: fake.fakeTsa,
+      });
+
+    const cosign = await submitted({ pdf: (await signedByOther(false)).pdf });
     await processNextSigningJob();
-    expect(await jobRow(already.batch.id)).toMatchObject({ status: 'failed', error_code: 'ALREADY_SIGNED' });
+    expect(await jobRow(cosign.batch.id)).toMatchObject({ status: 'signed' });
+    const { rows } = await pool.query(
+      'SELECT f.object_key FROM signing_jobs j JOIN files f ON f.id = j.signed_file_id WHERE j.batch_id = $1',
+      [cosign.batch.id],
+    );
+    const report = await verifyPdfSignatures(memory.objects.get(rows[0].object_key)!.body);
+    expect(report.signatures.map((x) => [x.integrity, x.coversWholeDocument])).toEqual([
+      ['ok', false],
+      ['ok', true],
+    ]);
+
+    const lockSigned = await submitted({ pdf: (await signedByOther(false)).pdf, lockDocument: true });
+    await processNextSigningJob();
+    expect(await jobRow(lockSigned.batch.id)).toMatchObject({ status: 'failed', error_code: 'LOCK_NOT_FIRST' });
+
+    const locked = await submitted({ pdf: (await signedByOther(true)).pdf });
+    await processNextSigningJob();
+    expect(await jobRow(locked.batch.id)).toMatchObject({ status: 'failed', error_code: 'DOCUMENT_LOCKED' });
   });
 
   it('งานค้าง signing นานเกิน (worker ตาย) → คืนเข้าคิว / ลองครบแล้ว → ล้มเหลว TIMEOUT และปิดชุด', async () => {

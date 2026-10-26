@@ -1,6 +1,13 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNull, PDFRef, PDFString } from 'pdf-lib';
-import { extractPdfSignatures, isPdf } from '../signature-verification/pdf-signatures.js';
+import { extractPdfSignatures, isPdf, MAX_SIGNATURES } from '../signature-verification/pdf-signatures.js';
 import { buildAppearanceStream, placeAppearance, type AppearanceContent, type AppearancePlacement } from './appearance.js';
+import {
+  docMdpPermission,
+  firstRevisionHasXrefGaps,
+  reserveExistingObjectNumbers,
+  snapshotObjects,
+  writeIncrementalUpdate,
+} from './incremental.js';
 
 // เตรียม PDF ให้มีช่องลายมือชื่อ + placeholder แล้วฝัง CMS ที่ได้ — ไม่ถือ key (การลงนามจริงอยู่ที่ signer)
 // docs/design/document-signing.md
@@ -13,7 +20,16 @@ const BYTE_RANGE_PLACEHOLDER = '**********';
 /** ไฟล์ลงนามไม่ได้ — ผู้เรียกแสดงเป็นความล้มเหลวของไฟล์นั้น (เหตุผลภาษาไทยในข้อความ) */
 export class PdfSigningError extends Error {
   constructor(
-    public readonly code: 'NOT_PDF' | 'ENCRYPTED' | 'ALREADY_SIGNED' | 'INVALID_PDF' | 'SIGNATURE_TOO_LARGE' | 'PAGE_NOT_FOUND',
+    public readonly code:
+      | 'NOT_PDF'
+      | 'ENCRYPTED'
+      | 'INVALID_PDF'
+      | 'SIGNATURE_TOO_LARGE'
+      | 'PAGE_NOT_FOUND'
+      | 'DOCUMENT_LOCKED'
+      | 'LOCK_NOT_FIRST'
+      | 'TOO_MANY_SIGNATURES'
+      | 'COSIGN_UNSAFE_STRUCTURE',
     message: string,
     options?: { cause?: unknown },
   ) {
@@ -38,15 +54,36 @@ export type PreparedPdf = {
   byteRange: [number, number, number, number];
 };
 
+/** ลายมือชื่อในไฟล์ได้ไม่เกินเท่านี้ (เท่ากับที่ตัวตรวจของ /verify อ่าน) */
+const MAX_EXISTING_SIGNATURES = MAX_SIGNATURES - 1;
+
 /**
  * เพิ่มช่องลายมือชื่อ (มองไม่เห็นบนหน้าแรก หรือมองเห็นตาม options.appearance) + dictionary ลายมือชื่อที่มี placeholder ของ /ByteRange และ /Contents
- * - ไฟล์ที่มีลายมือชื่ออยู่แล้วยังไม่รองรับ (pdf-lib บันทึกทั้งไฟล์ใหม่ ลายมือชื่อเดิมจะเสีย — ระยะ D4 ใช้ incremental update)
+ * - ไฟล์ที่ยังไม่มีลายมือชื่อ: เขียนทั้งไฟล์ใหม่ (วิธีที่ทดสอบกับ Acrobat แล้ว — ยืนยัน 2026-10-26 ให้คงไว้)
+ * - ไฟล์ที่มีลายมือชื่ออยู่แล้ว (ระยะ D4a): เขียนต่อท้ายไฟล์ (incremental update) ไบต์เดิมไม่เปลี่ยน ลายมือชื่อเดิมจึงยังผ่าน
+ *   เอกสารที่ล็อกแบบห้ามแก้ไข (DocMDP P=1) ลงนามเพิ่มไม่ได้ และล็อกเพิ่มไม่ได้ (certification ต้องเป็นลายมือชื่อแรก)
  * - บันทึกแบบไม่ใช้ object stream: dictionary ลายมือชื่อต้องเป็นข้อความธรรมดา จึงแก้ /ByteRange ทีหลังได้
  */
 export async function preparePdf(input: Buffer, options: PrepareOptions): Promise<PreparedPdf> {
   if (!isPdf(input)) throw new PdfSigningError('NOT_PDF', 'ไฟล์นี้ไม่ใช่ PDF');
-  if (extractPdfSignatures(input).length > 0) {
-    throw new PdfSigningError('ALREADY_SIGNED', 'ไฟล์นี้มีลายมือชื่อดิจิทัลอยู่แล้ว ยังลงนามซ้ำไม่ได้');
+  let existing: number;
+  try {
+    existing = extractPdfSignatures(input).length;
+  } catch (err) {
+    throw new PdfSigningError('INVALID_PDF', 'อ่านลายมือชื่อเดิมในไฟล์ไม่ได้ ไฟล์อาจเสีย', { cause: err });
+  }
+  const incremental = existing > 0;
+  if (existing > MAX_EXISTING_SIGNATURES) {
+    throw new PdfSigningError('TOO_MANY_SIGNATURES', `ไฟล์นี้มีลายมือชื่อครบ ${MAX_SIGNATURES} รายการแล้ว ลงนามเพิ่มไม่ได้`);
+  }
+  if (incremental && firstRevisionHasXrefGaps(input)) {
+    throw new PdfSigningError(
+      'COSIGN_UNSAFE_STRUCTURE',
+      'ลงนามเพิ่มในไฟล์นี้ไม่ได้: โครงสร้างไฟล์จากโปรแกรมที่ลงนามครั้งแรกทำให้ Acrobat จะแสดงลายมือชื่อเดิมว่าไม่ถูกต้องหลังลงนามเพิ่ม — กรุณาใช้ไฟล์ต้นฉบับที่ยังไม่ลงนาม แล้วให้ทุกคนลงนามตามลำดับในระบบนี้',
+    );
+  }
+  if (incremental && options.lock) {
+    throw new PdfSigningError('LOCK_NOT_FIRST', 'ไฟล์นี้มีลายมือชื่ออยู่แล้ว จึงล็อกเอกสารไม่ได้ (ล็อกได้เฉพาะผู้ลงนามคนแรก) — ลงนามโดยไม่ล็อกได้');
   }
 
   let doc: PDFDocument;
@@ -59,8 +96,14 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
   if (doc.isEncrypted) {
     throw new PdfSigningError('ENCRYPTED', 'ไฟล์นี้ตั้งรหัสผ่านหรือจำกัดสิทธิ์ไว้ กรุณาปลดล็อกก่อนลงนาม');
   }
+  // getPages ก่อน snapshot: pdf-lib จัดรูป dictionary ของหน้าครั้งแรกที่อ่าน (ไม่นับเป็นการแก้)
   const pages = doc.getPages();
   if (pages.length === 0) throw new PdfSigningError('INVALID_PDF', 'ไฟล์ PDF ไม่มีหน้า');
+  if (incremental && docMdpPermission(doc) === 1) {
+    throw new PdfSigningError('DOCUMENT_LOCKED', 'เอกสารนี้ถูกล็อกโดยผู้ลงนามคนก่อน (ห้ามแก้ไขใด ๆ) จึงลงนามเพิ่มไม่ได้');
+  }
+  const snapshot = incremental ? snapshotObjects(doc) : null;
+  if (incremental) reserveExistingObjectNumbers(input, doc);
   const page = pages[(options.appearance?.page ?? 1) - 1];
   if (!page) {
     throw new PdfSigningError('PAGE_NOT_FOUND', `ไฟล์นี้มี ${pages.length} หน้า ไม่มีหน้าที่เลือกวางลายเซ็น`);
@@ -115,11 +158,16 @@ export async function preparePdf(input: Buffer, options: PrepareOptions): Promis
     P: page.ref,
   });
   const widgetRef = context.register(widget);
-  page.node.addAnnot(widgetRef);
+  addAnnotation(page.node, widgetRef);
 
   addToAcroForm(doc, widgetRef);
   if (options.lock) catalog.set(PDFName.of('Perms'), context.obj({ DocMDP: signatureRef }));
 
+  if (snapshot) {
+    // ฝังฟอนต์/ภาพของ appearance ให้เป็น object ก่อนเทียบกับ snapshot (pdf-lib ฝังจริงตอน flush)
+    await doc.flush();
+    return locatePlaceholders(writeIncrementalUpdate(input, doc, snapshot));
+  }
   fillObjectNumberGaps(doc);
   const saved = Buffer.from(await doc.save({ useObjectStreams: false }));
   return locatePlaceholders(saved);
@@ -137,6 +185,17 @@ function fillObjectNumberGaps(doc: PDFDocument): void {
   for (let n = 1; n <= context.largestObjectNumber; n++) {
     if (!used.has(n)) context.assign(PDFRef.of(n), PDFNull);
   }
+}
+
+/**
+ * เพิ่ม widget เข้า /Annots ของหน้าโดยตรง — ไม่ใช้ page.node.addAnnot ของ pdf-lib เพราะมันจัดรูปหน้าก่อน (ห่อเนื้อหาเดิมด้วย q/Q)
+ * ซึ่งเปลี่ยน /Contents ของหน้า: ในส่วนต่อท้ายไฟล์ Acrobat นับเป็นการแก้เนื้อหาหลังลงนาม ลายมือชื่อเดิมขึ้นว่า invalid
+ * (พบระหว่างทดสอบ D4a กับ Acrobat 2026-10-26)
+ */
+function addAnnotation(page: PDFDict, ref: PDFRef): void {
+  const annots = page.lookupMaybe(PDFName.of('Annots'), PDFArray);
+  if (annots) annots.push(ref);
+  else page.set(PDFName.of('Annots'), page.context.obj([ref]));
 }
 
 /** เพิ่มช่องลายมือชื่อใน AcroForm (สร้างใหม่ถ้ายังไม่มี) — SigFlags 3 = มีลายมือชื่อ + ต้องบันทึกแบบต่อท้ายเท่านั้น */

@@ -206,7 +206,7 @@ export function SignDocumentForm({
               <span className="block text-sm text-muted">
                 {file
                   ? formatBytes(file.size)
-                  : `PDF 1 ไฟล์ (ไม่เกิน ${formatBytes(MAX_SIGNING_PDF_BYTES)}) หรือ ZIP ที่รวม PDF ไม่เกิน 100 ไฟล์ — ไฟล์ต้องยังไม่มีลายมือชื่อดิจิทัล`}
+                  : `PDF 1 ไฟล์ (ไม่เกิน ${formatBytes(MAX_SIGNING_PDF_BYTES)}) หรือ ZIP ที่รวม PDF ไม่เกิน 100 ไฟล์ — ไฟล์ที่ผู้อื่นลงนามไว้แล้วก็ลงนามเพิ่มได้`}
               </span>
             </span>
           </label>
@@ -366,7 +366,7 @@ export function SignDocumentForm({
               ล็อกเอกสารหลังลงนาม
             </span>
             <span id="lock-hint" className="block text-sm text-muted">
-              Acrobat แสดงเป็นเอกสารรับรอง (Certified) แก้ไขหรือลงนามเพิ่มแล้วลายมือชื่อจะไม่ผ่าน — เลือกเมื่อเป็นฉบับสุดท้าย
+              Acrobat แสดงเป็นเอกสารรับรอง (Certified) ห้ามแก้ไขและห้ามผู้อื่นลงนามเพิ่ม — เลือกเมื่อเป็นฉบับสุดท้าย ล็อกได้เฉพาะไฟล์ที่ยังไม่มีลายมือชื่อ
             </span>
           </span>
         </label>
