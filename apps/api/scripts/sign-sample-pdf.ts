@@ -3,7 +3,9 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { degrees, PDFDocument, StandardFonts } from 'pdf-lib';
 import { config } from '../src/config/index.js';
+import { collectRevocationMaterial } from '../src/services/ltv-service.js';
 import { signPdf } from '../src/services/pdf-signing/index.js';
+import { appendDss } from '../src/services/pdf-signing/ltv.js';
 import { verifyPdfSignatures } from '../src/services/signature-verification/index.js';
 import { signer } from '../src/services/signer-client.js';
 
@@ -11,6 +13,7 @@ import { signer } from '../src/services/signer-client.js';
 // ออกใบรับรองชั่วคราวจาก signer (CA ปลอมของ dev ไม่บันทึกลงฐานข้อมูล) → ลงนาม → ประทับเวลาด้วย TSA จริง → ตรวจด้วยตัวตรวจของ /verify
 // ใช้: pnpm --filter api pdf:sign-sample -- --out <โฟลเดอร์> [--in <ไฟล์.pdf>] [--lock] [--profile primary|supplementary]
 //      [--visible [--image <ภาพ.png>] [--no-text] [--page N] [--rotate 0|90|180|270]]  ลายมือชื่อแบบมองเห็นมุมขวาล่าง (ระยะ D2)
+//      [--ltv [--crl <ไฟล์ CRL> ...]]  ฝังใบรับรอง + CRL (DSS) หลังลงนาม (ระยะ D4b) — --crl ใช้กับ root ปลอมของ dev ที่ไม่มี CDP
 // ห้ามใช้กับ production (ใบที่ออกจะไม่อยู่ในฐานข้อมูล จึงเพิกถอนผ่านระบบไม่ได้)
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -39,6 +42,8 @@ async function main(): Promise<number> {
       lock: { type: 'boolean', default: false },
       profile: { type: 'string', default: 'supplementary' },
       visible: { type: 'boolean', default: false },
+      ltv: { type: 'boolean', default: false },
+      crl: { type: 'string', multiple: true, default: [] },
       image: { type: 'string' },
       'no-text': { type: 'boolean', default: false },
       page: { type: 'string', default: '1' },
@@ -75,14 +80,26 @@ async function main(): Promise<number> {
         showText: !values['no-text'],
       }
     : undefined;
-  const { pdf, timestampTime } = await signPdf(input, {
+  const signed = await signPdf(input, {
     certificate: { serialNumber: issued.serialNumber, certificatePem: issued.certificatePem, escrow: issued.escrow },
     signerName: 'ทดสอบ ลงนามเอกสาร',
     lock: values.lock,
     appearance,
   });
+  const { timestampTime } = signed;
+  let pdf = signed.pdf;
 
-  const suffix = `${values.lock ? '-locked' : ''}${values.visible ? `-visible-r${values.rotate}` : ''}`;
+  if (values.ltv) {
+    const ltv = await collectRevocationMaterial(pdf, { extraCrls: await Promise.all(values.crl.map((f) => readFile(f))) });
+    if (ltv.material) {
+      pdf = await appendDss(pdf, ltv.material);
+      console.log(`ฝัง LTV แล้ว: ใบรับรอง ${ltv.material.certs.length} ใบ, CRL ${ltv.material.crls.length} ฉบับ`);
+    } else {
+      console.log(`ไม่ได้ฝัง LTV: ${ltv.reason}`);
+    }
+  }
+
+  const suffix = `${values.ltv ? '-ltv' : ''}${values.lock ? '-locked' : ''}${values.visible ? `-visible-r${values.rotate}` : ''}`;
   const name = `signed-${values.profile}${suffix}.pdf`;
   await writeFile(path.join(values.out, name), pdf);
   await writeFile(path.join(values.out, `signer-${values.profile}.p12`), issued.p12);
