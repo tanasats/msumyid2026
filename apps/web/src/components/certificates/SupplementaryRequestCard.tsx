@@ -51,7 +51,7 @@ export function SupplementaryRequestCard({ request, canAct }: { request: Supplem
         )}
       </dl>
       {request.status === 'issued' && (
-        <p className="mt-4 border-t border-line pt-4 text-sm text-muted">ใบรับรองจากคำขอนี้อยู่ในรายการใบรับรองด้านบน</p>
+        <p className="mt-4 border-t border-line pt-4 text-sm text-muted">ใบรับรองจากคำขอนี้อยู่ในรายการใบรับรองด้านบน หรือในประวัติเมื่อหมดอายุ</p>
       )}
       {request.status === 'expired' && (
         <p className="mt-4 border-t border-line pt-4 text-sm text-muted">
