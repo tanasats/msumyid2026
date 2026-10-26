@@ -7,7 +7,7 @@ import { P12PasswordForm } from '@/components/certificates/P12PasswordForm';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMyCertificates } from '@/lib/certificates';
 import { getMyPrimaryRequests } from '@/lib/primary-certificate-requests';
 import { SUPPLEMENTARY_STATUS_LABELS } from '@/lib/supplementary-certificate';
@@ -20,7 +20,7 @@ const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', time
 export default async function ClaimPrimaryCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('certificate:apply')) redirect('/forbidden');
 
   const { id } = await params;

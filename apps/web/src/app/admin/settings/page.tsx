@@ -5,7 +5,7 @@ import { CalendarClock, ChevronRight, History, KeyRound, type LucideIcon } from 
 import { SystemSettingsForm } from '@/components/admin/SystemSettingsForm';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getSystemSettings } from '@/lib/system-settings';
 import { describeSettingChanges } from '@/lib/system-settings-format';
 
@@ -23,7 +23,7 @@ type Shortcut = { href: string; icon: LucideIcon; title: string; detail: string 
 export default async function AdminSettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   const shortcuts: Shortcut[] = [
     ...(user.capabilities.manageRoles

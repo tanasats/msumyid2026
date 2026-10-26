@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { PageShell } from '@/components/PageShell';
 import { SignatureImageEditor } from '@/components/signing/SignatureImageEditor';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMySignatureImage } from '@/lib/signing-batches';
 
 export const metadata: Metadata = { title: 'ภาพลายเซ็น' };
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'ภาพลายเซ็น' };
 export default async function SignatureImagePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('document:sign')) redirect('/forbidden');
 
   const image = await getMySignatureImage();

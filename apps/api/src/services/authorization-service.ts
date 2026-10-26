@@ -8,6 +8,8 @@ export type AuthUser = {
   pictureUrl: string | null;
   accountType: AccountType;
   approvalStatus: 'pending' | 'approved' | 'rejected';
+  /** รับทราบประกาศความเป็นส่วนตัวเวอร์ชันปัจจุบันแล้ว (docs/design/pdpa.md) */
+  privacyAcknowledged: boolean;
   roles: string[];
   permissions: string[];
 };

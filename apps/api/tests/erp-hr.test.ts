@@ -3,6 +3,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { logger } from '../src/middlewares/logger.js';
+import { PRIVACY_NOTICE_VERSION } from '../src/services/privacy-service.js';
 import { erpHr, parseStaffInfo, type ErpStaffInfo } from '../src/services/erp-hr.js';
 import { createUser, loginAs, resetDatabase } from './helpers/db.js';
 import * as google from './helpers/google.js';
@@ -328,6 +329,13 @@ describe('GET /me/staff-profile', () => {
   it('คืนข้อมูลบุคลากรของตัวเอง พร้อมชื่อคณะ กอง และหน่วยงานในระบบ', async () => {
     const { res: login } = await loginStaff(staffInfo());
     const cookie = google.sessionCookieFrom(login)!.split(';')[0]!;
+    // ผู้ใช้ใหม่จาก Google ต้องรับทราบประกาศความเป็นส่วนตัวก่อน (docs/design/pdpa.md)
+    await request(app)
+      .post('/me/privacy-acknowledgement')
+      .set('Cookie', cookie)
+      .set('Origin', 'http://localhost:3010')
+      .send({ version: PRIVACY_NOTICE_VERSION })
+      .expect(204);
     // บุคลากรอีกคน — ต้องไม่ปนมา
     const other = await createUser();
     await pool.query(

@@ -14,6 +14,7 @@ export const metadata: Metadata = { title: 'รอการอนุมัติ
 export default async function PendingPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
+  if (!user.privacyAcknowledged) redirect('/privacy');
   if (user.approvalStatus === 'approved') redirect('/');
 
   const rejected = user.approvalStatus === 'rejected';

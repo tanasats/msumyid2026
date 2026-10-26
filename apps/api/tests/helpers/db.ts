@@ -1,5 +1,6 @@
 import { pool } from '../../src/db/pool.js';
 import { withTransaction } from '../../src/db/transaction.js';
+import { PRIVACY_NOTICE_VERSION } from '../../src/services/privacy-service.js';
 import { createSession } from '../../src/services/session-service.js';
 
 // ตัวช่วยสร้างข้อมูลสำหรับ test (ใช้ SQL ตรงเพื่อเตรียมสถานะ ไม่ผ่าน business logic)
@@ -63,6 +64,8 @@ type CreateUserInput = {
   orgUnitId?: string | null;
   responsibleUserId?: string | null;
   accountExpiresAt?: Date | null;
+  /** รับทราบประกาศความเป็นส่วนตัวเวอร์ชันปัจจุบันแล้ว (ค่าเริ่มต้น true — test ส่วนใหญ่ไม่เกี่ยวกับ PDPA) */
+  privacyAcknowledged?: boolean;
 };
 
 export async function createUser(input: CreateUserInput = {}): Promise<{ id: string }> {
@@ -89,6 +92,12 @@ export async function createUser(input: CreateUserInput = {}): Promise<{ id: str
       `INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2`,
       [user.id, role],
     );
+  }
+  if (input.privacyAcknowledged ?? true) {
+    await pool.query('INSERT INTO privacy_acknowledgements (user_id, notice_version) VALUES ($1, $2)', [
+      user.id,
+      PRIVACY_NOTICE_VERSION,
+    ]);
   }
   return user;
 }

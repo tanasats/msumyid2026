@@ -6,7 +6,7 @@ import { buttonClasses } from '@/components/Button';
 import { SupplementaryRequestForm } from '@/components/certificates/SupplementaryRequestForm';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getMySupplementaryRequests } from '@/lib/supplementary-certificates';
 
 export const metadata: Metadata = { title: 'ขอใบรับรองเสริม' };
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: 'ขอใบรับรองเส
 export default async function NewSupplementaryRequestPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('supplementary_certificate:request')) redirect('/forbidden');
 
   const { limits } = await getMySupplementaryRequests();

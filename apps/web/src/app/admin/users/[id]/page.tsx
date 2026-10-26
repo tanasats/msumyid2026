@@ -16,7 +16,7 @@ import { StatusState } from '@/components/StatusState';
 import { Tag, UserStatusBadge } from '@/components/UserStatusBadge';
 import { getUserCertificates } from '@/lib/admin-certificates';
 import { getUserDetail, listAssignableRoles, type UserHistoryItem } from '@/lib/admin-users';
-import { ACCOUNT_TYPE_LABELS, getCurrentUser } from '@/lib/auth';
+import { ACCOUNT_TYPE_LABELS, getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'รายละเอียดผู้ใช้' };
 
@@ -50,7 +50,7 @@ function historyLabel(item: UserHistoryItem): string {
 export default async function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const currentUser = await getCurrentUser();
   if (!currentUser) redirect('/login');
-  if (currentUser.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(currentUser);
 
   const { id } = await params;
   const [detail, allRoles] = await Promise.all([getUserDetail(id), listAssignableRoles()]);

@@ -8,7 +8,7 @@ import { P12PasswordForm } from '@/components/certificates/P12PasswordForm';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { SUPPLEMENTARY_STATUS_LABELS, formatRange } from '@/lib/supplementary-certificate';
 import { getMySupplementaryRequests } from '@/lib/supplementary-certificates';
 
@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: 'รับใบรับรองเ
 export default async function ClaimSupplementaryCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('supplementary_certificate:request')) redirect('/forbidden');
 
   const { id } = await params;

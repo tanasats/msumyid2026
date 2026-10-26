@@ -17,6 +17,8 @@ export type SessionUserRow = {
   accountType: AccountType;
   approvalStatus: ApprovalStatus;
   isActive: boolean;
+  /** รับทราบประกาศความเป็นส่วนตัวเวอร์ชันที่ส่งมาแล้วหรือยัง */
+  privacyAcknowledged: boolean;
   roles: string[];
   permissions: string[];
 };
@@ -40,8 +42,13 @@ export async function insertSession(
  * - permissions: union ของ permission จากทุก role (DISTINCT กันซ้ำเมื่อหลาย role มี permission เดียวกัน)
  * - ไม่กรอง is_active ที่นี่ เพื่อให้ service ตัดสินและลบ session ของผู้ใช้ที่ถูกระงับได้
  * - บัญชีที่ถึงวันหมดอายุแล้วถือว่าถูกระงับทันที (isActive = false) ไม่ต้องรอ job ปิดบัญชี
+ * - privacyAcknowledged: EXISTS บน UNIQUE (user_id, notice_version) — อ่าน index แถวเดียว ไม่เพิ่มภาระต่อ request
  */
-export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise<SessionUserRow | null> {
+export async function findSessionUser(
+  db: Queryable,
+  tokenHash: Buffer,
+  privacyNoticeVersion: number,
+): Promise<SessionUserRow | null> {
   const result = await db.query<SessionUserRow>(
     `SELECT s.id               AS "sessionId",
             u.id               AS "userId",
@@ -51,6 +58,10 @@ export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise
             u.account_type     AS "accountType",
             u.approval_status  AS "approvalStatus",
             (u.is_active AND (u.account_expires_at IS NULL OR u.account_expires_at > now())) AS "isActive",
+            EXISTS (
+              SELECT 1 FROM privacy_acknowledgements pa
+              WHERE pa.user_id = u.id AND pa.notice_version = $2
+            ) AS "privacyAcknowledged",
             ARRAY(
               SELECT r.code
               FROM user_roles ur
@@ -71,9 +82,22 @@ export async function findSessionUser(db: Queryable, tokenHash: Buffer): Promise
      WHERE s.token_hash = $1
        AND s.expires_at > now()
        AND u.deleted_at IS NULL`,
-    [tokenHash],
+    [tokenHash, privacyNoticeVersion],
   );
   return result.rows[0] ?? null;
+}
+
+/**
+ * ลบ session ที่หมดอายุทีละชุด (กันล็อกตารางนาน) — subquery เลือก id ที่หมดอายุไม่เกิน limit แถว ผ่าน index sessions_expires_at_idx
+ * คืนจำนวนที่ลบ: น้อยกว่า limit = หมดแล้ว
+ */
+export async function deleteExpiredSessions(db: Queryable, limit: number): Promise<number> {
+  const result = await db.query(
+    `DELETE FROM sessions
+     WHERE id IN (SELECT id FROM sessions WHERE expires_at <= now() LIMIT $1)`,
+    [limit],
+  );
+  return result.rowCount ?? 0;
 }
 
 /**

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { Alert } from '@/components/Alert';
 import { PageShell } from '@/components/PageShell';
 import { ChangeSigningPin } from '@/components/signing/ChangeSigningPin';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { getSigningPinStatus } from '@/lib/signing-batches';
 
 export const metadata: Metadata = { title: 'เปลี่ยน PIN ลงนาม' };
@@ -14,7 +14,7 @@ const timeFormatter = new Intl.DateTimeFormat('th-TH', { timeStyle: 'short', tim
 export default async function SigningPinPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.permissions.includes('document:sign')) redirect('/forbidden');
 
   const status = await getSigningPinStatus();

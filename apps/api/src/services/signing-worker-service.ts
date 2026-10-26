@@ -103,7 +103,8 @@ function assertSignable(ctx: SigningJobContext, now: Date): void {
 
 /** บัญชีและใบรับรองยังใช้ลงนามได้ (ใช้ทั้งตอนลงนามแต่ละไฟล์และตอนแตก ZIP) — ไม่ผ่าน = ทั้งชุดล้มเหลว */
 function assertSignerAllowed(signer: SignerUser, c: SignerCertificate, now: Date): void {
-  const user: AuthUser = { ...signer, pictureUrl: null };
+  // privacyAcknowledged: งานถูกส่งผ่าน requireAuth (รับทราบแล้ว) — การรับทราบไม่ใช่สิทธิ์ลงนาม จึงไม่ตรวจซ้ำที่ worker
+  const user: AuthUser = { ...signer, pictureUrl: null, privacyAcknowledged: true };
   if (!signer.isActive || !hasPermission(user, PERMISSIONS.DOCUMENT_SIGN)) throw fail('ACCOUNT_NOT_ALLOWED', true);
   if (c.userId !== signer.id || c.revokedAt || c.notAfter <= now || c.notBefore > now || !c.escrow) {
     throw fail('CERTIFICATE_NOT_USABLE', true);

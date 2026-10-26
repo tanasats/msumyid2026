@@ -6,7 +6,7 @@ import { RolePermissionCard } from '@/components/admin/RolePermissionCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { getRoleAdminOverview } from '@/lib/admin-roles';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { describeRoleLog } from '@/lib/role-admin';
 
 export const metadata: Metadata = { title: 'บทบาทและสิทธิ์' };
@@ -21,7 +21,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat('th-TH', {
 export default async function AdminRolesPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
   if (!user.capabilities.manageRoles) redirect('/forbidden');
 
   const { roles, permissions, logs } = await getRoleAdminOverview();

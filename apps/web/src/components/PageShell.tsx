@@ -4,6 +4,7 @@ import type { CurrentUser } from '@/lib/auth';
 import { Avatar } from './Avatar';
 import { MsuMark } from './BrandLogo';
 import { NavLinks } from './NavLinks';
+import { SiteCredit } from './SiteCredit';
 
 type PageShellProps = {
   children: React.ReactNode;
@@ -105,6 +106,8 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
         }`}
       >
         {children}
+        {/* หน้าแลนดิ้ง (bleed) มี footer ของตัวเอง */}
+        {width !== 'bleed' && <SiteCredit className="mt-12 border-t border-line pt-4" />}
       </main>
 
       {navUser && showBottomNav && (

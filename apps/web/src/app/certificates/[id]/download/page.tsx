@@ -9,7 +9,7 @@ import { P12PasswordForm } from '@/components/certificates/P12PasswordForm';
 import { InfoList, InfoRow } from '@/components/InfoList';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
 import { isKeyCompromised } from '@/lib/certificate';
 import { getMyCertificates } from '@/lib/certificates';
 
@@ -22,7 +22,7 @@ const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' });
 export default async function DownloadCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.approvalStatus !== 'approved') redirect('/pending');
+  redirectUnlessReady(user);
 
   const { id } = await params;
   const { certificates } = await getMyCertificates();

@@ -100,10 +100,17 @@ export const requireSession: RequestHandler = (req, _res, next) => {
   next();
 };
 
-/** ต้อง login และบัญชีได้รับอนุมัติแล้ว — ค่าเริ่มต้นของ endpoint ที่ "ต้อง login เท่านั้น" */
+/**
+ * ต้อง login, รับทราบประกาศความเป็นส่วนตัวเวอร์ชันปัจจุบัน และบัญชีได้รับอนุมัติแล้ว — ค่าเริ่มต้นของ endpoint ที่ "ต้อง login เท่านั้น"
+ * ตรวจการรับทราบก่อนสถานะบัญชี: ผู้ใช้ทุกคน (รวมรออนุมัติ) ต้องรับทราบก่อนใช้ระบบ (ยืนยัน 2026-10-26)
+ */
 export const requireAuth: RequestHandler = (req, _res, next) => {
   if (!req.user) {
     next(new AppError(401, 'UNAUTHENTICATED', 'กรุณาเข้าสู่ระบบ'));
+    return;
+  }
+  if (!req.user.privacyAcknowledged) {
+    next(new AppError(403, 'PRIVACY_NOTICE_REQUIRED', 'กรุณาอ่านและรับทราบประกาศความเป็นส่วนตัวก่อนใช้งาน'));
     return;
   }
   if (req.user.approvalStatus === 'pending') {
