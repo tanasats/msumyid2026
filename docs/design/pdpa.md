@@ -19,7 +19,7 @@
 | ตาราง | `privacy_acknowledgements` (`user_id`, `notice_version`, `acknowledged_at`, UNIQUE คู่ user+version) — แถวเดิมคงไว้เป็นหลักฐานเมื่อเพิ่มเวอร์ชัน ไม่มีข้อมูลส่วนบุคคลจึงไม่ลบตอนลบบัญชี |
 | ตรวจทุก request | `findSessionUser` คืน `privacyAcknowledged` (EXISTS บน UNIQUE index) → `requireAuth` ตอบ 403 `PRIVACY_NOTICE_REQUIRED` ก่อนตรวจสถานะบัญชี (endpoint ที่ใช้ `requireSession` เช่น `/auth/me` ยังใช้ได้) |
 | รับทราบ | `POST /me/privacy-acknowledgement` `{ version }` (ต้อง login, รวมรออนุมัติ) — เวอร์ชันไม่ตรง = 409 `PRIVACY_NOTICE_OUTDATED` |
-| web | `/privacy` สาธารณะ — login แล้วยังไม่รับทราบ แสดงปุ่มรับทราบ/ออกจากระบบ ทุกหน้าใช้ `redirectUnlessReady()` (ยังไม่รับทราบ → `/privacy`, ยังไม่อนุมัติ → `/pending`) |
+| web | `/privacy` สาธารณะ — login แล้วยังไม่รับทราบ แสดงปุ่มรับทราบ/ออกจากระบบ ทุกหน้าใช้ `redirectUnlessReady()` (ยังไม่รับทราบ → `/privacy`, ยังไม่อนุมัติ → `/pending`) — ลิงก์ประกาศอยู่ท้ายหน้าที่เห็นก่อน login (แลนดิ้ง, login, `/verify`) และหน้าบัญชีของฉัน (หลัง login ไม่แสดงท้ายหน้า) |
 | session | job ลบ session ที่หมดอายุทุก `SESSION_CLEANUP_INTERVAL_MS` (1 ชั่วโมง) |
 | log เซิร์ฟเวอร์ | `deploy/scripts/archive-logs.sh` (cron รายวัน) + `switch_to` เก็บก่อนสลับเวอร์ชัน → `logs/<วันที่>/` เก็บ `LOG_KEEP_DAYS` = 90 วัน; nginx ตั้ง logrotate 90 วัน (`docs/deployment.md` 5.6) |
 

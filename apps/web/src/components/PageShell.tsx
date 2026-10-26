@@ -106,8 +106,8 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
         }`}
       >
         {children}
-        {/* หน้าแลนดิ้ง (bleed) มี footer ของตัวเอง */}
-        {width !== 'bleed' && <SiteCredit className="mt-12 border-t border-line pt-4" />}
+        {/* หน้าแลนดิ้ง (bleed) มี footer ของตัวเอง — ลิงก์ประกาศเฉพาะหน้าที่ไม่มีเมนู (ก่อน login/รออนุมัติ) ผู้ใช้ในระบบดูที่หน้าบัญชีของฉัน */}
+        {width !== 'bleed' && <SiteCredit showPrivacyLink={!navUser} className="mt-12 border-t border-line pt-4" />}
       </main>
 
       {navUser && showBottomNav && (

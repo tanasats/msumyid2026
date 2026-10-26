@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { BentoGrid, Card } from '@/components/Card';
 import { IdentityCard } from '@/components/IdentityCard';
@@ -60,6 +62,21 @@ export default async function AccountPage() {
           <div className="mt-2">
             <TextSizeSwitcher initial={textSize} />
           </div>
+        </Card>
+
+        <Card
+          title="ความเป็นส่วนตัว"
+          description="ระบบเก็บและใช้ข้อมูลของคุณอย่างไร เก็บนานเท่าใด และสิทธิของคุณ"
+          className="md:col-span-2 lg:col-span-1"
+        >
+          <Link
+            href="/privacy"
+            className="mt-4 flex min-h-11 items-center gap-3 rounded-lg border border-line px-4 py-2 font-medium hover:bg-surface-hover"
+          >
+            <ShieldCheck className="size-5 shrink-0 text-accent" aria-hidden />
+            <span className="flex-1">ประกาศความเป็นส่วนตัว</span>
+            <ChevronRight className="size-5 shrink-0 text-muted" aria-hidden />
+          </Link>
         </Card>
       </BentoGrid>
 
