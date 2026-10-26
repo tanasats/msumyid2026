@@ -8,11 +8,23 @@ import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { ApiClientError, apiMutate, uploadToStorage } from '@/lib/api-client';
+import { makeBackgroundTransparent } from '@/lib/signature-image';
 import { MAX_SIGNATURE_IMAGE_BYTES, type SignatureImage } from '@/lib/signing';
 import { formatBytes } from '@/lib/verify';
 
 /** กระดาษขาว + หมึกน้ำเงินเข้มเสมอ (ภาพที่บันทึกพื้นโปร่งใส) — ไม่เปลี่ยนตามโหมดมืด */
 const PAPER_STYLE = { backgroundColor: '#ffffff' } as const;
+/** ตารางหมากรุกแสดงส่วนโปร่งใสของภาพ — เห็นได้ทันทีว่าภาพมีพื้นทึบที่จะบังเอกสารหรือไม่ */
+const TRANSPARENCY_STYLE = {
+  backgroundColor: '#ffffff',
+  backgroundImage:
+    'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+  backgroundSize: '16px 16px',
+  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+} as const;
+/** ไฟล์ต้นฉบับที่อัปโหลดได้ — ระบบลบพื้น ตัดขอบ และย่อก่อนบันทึก (ผลลัพธ์ต้องไม่เกิน MAX_SIGNATURE_IMAGE_BYTES) */
+const UPLOAD_TYPES = ['image/png', 'image/jpeg'];
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
 const INK = '#14286e';
 /** ภาพที่บันทึกไม่เกินด้านละเท่านี้ (API รับถึง 2000 px) */
 const MAX_OUTPUT_SIDE = 1200;
@@ -49,6 +61,23 @@ async function trimmedPng(source: HTMLCanvasElement): Promise<Blob | null> {
   out.height = Math.max(16, Math.round(sh * scale));
   out.getContext('2d')!.drawImage(source, sx, sy, sw, sh, 0, 0, out.width, out.height);
   return new Promise((resolve) => out.toBlob((blob) => resolve(blob), 'image/png'));
+}
+
+/**
+ * ภาพที่อัปโหลด (PNG/JPEG) → PNG พื้นโปร่งใส ตัดขอบ และย่อแล้ว
+ * ภาพสแกน/ถ่ายจากกระดาษมีพื้นขาวทึบ ถ้าไม่ลบจะบังข้อความในเอกสารตรงที่วางลายเซ็น
+ */
+async function preparedUpload(file: File): Promise<Blob | null> {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (makeBackgroundTransparent(pixels.data, canvas.width, canvas.height)) ctx.putImageData(pixels, 0, 0);
+  return trimmedPng(canvas);
 }
 
 /** พื้นที่วาดลายเซ็นด้วยเมาส์/นิ้ว/ปากกา (pointer events) — ความหนาเส้นตามแรงกดถ้าอุปกรณ์รองรับ */
@@ -104,14 +133,15 @@ function SignaturePad({ canvasRef, onDrawn }: { canvasRef: React.RefObject<HTMLC
 }
 
 /**
- * ตั้ง/เปลี่ยน/ลบภาพลายเซ็น: วาดบนจอ หรืออัปโหลด PNG (พื้นโปร่งใสจะดูดีที่สุด)
+ * ตั้ง/เปลี่ยน/ลบภาพลายเซ็น: วาดบนจอ หรืออัปโหลด PNG/JPEG (ลบพื้นขาวให้โปร่งใสก่อนบันทึก)
  * บันทึก = ขอ URL อัปโหลด → PUT ตรงเข้า storage → ยืนยัน → PUT /me/signature-image (API ตรวจว่าเป็น PNG และขนาดภาพ)
  */
 export function SignatureImageEditor({ image, onSaved }: { image: SignatureImage | null; onSaved?: () => void }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('draw');
   const [drawn, setDrawn] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFile, setUploadFile] = useState<{ name: string; png: Blob } | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -127,18 +157,28 @@ export function SignatureImageEditor({ image, onSaved }: { image: SignatureImage
     setDrawn(false);
   }
 
-  function pickFile(file: File | undefined) {
+  async function pickFile(file: File | undefined) {
     setError(null);
     if (!file) return;
-    if (file.type !== 'image/png') return setError('กรุณาเลือกไฟล์ PNG');
-    if (file.size > MAX_SIGNATURE_IMAGE_BYTES) return setError(`ไฟล์ต้องไม่เกิน ${formatBytes(MAX_SIGNATURE_IMAGE_BYTES)}`);
-    setUploadFile(file);
-    setUploadPreview(URL.createObjectURL(file));
+    if (!UPLOAD_TYPES.includes(file.type)) return setError('กรุณาเลือกไฟล์ PNG หรือ JPEG');
+    if (file.size > MAX_SOURCE_BYTES) return setError(`ไฟล์ต้องไม่เกิน ${formatBytes(MAX_SOURCE_BYTES)}`);
+    setPreparing(true);
+    try {
+      const png = await preparedUpload(file);
+      if (!png) return setError('ไม่พบลายเซ็นในภาพ');
+      setUploadFile({ name: file.name, png });
+      setUploadPreview(URL.createObjectURL(png));
+    } catch (err) {
+      console.error(err);
+      setError('อ่านไฟล์ภาพไม่ได้ กรุณาเลือกไฟล์อื่น');
+    } finally {
+      setPreparing(false);
+    }
   }
 
   async function save() {
     setError(null);
-    const blob = mode === 'draw' ? await trimmedPng(canvasRef.current!) : uploadFile;
+    const blob = mode === 'draw' ? await trimmedPng(canvasRef.current!) : (uploadFile?.png ?? null);
     if (!blob) return setError(mode === 'draw' ? 'กรุณาวาดลายเซ็นก่อนบันทึก' : 'กรุณาเลือกไฟล์ภาพ');
     if (blob.size > MAX_SIGNATURE_IMAGE_BYTES) return setError(`ภาพใหญ่เกิน ${formatBytes(MAX_SIGNATURE_IMAGE_BYTES)}`);
     setSaving(true);
@@ -174,7 +214,7 @@ export function SignatureImageEditor({ image, onSaved }: { image: SignatureImage
         <h2 className="font-display text-lg font-semibold">ภาพลายเซ็นปัจจุบัน</h2>
         {image ? (
           <>
-            <div className="flex h-32 items-center justify-center rounded-lg border border-line p-3" style={PAPER_STYLE}>
+            <div className="flex h-32 items-center justify-center rounded-lg border border-line p-3" style={TRANSPARENCY_STYLE}>
               {/* <img> ตรง ๆ: presigned URL ของ storage อายุสั้น */}
               <img src={image.url} alt="ภาพลายเซ็นของคุณ" className="max-h-full max-w-full object-contain" />
             </div>
@@ -227,22 +267,30 @@ export function SignatureImageEditor({ image, onSaved }: { image: SignatureImage
                 <ImageUp className="size-6" aria-hidden />
               </span>
               <span>
-                <span className="block font-medium">{uploadFile ? uploadFile.name : 'เลือกไฟล์ PNG'}</span>
+                <span className="block font-medium">
+                  {preparing ? 'กำลังเตรียมภาพ...' : uploadFile ? uploadFile.name : 'เลือกไฟล์ PNG หรือ JPEG'}
+                </span>
                 <span className="block text-sm text-muted">
-                  พื้นหลังโปร่งใสจะดูดีที่สุด ขนาดไม่เกิน {formatBytes(MAX_SIGNATURE_IMAGE_BYTES)} ด้านละ 16–2000 pixel
+                  ภาพสแกนหรือถ่ายลายเซ็นบนกระดาษขาว — ระบบลบพื้นขาวให้โปร่งใสอัตโนมัติ ขนาดไม่เกิน {formatBytes(MAX_SOURCE_BYTES)}
                 </span>
               </span>
-              <input type="file" accept="image/png" className="sr-only" onChange={(e) => pickFile(e.target.files?.[0])} />
+              <input
+                type="file"
+                accept={UPLOAD_TYPES.join(',')}
+                className="sr-only"
+                disabled={preparing}
+                onChange={(e) => void pickFile(e.target.files?.[0])}
+              />
             </label>
             {uploadPreview && (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-line p-3" style={PAPER_STYLE}>
-                <img src={uploadPreview} alt="ตัวอย่างภาพที่เลือก" className="max-h-full max-w-full object-contain" />
+              <div className="flex h-32 items-center justify-center rounded-lg border border-line p-3" style={TRANSPARENCY_STYLE}>
+                <img src={uploadPreview} alt="ตัวอย่างภาพที่เลือก (ลายตารางคือส่วนที่โปร่งใส)" className="max-h-full max-w-full object-contain" />
               </div>
             )}
           </div>
         )}
         <div className="flex justify-end">
-          <Button fullWidth loading={saving} onClick={() => void save()} disabled={mode === 'draw' ? !drawn : !uploadFile}>
+          <Button fullWidth loading={saving} onClick={() => void save()} disabled={mode === 'draw' ? !drawn : !uploadFile || preparing}>
             บันทึกภาพลายเซ็น
           </Button>
         </div>
