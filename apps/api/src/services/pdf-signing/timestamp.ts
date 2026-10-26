@@ -40,10 +40,13 @@ export type TimestampToken = {
   genTime: Date;
 };
 
-/** nonce 64 บิตแบบบวก (บิตบนสุดเป็น 0) */
-function positiveNonce(): Buffer {
+/**
+ * nonce 64 บิตแบบบวก: บิตบนสุดเป็น 0 (ไม่ติดลบ) และไบต์แรกไม่เป็น 0
+ * ไบต์แรก 0 + ไบต์ถัดไป < 0x80 = INTEGER มีศูนย์นำหน้าเกิน (DER ผิด) → TSA ปฏิเสธคำขอ (status 2) ราว 1 ใน 256 ครั้ง
+ */
+export function positiveNonce(): Buffer {
   const nonce = randomBytes(8);
-  nonce[0] = nonce[0]! & 0x7f;
+  nonce[0] = (nonce[0]! & 0x7f) || 0x01;
   return nonce;
 }
 

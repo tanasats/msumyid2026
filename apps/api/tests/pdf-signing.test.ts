@@ -8,7 +8,7 @@ import {
   writeIncrementalUpdate,
 } from '../src/services/pdf-signing/incremental.js';
 import { PdfSigningError, signPdf, TimestampError } from '../src/services/pdf-signing/index.js';
-import type { TsaTransport } from '../src/services/pdf-signing/timestamp.js';
+import { positiveNonce, type TsaTransport } from '../src/services/pdf-signing/timestamp.js';
 import { verifyPdfSignatures } from '../src/services/signature-verification/index.js';
 import { createFakeSigning } from './helpers/fake-signing.js';
 
@@ -98,6 +98,15 @@ describe('signPdf', () => {
     const { subsections, size } = xrefSubsections(pdf);
     expect(subsections).toEqual([`0 ${size}`]);
     expect((await verifyPdfSignatures(pdf)).signatures[0]).toMatchObject({ integrity: 'ok', coversWholeDocument: true });
+  });
+
+  it('nonce เป็น INTEGER ที่เข้ารหัส DER ถูกต้องเสมอ: บวก และไบต์แรกไม่เป็น 0 (เคยทำให้ TSA ปฏิเสธราว 1 ใน 256 ครั้ง)', () => {
+    for (let i = 0; i < 5000; i++) {
+      const nonce = positiveNonce();
+      expect(nonce).toHaveLength(8);
+      expect(nonce[0]).toBeGreaterThanOrEqual(0x01);
+      expect(nonce[0]).toBeLessThanOrEqual(0x7f);
+    }
   });
 
   it('TSA ล่ม → TimestampError (ไม่ออกไฟล์ที่ไม่มีเวลา)', async () => {
