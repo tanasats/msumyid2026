@@ -31,6 +31,8 @@ const envSchema = z.object({
   ERP_HR_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
   // รอบตรวจปิดบัญชีที่ถึงวันหมดอายุ (การตัดสิทธิ์มีผลทันทีอยู่แล้ว job นี้ปิดบัญชีและเขียน audit log)
   ACCOUNT_EXPIRY_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(3_600_000),
+  // รอบลบ session ที่หมดอายุ (PDPA: ไม่เก็บเกินจำเป็น — session หมดอายุใช้ไม่ได้อยู่แล้ว)
+  SESSION_CLEANUP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(3_600_000),
   // บริการเซ็น (apps/signer) ออกใบรับรองและถือ key สำรอง — เรียกผ่านเครือข่ายภายในด้วย token ร่วม
   SIGNER_URL: z.url(),
   SIGNER_TOKEN: z.string().min(32),
@@ -118,6 +120,7 @@ export const config = {
     timeoutMs: env.ERP_HR_TIMEOUT_MS,
   },
   accountExpiryCheckIntervalMs: env.ACCOUNT_EXPIRY_CHECK_INTERVAL_MS,
+  sessionCleanupIntervalMs: env.SESSION_CLEANUP_INTERVAL_MS,
   signer: {
     url: env.SIGNER_URL,
     token: env.SIGNER_TOKEN,

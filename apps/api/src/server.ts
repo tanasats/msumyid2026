@@ -5,6 +5,7 @@ import { logger } from './middlewares/logger.js';
 import { startAccountExpiryJob } from './services/account-expiry-service.js';
 import { startCrlJob } from './services/crl-service.js';
 import { startFileCleanupJob } from './services/file-service.js';
+import { startSessionCleanupJob } from './services/session-service.js';
 
 const app = createApp();
 
@@ -18,6 +19,8 @@ const stopAccountExpiryJob = startAccountExpiryJob(config.accountExpiryCheckInte
 const stopCrlJob = startCrlJob(config.crl.checkIntervalMs);
 // ลบไฟล์ที่หมดอายุ (ไฟล์ของการลงนามเก็บ 7 วัน) ทั้ง object ใน storage และแถวในตาราง files
 const stopFileCleanupJob = startFileCleanupJob(config.s3.cleanupIntervalMs);
+// ลบ session ที่หมดอายุ (docs/design/pdpa.md — ไม่เก็บเกินจำเป็น)
+const stopSessionCleanupJob = startSessionCleanupJob(config.sessionCleanupIntervalMs);
 
 server.on('error', (err) => {
   logger.fatal({ err }, 'เปิด HTTP server ไม่สำเร็จ');
@@ -34,6 +37,7 @@ function shutdown(signal: string) {
   stopAccountExpiryJob();
   stopCrlJob();
   stopFileCleanupJob();
+  stopSessionCleanupJob();
 
   // กันค้าง: ถ้าปิดไม่เสร็จใน 10 วินาทีให้บังคับออก
   const forceExit = setTimeout(() => {

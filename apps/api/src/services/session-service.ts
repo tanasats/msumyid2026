@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import type { Queryable } from '../db/types.js';
 import { logger } from '../middlewares/logger.js';
 import {
+  deleteExpiredSessions,
   deleteSessionByHash,
   deleteSessionsByUser,
   findSessionUser,
@@ -10,6 +11,7 @@ import {
   touchSession,
 } from '../repositories/session-repository.js';
 import type { AuthUser } from './authorization-service.js';
+import { PRIVACY_NOTICE_VERSION } from './privacy-service.js';
 import { sessionTtlMs } from './system-settings-service.js';
 
 // token ดิบอยู่แค่ใน cookie ของผู้ใช้ ฐานข้อมูลเก็บเฉพาะ SHA-256
@@ -41,7 +43,7 @@ export async function createSession(
 export async function resolveSession(token: string): Promise<{ sessionId: string; user: AuthUser } | null> {
   if (!TOKEN_PATTERN.test(token)) return null;
 
-  const row = await findSessionUser(pool, hashSessionToken(token));
+  const row = await findSessionUser(pool, hashSessionToken(token), PRIVACY_NOTICE_VERSION);
   if (!row) return null;
 
   if (!row.isActive) {
@@ -62,10 +64,47 @@ export async function resolveSession(token: string): Promise<{ sessionId: string
       pictureUrl: row.pictureUrl,
       accountType: row.accountType,
       approvalStatus: row.approvalStatus,
+      privacyAcknowledged: row.privacyAcknowledged,
       roles: row.roles,
       permissions: row.permissions,
     },
   };
+}
+
+const CLEANUP_BATCH_SIZE = 1000;
+
+/** ลบ session ที่หมดอายุทั้งหมด (ทีละชุด) — คืนจำนวนที่ลบ */
+export async function purgeExpiredSessions(): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const deleted = await deleteExpiredSessions(pool, CLEANUP_BATCH_SIZE);
+    total += deleted;
+    if (deleted < CLEANUP_BATCH_SIZE) return total;
+  }
+}
+
+/**
+ * เริ่มลบ session หมดอายุตามรอบ (รอบแรกทันทีตอนเริ่ม API) — คืนฟังก์ชันหยุด สำหรับ graceful shutdown
+ * error ไม่ทำให้ API ล้ม แต่ต้อง log ไว้ (รอบถัดไปจะลองใหม่)
+ */
+export function startSessionCleanupJob(intervalMs: number): () => void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const deleted = await purgeExpiredSessions();
+      if (deleted > 0) logger.info({ deleted }, 'ลบ session ที่หมดอายุ');
+    } catch (err) {
+      logger.error({ err }, 'ลบ session ที่หมดอายุไม่สำเร็จ');
+    } finally {
+      running = false;
+    }
+  };
+  void run();
+  const timer = setInterval(() => void run(), intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 export async function revokeSession(token: string): Promise<void> {
