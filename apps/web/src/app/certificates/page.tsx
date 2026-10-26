@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Download, FileBadge, FilePen, FilePlus } from 'lucide-react';
+import { ChevronDown, Download, FileBadge, FilePen, FilePlus, History } from 'lucide-react';
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
@@ -52,6 +52,79 @@ export default async function CertificatesPage({
   // มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ
   const renewableFrom = primaryRequest.renewableFrom ? new Date(primaryRequest.renewableFrom) : null;
 
+  // ใบเสริมที่หมดอายุ/ถูกเพิกถอนใช้ลงนามไม่ได้แล้ว และไม่ต้องดาวน์โหลด (ใช้ลงนามเอกสารอย่างเดียว ไม่มีอีเมลเข้ารหัสให้เปิด)
+  // → ย้ายไปประวัติ (ฐานข้อมูลเก็บไว้ทั้งหมด) ส่วนใบประจำตัวคงในรายการหลักทุกสถานะ เพราะต้องดาวน์โหลดเปิดอีเมลเก่าได้
+  const isSupplementaryHistory = (c: Certificate) => c.kind === 'supplementary' && c.status !== 'active';
+  const mainCertificates = certificates.filter((c) => !isSupplementaryHistory(c));
+  const supplementaryHistory = certificates.filter(isSupplementaryHistory);
+  // คำขอที่ยังต้องทำอะไรต่อ (รออนุมัติ / รอกดรับใบ) แสดงตามปกติ ที่จบแล้ว (ได้รับใบ/ไม่อนุมัติ/ยกเลิก/หมดเวลา) ย้ายไปประวัติ
+  const isOpenRequest = (status: string) => status === 'pending' || status === 'approved';
+  const openRequests = supplementary.requests.filter((r) => isOpenRequest(r.status));
+  const finishedRequests = supplementary.requests.filter((r) => !isOpenRequest(r.status));
+  const historyCount = supplementaryHistory.length + finishedRequests.length;
+
+  const renderCertificate = (c: Certificate) => (
+    <li key={c.id} className="rounded-xl border border-line bg-surface shadow-card p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold break-words">{c.subjectCn}</p>
+          <p className="text-sm break-all text-muted">{c.email}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {c.kind === 'supplementary' && <Tag>ใบรับรองเสริม</Tag>}
+          {c.source === 'imported' && <Tag>นำเข้าจากระบบเดิม</Tag>}
+          <CertificateStatusBadge status={c.status} />
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
+        <dt className="text-muted">ใช้ได้ตั้งแต่</dt>
+        <dd className="tabular-nums">
+          {dateFormatter.format(new Date(c.notBefore))} – {dateFormatter.format(new Date(c.notAfter))}
+        </dd>
+        {c.revokedAt && (
+          <>
+            <dt className="text-muted">เพิกถอนเมื่อ</dt>
+            <dd className="tabular-nums">{dateFormatter.format(new Date(c.revokedAt))}</dd>
+          </>
+        )}
+        <dt className="text-muted">หมายเลขใบรับรอง</dt>
+        <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
+      </dl>
+      {canManage(c) && c.status === 'active' && (
+        <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
+          <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
+          {canRedownload(c) && (
+            <Link
+              href={`/certificates/${c.id}/download`}
+              className={buttonClasses({ variant: 'secondary', size: 'sm', fullWidth: true })}
+            >
+              <Download className="size-4" aria-hidden />
+              ดาวน์โหลดไฟล์ใหม่
+            </Link>
+          )}
+        </div>
+      )}
+      {/* ใบประจำตัวที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) — ใบเสริมไม่ใช้กับอีเมล จึงไม่มีปุ่มนี้ */}
+      {c.kind === 'primary' && canManage(c) && c.status !== 'active' && canRedownload(c) && (
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted">ใช้ลงนามไม่ได้แล้ว ดาวน์โหลดได้เพื่อเปิดอีเมลเก่าที่เข้ารหัสไว้</p>
+          <Link
+            href={`/certificates/${c.id}/download`}
+            className={buttonClasses({ variant: 'ghost', size: 'sm', fullWidth: true })}
+          >
+            <Download className="size-4" aria-hidden />
+            ดาวน์โหลดไว้เปิดอีเมลเก่า
+          </Link>
+        </div>
+      )}
+      {isKeyCompromised(c) && (
+        <p className="mt-4 border-t border-line pt-4 text-sm text-muted">
+          เพิกถอนเพราะ key อาจหลุดไปถึงผู้อื่น จึงดาวน์โหลดไฟล์ใหม่ไม่ได้
+        </p>
+      )}
+    </li>
+  );
+
   const requestButton = (
     <Link href="/certificates/new" className={buttonClasses({ fullWidth: true })}>
       <FilePlus className="size-5" aria-hidden />
@@ -75,7 +148,7 @@ export default async function CertificatesPage({
             {primaryRequest.renewalWindowDays} วัน) ใบเดิมใช้ได้ต่อจนหมดอายุ
           </Alert>
         )}
-        {canRequest && !renewableFrom && certificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
+        {canRequest && !renewableFrom && mainCertificates.length > 0 && <div className="flex justify-end">{requestButton}</div>}
         {params.applied === '1' && (
           <Alert tone="success" title="ส่งคำขอแล้ว">
             เมื่อได้รับอนุมัติ กด &quot;รับใบรับรอง&quot; ที่คำขอภายใน 30 วันเพื่อตั้งรหัสผ่านและดาวน์โหลดไฟล์
@@ -106,7 +179,7 @@ export default async function CertificatesPage({
           </section>
         )}
 
-        {certificates.length === 0 ? (
+        {mainCertificates.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface shadow-card">
             <StatusState
               icon={FileBadge}
@@ -119,71 +192,11 @@ export default async function CertificatesPage({
         ) : (
           // จอใหญ่: 2 คอลัมน์ ไม่ให้การ์ดยืดเต็มความกว้าง 6xl
           <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
-            {certificates.map((c) => (
-              <li key={c.id} className="rounded-xl border border-line bg-surface shadow-card p-4 sm:p-5">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-semibold break-words">{c.subjectCn}</p>
-                    <p className="text-sm break-all text-muted">{c.email}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {c.kind === 'supplementary' && <Tag>ใบรับรองเสริม</Tag>}
-                    {c.source === 'imported' && <Tag>นำเข้าจากระบบเดิม</Tag>}
-                    <CertificateStatusBadge status={c.status} />
-                  </div>
-                </div>
-                <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
-                  <dt className="text-muted">ใช้ได้ตั้งแต่</dt>
-                  <dd className="tabular-nums">
-                    {dateFormatter.format(new Date(c.notBefore))} – {dateFormatter.format(new Date(c.notAfter))}
-                  </dd>
-                  {c.revokedAt && (
-                    <>
-                      <dt className="text-muted">เพิกถอนเมื่อ</dt>
-                      <dd className="tabular-nums">{dateFormatter.format(new Date(c.revokedAt))}</dd>
-                    </>
-                  )}
-                  <dt className="text-muted">หมายเลขใบรับรอง</dt>
-                  <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
-                </dl>
-                {canManage(c) && c.status === 'active' && (
-                  <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
-                    <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
-                    {canRedownload(c) && (
-                      <Link
-                        href={`/certificates/${c.id}/download`}
-                        className={buttonClasses({ variant: 'secondary', size: 'sm', fullWidth: true })}
-                      >
-                        <Download className="size-4" aria-hidden />
-                        ดาวน์โหลดไฟล์ใหม่
-                      </Link>
-                    )}
-                  </div>
-                )}
-                {/* ใบประจำตัวที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) — ใบเสริมไม่ใช้กับอีเมล จึงไม่มีปุ่มนี้ */}
-                {c.kind === 'primary' && canManage(c) && c.status !== 'active' && canRedownload(c) && (
-                  <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted">ใช้ลงนามไม่ได้แล้ว ดาวน์โหลดได้เพื่อเปิดอีเมลเก่าที่เข้ารหัสไว้</p>
-                    <Link
-                      href={`/certificates/${c.id}/download`}
-                      className={buttonClasses({ variant: 'ghost', size: 'sm', fullWidth: true })}
-                    >
-                      <Download className="size-4" aria-hidden />
-                      ดาวน์โหลดไว้เปิดอีเมลเก่า
-                    </Link>
-                  </div>
-                )}
-                {isKeyCompromised(c) && (
-                  <p className="mt-4 border-t border-line pt-4 text-sm text-muted">
-                    เพิกถอนเพราะ key อาจหลุดไปถึงผู้อื่น จึงดาวน์โหลดไฟล์ใหม่ไม่ได้
-                  </p>
-                )}
-              </li>
-            ))}
+            {mainCertificates.map(renderCertificate)}
           </ul>
         )}
 
-        {(canRequestSupplementary || supplementary.requests.length > 0) && (
+        {(canRequestSupplementary || supplementary.requests.length > 0 || supplementaryHistory.length > 0) && (
           <section aria-labelledby="supplementary-heading" className="space-y-3 pt-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
@@ -216,18 +229,48 @@ export default async function CertificatesPage({
                   : `มีใบรับรองเสริมที่ใช้งานอยู่และคำขอที่ค้างครบ ${limits.maxActive} รายการแล้ว ขอเพิ่มได้เมื่อใบเดิมหมดอายุหรือยกเลิกคำขอ`}
               </Alert>
             )}
-            {supplementary.requests.length === 0 ? (
+            {supplementary.requests.length === 0 && supplementaryHistory.length === 0 ? (
               <div className="rounded-xl border border-line bg-surface shadow-card">
                 <StatusState icon={FilePen} title="ยังไม่มีคำขอใบรับรองเสริม">
                   ใช้เมื่อต้องลงนามเอกสารเฉพาะกิจ เช่น เกียรติบัตรของงาน โดยไม่ใช้ใบรับรองประจำตัว
                 </StatusState>
               </div>
             ) : (
-              <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
-                {supplementary.requests.map((r) => (
-                  <SupplementaryRequestCard key={r.id} request={r} canAct={canRequestSupplementary} />
-                ))}
-              </ul>
+              openRequests.length > 0 && (
+                <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+                  {openRequests.map((r) => (
+                    <SupplementaryRequestCard key={r.id} request={r} canAct={canRequestSupplementary} />
+                  ))}
+                </ul>
+              )
+            )}
+            {historyCount > 0 && (
+              // ปิดไว้ค่าเริ่มต้น — ดูย้อนหลังได้ ไม่มีปุ่มดำเนินการ (ใบหมดอายุไม่ต้องเพิกถอนหรือดาวน์โหลด)
+              <details className="group rounded-xl border border-line bg-surface shadow-card">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 font-medium hover:bg-surface-hover [&::-webkit-details-marker]:hidden">
+                  <History className="size-5 shrink-0 text-muted" aria-hidden />
+                  <span className="flex-1">ประวัติใบรับรองเสริม ({historyCount})</span>
+                  <ChevronDown className="size-5 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <div className="space-y-5 border-t border-line p-4 sm:p-5">
+                  {supplementaryHistory.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted">ใบรับรองที่หมดอายุหรือถูกเพิกถอน</h3>
+                      <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">{supplementaryHistory.map(renderCertificate)}</ul>
+                    </div>
+                  )}
+                  {finishedRequests.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted">คำขอที่จบแล้ว</h3>
+                      <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+                        {finishedRequests.map((r) => (
+                          <SupplementaryRequestCard key={r.id} request={r} canAct={canRequestSupplementary} />
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </details>
             )}
           </section>
         )}
