@@ -365,16 +365,37 @@ sudo systemctl enable --now msu-crl.timer
 - `/etc/nginx/snippets/cloudflare-realip.conf` เชื่อ `CF-Connecting-IP` **เฉพาะคำขอจากช่วง IP ของ Cloudflare** → `$remote_addr` = IP จริง → nginx ต่อท้าย `X-Forwarded-For` → API (`TRUST_PROXY=1`) อ่านค่าขวาสุด
 - ตรวจและปรับปีละ 1–2 ครั้ง: `./scripts/update-cloudflare-realip.sh`
 
-**แจ้งงานเครือข่าย**
-- `/api/*` ห้าม cache (มีไฟล์ `.p12` ที่มี private key — nginx ส่ง `no-store` แล้ว ขอให้ตั้ง Cache Rule "Bypass" ด้วย)
-- `/api/crl/msu-ca.crl` ต้องให้ `cdp.msu.ac.th` ดึงได้ (ไม่ติด challenge ของ WAF/Bot) — ถ้าติด ให้ cron บน cdp ดึงผ่าน IP ภายในแทน
-- `/api/verify/pdf` (หน้าตรวจลายมือชื่อ สาธารณะ) รับไฟล์ PDF ไม่เกิน 20 MB แบบ `application/pdf` — ต้องไม่ติดกฎ WAF เรื่องขนาด/ชนิดไฟล์ และห้าม cache
-- อาการเมื่อ WAF บล็อก: 403 แบบ `text/html` พร้อม header `cf-ray` และคำขอ**ไม่ปรากฏ**ใน `access.log` ของ nginx → ส่ง Ray ID ให้งานเครือข่าย
+**WAF Skip rule (ขอจากงานเครือข่าย — host `did.msu.ac.th` ทุกข้อ)**
+
+Managed Rules ตรวจเนื้อไฟล์ไบนารี (PDF/ZIP/PNG) แล้วชนกฎแบบสุ่ม — พบจริง 2026-10-28: อัปโหลด PDF เพื่อลงนามถูกบล็อกด้วย "PHP - Code Injection" (rule `ed1e2fad498d4e53bb0670e32d2e031c`) ทั้งที่ API ออก presigned URL ให้แล้ว
+
+| Path | Method | ข้าม | เหตุผล |
+|---|---|---|---|
+| `/msumyid-files/` (ขึ้นต้นด้วย) | `PUT`, `GET` | Managed Rules + กฎ Bot Score/Bot Fight | browser อัปโหลด/ดาวน์โหลดตรงกับ Garage: `signing-source/` (PDF/ZIP), `signature-image/` (PNG), `signing-result/` |
+| `/api/verify/pdf` | `POST` | Managed Rules | หน้า `/verify` สาธารณะ ส่ง PDF ดิบ ≤20 MB |
+| `/api/crl/msu-ca.crl` | `GET` | กฎ Bot Score/Bot Fight/challenge | `cdp.msu.ac.th` ดึงด้วย cron (bot score ต่ำ) — ติด challenge = CRL ไม่ถูกเผยแพร่ (หรือให้ cron ดึงผ่าน IP ภายในแทน) |
+
+```
+# กฎที่ 1 — Skip: Managed Rules
+(http.host eq "did.msu.ac.th" and starts_with(http.request.uri.path, "/msumyid-files/") and http.request.method in {"PUT" "GET"})
+or (http.host eq "did.msu.ac.th" and http.request.uri.path eq "/api/verify/pdf" and http.request.method eq "POST")
+# กฎที่ 2 — Skip: Custom rules เรื่อง Bot Score + Bot Fight
+(http.host eq "did.msu.ac.th" and starts_with(http.request.uri.path, "/msumyid-files/") and http.request.method in {"PUT" "GET"})
+or (http.host eq "did.msu.ac.th" and http.request.uri.path eq "/api/crl/msu-ca.crl" and http.request.method eq "GET")
+```
+
+ยกเว้นแล้วยังปลอดภัย: `/msumyid-files/` ใช้ได้เฉพาะ URL ที่ API ลงลายเซ็น (หมดอายุ 10 นาที, ตรวจสิทธิ์/ชนิด/ขนาดก่อนออก URL — Garage ปฏิเสธลายเซ็นผิดเอง) ส่วน `/api/verify/pdf` ตรวจในหน่วยความจำ ไม่บันทึกไฟล์ — path อื่น (รวม `/api/auth/*`) อยู่ใต้ WAF ตามปกติ
+
+**แจ้งงานเครือข่าย (อื่น ๆ)**
+- `/api/*` และ `/msumyid-files/*` ห้าม cache (มีไฟล์ `.p12` ที่มี private key — nginx ส่ง `no-store` แล้ว ขอให้ตั้ง Cache Rule "Bypass" ด้วย)
+- ขนาด request สูงสุดของแผนที่ใช้ (Free/Pro 100 MB) ต้องไม่ต่ำกว่าเพดาน ZIP ของระบบ — ไม่เช่นนั้นลดเพดานให้ตรงกัน
+- อาการเมื่อ WAF บล็อก: 403 แบบ `text/html` พร้อม header `cf-ray` และคำขอ**ไม่ปรากฏ**ใน `access.log` ของ nginx → ส่ง Ray ID ให้งานเครือข่าย (หน้าลงนามแสดง "ระบบป้องกันของเครือข่ายปฏิเสธการอัปโหลด กรุณาแจ้งผู้ดูแลระบบ") — ดูกฎที่บล็อกได้ที่ Security → Events ของ Cloudflare
 
 ## 13. Checklist ก่อนเปิดใช้จริง
 
 - [ ] `NODE_ENV=production` (cookie ได้ `Secure`), `TRUST_PROXY=1`
 - [ ] realip ของ Cloudflare — `access.log` ของ nginx แสดง IP จริง ไม่ใช่ `104.x`/`172.64–71.x`/`162.158.x`
+- [ ] WAF Skip rule ของ Cloudflare ครบ (หัวข้อ 12) — ลองลงนาม PDF, ตั้งภาพลายเซ็นแบบอัปโหลด และตรวจ PDF ที่ `/verify` ผ่าน
 - [ ] secret ทุกตัวสุ่มใหม่ ไม่ใช้ค่าจาก dev; `.env`, `env/*.env`, `secrets/*`, `ca/*.key.pem` สิทธิ์ `600` เจ้าของ deploy
 - [ ] `escrow_kek` สำรองนอก VM แล้ว (ผู้ดูแล 2 คน) และ**ไม่อยู่**ในปลายทาง backup
 - [ ] redirect URI ของ Google ตรงทุกตัวอักษร, OAuth consent screen เป็น Internal
