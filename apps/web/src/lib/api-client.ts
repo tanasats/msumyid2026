@@ -122,6 +122,9 @@ export function uploadToStorage(
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
+      // 403 แบบ HTML = WAF ของ Cloudflare บล็อกก่อนถึงเซิร์ฟเวอร์ (Garage ตอบ 403 เป็น XML เช่น URL หมดอายุ) — docs/deployment.md หัวข้อ 12
+      else if (xhr.status === 403 && xhr.getResponseHeader('Content-Type')?.includes('text/html'))
+        reject(new ApiClientError(403, 'UPLOAD_BLOCKED', 'ระบบป้องกันของเครือข่ายปฏิเสธการอัปโหลด กรุณาแจ้งผู้ดูแลระบบ'));
       else reject(new ApiClientError(xhr.status, 'UPLOAD_FAILED', 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'));
     };
     xhr.onerror = () =>
