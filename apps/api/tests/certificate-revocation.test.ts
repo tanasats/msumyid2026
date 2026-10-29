@@ -3,7 +3,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
-import { crlToPem, isCrlOutdated, issueCrl, issueCrlIfOutdated } from '../src/services/crl-service.js';
+import {
+  CRL_EXPIRED_RETENTION_DAYS,
+  crlToPem,
+  isCrlOutdated,
+  issueCrl,
+  issueCrlIfOutdated,
+} from '../src/services/crl-service.js';
 import { SignerError, signer } from '../src/services/signer-client.js';
 import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
 
@@ -211,6 +217,29 @@ describe('ออก CRL', () => {
     // อายุ CRL ตาม CRL_VALIDITY_DAYS (ค่าเริ่มต้น 7 วัน) และเวลาละเอียดถึงวินาที
     expect(input.nextUpdate.getTime() - input.thisUpdate.getTime()).toBe(7 * DAY);
     expect(input.thisUpdate.getMilliseconds()).toBe(0);
+  });
+
+  it('ตัดใบที่เพิกถอนแล้วหมดอายุเกิน CRL_EXPIRED_RETENTION_DAYS ออก (ใบที่เพิ่งหมดอายุยังอยู่)', async () => {
+    const generate = mockCrl();
+    const user = await createUser();
+    const expiredLongAgo = await insertCertificate(user.id, {
+      revokedAt: new Date(Date.now() - 100 * DAY),
+      notAfter: new Date(Date.now() - (CRL_EXPIRED_RETENTION_DAYS + 1) * DAY),
+    });
+    const expiredRecently = await insertCertificate(user.id, {
+      revokedAt: new Date(Date.now() - 100 * DAY),
+      notAfter: new Date(Date.now() - (CRL_EXPIRED_RETENTION_DAYS - 1) * DAY),
+    });
+    const stillValid = await insertCertificate(user.id, { revokedAt: new Date(Date.now() - DAY) });
+
+    const { revokedCount } = await issueCrl();
+
+    expect(revokedCount).toBe(2);
+    const serials = generate.mock.calls[0]![0].revoked.map((r) => r.serialNumber);
+    expect(serials.sort()).toEqual([expiredRecently.serialNumber, stillValid.serialNumber].sort());
+    expect(serials).not.toContain(expiredLongAgo.serialNumber);
+    // ใบที่ตัดออกไม่ทำให้ job คิดว่ามีการเพิกถอนค้าง (ออกซ้ำทุกรอบ)
+    expect(await isCrlOutdated()).toBe(false);
   });
 
   it('เลข CRL = เวลา Unix (วินาที) และเพิ่มขึ้นเสมอแม้ออกหลายฉบับในวินาทีเดียวกัน', async () => {

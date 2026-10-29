@@ -11,6 +11,10 @@ CA_CHAIN="${CA_CHAIN:-/etc/msu-cdp/ca-chain.pem}"
 MIN_REMAINING_HOURS="${MIN_REMAINING_HOURS:-24}"
 # ฉบับที่เผยแพร่อยู่เหลืออายุน้อยกว่านี้ = แจ้งเตือน (ดึงฉบับใหม่ไม่ได้มานานแล้ว)
 STALE_WARN_HOURS="${STALE_WARN_HOURS:-72}"
+# ระบบตัดใบที่เพิกถอนแล้วหมดอายุครบ 30 วันออกจาก CRL (CRL_EXPIRED_RETENTION_DAYS ใน apps/api/src/services/crl-service.ts)
+# ใบที่เพิกถอนภายในกี่วันล่าสุดต้องยังอยู่ในฉบับใหม่ — ต้องไม่เกินค่าของระบบ
+# (ใบที่ระบบตัดออกหมดอายุก่อน 30 วันที่แล้ว จึงต้องถูกเพิกถอนก่อนนั้นด้วย)
+RECENT_DAYS="${RECENT_DAYS:-30}"
 ALLOWED_PROTO="${ALLOWED_PROTO:-https}"
 LOCK_FILE="${LOCK_FILE:-/run/lock/msu-crl.lock}"
 
@@ -34,6 +38,16 @@ crl() { local f=$1; shift; openssl crl -in "$f" -inform "$(form_of "$f")" -noout
 crl_number() { crl "$1" -crlnumber | sed -E 's/^crlNumber=(0x)?//'; }
 next_update() { date -u -d "$(crl "$1" -nextupdate | sed 's/^nextUpdate=//')" +%s; }
 revoked_count() { crl "$1" -text | grep -c 'Serial Number:' || true; }
+# serial ของใบที่เพิกถอน 1 บรรทัดต่อใบ — ทั้งหมด หรือเฉพาะที่เพิกถอนตั้งแต่เวลา $2 (Unix) เป็นต้นไป
+revoked_serials() {
+  local since=${2:-}
+  crl "$1" -text | awk '
+    /Serial Number:/ { serial = $3 }
+    /Revocation Date:/ { sub(/.*Revocation Date: */, ""); print serial "\t" $0 }
+  ' | while IFS=$'\t' read -r serial revoked_at; do
+    if [[ -z "$since" ]] || (($(date -u -d "$revoked_at" +%s) >= since)); then echo "$serial"; fi
+  done | sort -u
+}
 
 now=$(date -u +%s)
 
@@ -64,7 +78,8 @@ new_next=$(next_update "$tmp")
 new_number=$(crl_number "$tmp")
 new_count=$(revoked_count "$tmp")
 
-# 4. ไม่ย้อนไปฉบับเก่า และรายการเพิกถอนไม่หายไป (ระบบไม่เคยลบใบที่เพิกถอนออกจาก CRL)
+# 4. ไม่ย้อนไปฉบับเก่า และการเพิกถอนล่าสุดไม่หายไป — กัน CRL ว่าง / ฐานข้อมูลที่กู้จาก backup เก่าทับ
+#    ใบที่เพิกถอนนานแล้วหายไปได้ (ระบบตัดใบที่หมดอายุออก)
 if [[ -f "$TARGET" ]]; then
   old_number=$(crl_number "$TARGET")
   old_count=$(revoked_count "$TARGET")
@@ -72,7 +87,10 @@ if [[ -f "$TARGET" ]]; then
     exit 0 # ฉบับเดิม ไม่ต้องทำอะไร
   fi
   ((16#$new_number > 16#$old_number)) || die "เลข CRL ใหม่ ($new_number) น้อยกว่าฉบับที่เผยแพร่อยู่ ($old_number) — ไม่แทนที่"
-  ((new_count >= old_count)) || die "รายการเพิกถอนลดลง ($old_count → $new_count) — ไม่แทนที่ ตรวจระบบต้นทางก่อน"
+  ((new_count > 0 || old_count == 0)) || die "CRL ใหม่ไม่มีใบที่เพิกถอนเลย (ฉบับเดิมมี $old_count ใบ) — ไม่แทนที่ ตรวจระบบต้นทางก่อน"
+  missing=$(comm -23 <(revoked_serials "$TARGET" $((now - RECENT_DAYS * 86400))) <(revoked_serials "$tmp"))
+  [[ -z "$missing" ]] ||
+    die "ใบที่เพิกถอนภายใน $RECENT_DAYS วันหายไปจาก CRL ใหม่ ($(wc -l <<<"$missing") ใบ เช่น $(head -n1 <<<"$missing")) — ไม่แทนที่ ตรวจระบบต้นทางก่อน"
   cp -p "$TARGET" "$TARGET.prev"
 fi
 

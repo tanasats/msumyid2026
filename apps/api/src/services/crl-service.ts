@@ -15,8 +15,15 @@ import { readSystemSettings } from './system-settings-service.js';
 // ออกและเผยแพร่ CRL (docs/design/certificates.md)
 // ออกใหม่ทันทีเมื่อมีการเพิกถอน + job ตามรอบ (ออกใหม่เมื่อฉบับล่าสุดเก่าเกิน หรือมีการเพิกถอนที่ยังไม่อยู่ใน CRL)
 
-/** จำนวนใบที่เพิกถอนสูงสุดที่รองรับใน CRL เดียว — เกินแล้วต้องทบทวนการออกแบบ (เช่น ตัดใบที่หมดอายุนานแล้วออก) */
+/** จำนวนใบที่เพิกถอนสูงสุดที่รองรับใน CRL เดียว — เกินแล้วต้องทบทวนการออกแบบ */
 const MAX_REVOKED_IN_CRL = 100_000;
+
+/**
+ * ใบที่เพิกถอนแล้วหมดอายุครบกี่วันจึงตัดออกจาก CRL — CRL จึงไม่โตขึ้นเรื่อย ๆ
+ * RFC 5280 5.1.2.6 ให้ตัดได้หลังใบนั้นปรากฏใน CRL ตามรอบอย่างน้อย 1 ฉบับหลังหมดอายุ (30 วันเกินรอบออกทุกค่า)
+ * deploy/cdp/update-crl.sh (RECENT_DAYS) ตรวจว่าใบที่เพิกถอนภายในช่วงนี้ไม่หายไป จึงต้องไม่น้อยกว่าค่าที่นั่น
+ */
+export const CRL_EXPIRED_RETENTION_DAYS = 30;
 
 /**
  * เลข CRL ถัดไป: เวลา Unix (วินาที) แต่ต้องมากกว่าฉบับก่อนเสมอ
@@ -29,27 +36,35 @@ function nextCrlNumber(previous: bigint | null, now: Date): bigint {
 }
 
 /**
- * ออก CRL ฉบับใหม่จากรายการเพิกถอนทั้งหมด แล้วบันทึกเป็นฉบับล่าสุด
+ * ออก CRL ฉบับใหม่จากรายการเพิกถอน (ไม่รวมใบที่หมดอายุเกิน CRL_EXPIRED_RETENTION_DAYS) แล้วบันทึกเป็นฉบับล่าสุด
  * ถือ advisory lock ตลอดการออก (รวมช่วงรอ signer) — ฉบับที่ออกพร้อมกันต้องรอคิว เลขจึงเรียงถูกต้องและไม่ชน
+ * คืน revokedCount = จำนวนใบใน CRL ฉบับนี้
  */
 export async function issueCrl(): Promise<{ crlNumber: bigint; revokedCount: number }> {
   return withTransaction(async (client) => {
     await lockCrlIssuance(client);
-    const { latest } = await getCrlState(client);
-    const revoked = await listRevokedCertificates(client, MAX_REVOKED_IN_CRL + 1);
+    // ตัดเศษมิลลิวินาที: เวลาใน CRL ละเอียดถึงวินาที ให้ค่าในฐานข้อมูลตรงกับในไฟล์
+    const thisUpdate = new Date(Math.floor(Date.now() / 1000) * 1000);
+    // นับจำนวนก่อนดึงรายการ: การเพิกถอนที่ commit ระหว่างสองคำสั่งอยู่ในรายการแต่ไม่อยู่ในจำนวน
+    // job จึงออกซ้ำให้อีกฉบับ (ไม่เสียหาย) — ทางกลับกันไม่เกิด จึงไม่มีการเพิกถอนตกหล่น
+    const { latest, revokedNow } = await getCrlState(client);
+    const revoked = await listRevokedCertificates(client, {
+      expiredBefore: new Date(thisUpdate.getTime() - CRL_EXPIRED_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+      limit: MAX_REVOKED_IN_CRL + 1,
+    });
     if (revoked.length > MAX_REVOKED_IN_CRL) {
       throw new Error(`ใบที่เพิกถอนมีมากกว่า ${MAX_REVOKED_IN_CRL} ใบ — ต้องทบทวนการออก CRL`);
     }
 
-    // ตัดเศษมิลลิวินาที: เวลาใน CRL ละเอียดถึงวินาที ให้ค่าในฐานข้อมูลตรงกับในไฟล์
-    const thisUpdate = new Date(Math.floor(Date.now() / 1000) * 1000);
     // อายุ CRL ตามค่าตั้งของระบบ ณ ตอนออก
     const { crlValidityDays } = await readSystemSettings(client);
     const nextUpdate = new Date(thisUpdate.getTime() + crlValidityDays * 24 * 60 * 60 * 1000);
     const crlNumber = nextCrlNumber(latest?.crlNumber ?? null, thisUpdate);
 
     const crlDer = await signer.generateCrl({ crlNumber, thisUpdate, nextUpdate, revoked });
-    await insertCrl(client, { crlNumber, thisUpdate, nextUpdate, revokedCount: revoked.length, crlDer });
+    // revoked_count เก็บจำนวนใบที่เพิกถอนทั้งหมด (ไม่ใช่จำนวนใน CRL) — ค่านี้เพิ่มขึ้นอย่างเดียว
+    // isCrlOutdated จึงเห็นการเพิกถอนใหม่เสมอ แม้มีใบหมดอายุหลุดออกจาก CRL ในรอบเดียวกัน
+    await insertCrl(client, { crlNumber, thisUpdate, nextUpdate, revokedCount: revokedNow, crlDer });
     return { crlNumber, revokedCount: revoked.length };
   });
 }

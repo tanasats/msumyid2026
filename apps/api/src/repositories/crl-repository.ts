@@ -13,7 +13,7 @@ export async function lockCrlIssuance(db: Queryable): Promise<void> {
 export type CrlState = {
   /** null = ยังไม่เคยออก CRL */
   latest: { crlNumber: bigint; thisUpdate: Date; revokedCount: number } | null;
-  /** จำนวนใบที่ถูกเพิกถอนในขณะนี้ */
+  /** จำนวนใบที่ถูกเพิกถอนในขณะนี้ (นับทุกใบ รวมใบที่หมดอายุแล้วและไม่อยู่ใน CRL) */
   revokedNow: number;
 };
 
@@ -59,10 +59,14 @@ export type RevokedCertificateRow = {
 };
 
 /**
- * ใบที่ถูกเพิกถอนทั้งหมด (CRL ต้องมีครบทุกใบ) — LIMIT กันดึงข้อมูลมหาศาลโดยไม่ตั้งใจ
- * ผู้เรียกขอ limit + 1 แถวเพื่อรู้ว่าเกินขีดจำกัดหรือไม่ (เกิน = ต้องทบทวนการออกแบบ ไม่ใช่ตัดรายการทิ้ง)
+ * ใบที่ถูกเพิกถอนที่ต้องอยู่ใน CRL — ใบที่หมดอายุก่อน expiredBefore ตัดออกได้ (RFC 5280 5.1.2.6)
+ * LIMIT กันดึงข้อมูลมหาศาลโดยไม่ตั้งใจ ผู้เรียกขอ limit + 1 แถวเพื่อรู้ว่าเกินขีดจำกัดหรือไม่
+ * (เกิน = ต้องทบทวนการออกแบบ ไม่ใช่ตัดรายการทิ้ง)
  */
-export async function listRevokedCertificates(db: Queryable, limit: number): Promise<RevokedCertificateRow[]> {
+export async function listRevokedCertificates(
+  db: Queryable,
+  input: { expiredBefore: Date; limit: number },
+): Promise<RevokedCertificateRow[]> {
   const result = await db.query<RevokedCertificateRow>(
     `SELECT serial_number      AS "serialNumber",
             revoked_at         AS "revokedAt",
@@ -70,9 +74,10 @@ export async function listRevokedCertificates(db: Queryable, limit: number): Pro
             not_after          AS "notAfter"
      FROM certificates
      WHERE revoked_at IS NOT NULL
+       AND not_after >= $1
      ORDER BY revoked_at, serial_number
-     LIMIT $1`,
-    [limit],
+     LIMIT $2`,
+    [input.expiredBefore, input.limit],
   );
   return result.rows;
 }
