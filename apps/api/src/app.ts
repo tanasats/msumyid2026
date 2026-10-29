@@ -19,6 +19,7 @@ import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
 import { supplementaryCertificatesRouter } from './routes/supplementary-certificates.js';
 import { primaryCertificateRequestsRouter } from './routes/primary-certificate-requests.js';
+import { certificateRevocationRequestsRouter } from './routes/certificate-revocation-requests.js';
 import { verifyRouter } from './routes/verify.js';
 import { filesRouter } from './routes/files.js';
 import { signingPinRouter } from './routes/signing-pin.js';
@@ -56,6 +57,7 @@ export function createApp() {
   app.use(certificatesRouter);
   app.use(supplementaryCertificatesRouter);
   app.use(primaryCertificateRequestsRouter);
+  app.use(certificateRevocationRequestsRouter);
   app.use(verifyRouter);
   app.use(filesRouter);
   app.use(signingPinRouter);

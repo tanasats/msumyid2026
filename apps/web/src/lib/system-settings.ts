@@ -7,6 +7,7 @@ export type SystemSettingsValues = {
   sessionTtlDays: number;
   crlValidityDays: number;
   crlReissueHours: number;
+  primaryReissueLimit: number;
 };
 
 export type SystemSettings = SystemSettingsValues & {

@@ -63,7 +63,7 @@ GOOGLE_CLIENT_SECRET=...                 # ค่าจริงอยู่ใ�
 GOOGLE_REDIRECT_URI=http://localhost:4010/auth/google/callback
 SESSION_COOKIE_NAME=msumyid_session
 INITIAL_SUPER_ADMIN_EMAIL=tanasat.s@msu.ac.th              # ใช้เฉพาะ seed ครั้งแรก
-# โดเมนที่ไม่ต้องรออนุมัติ, อายุ session, อายุ/รอบออก CRL → หน้า /admin/settings (ตาราง system_settings, super_admin แก้ได้)
+# โดเมนที่ไม่ต้องรออนุมัติ, อายุ session, อายุ/รอบออก CRL, โควตาขอใบใหม่หลังเพิกถอน → หน้า /admin/settings (ตาราง system_settings, super_admin แก้ได้)
 
 # Storage (Garage)
 S3_ENDPOINT=http://localhost:3910
@@ -238,7 +238,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `user:delete` | ลบบัญชีและข้อมูลส่วนบุคคลของผู้ใช้ |
 | `certificate:request` | ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง |
 | `certificate:read` | ดูใบรับรองของผู้อื่น |
-| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น และอนุมัติ/ปฏิเสธคำขอเพิกถอนใบรับรอง |
 | `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม |
 | `supplementary_certificate:request` | ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริมของตัวเอง |
 | `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองประจำตัวและใบรับรองเสริมของผู้อื่น |

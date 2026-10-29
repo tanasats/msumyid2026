@@ -22,19 +22,22 @@ import {
   type PrimaryRequestRow,
   type PrimaryRequestStatus,
 } from '../repositories/primary-certificate-request-repository.js';
-import { canManageUser, type AuthUser } from './authorization-service.js';
+import { canManageUser, hasPermission, type AuthUser } from './authorization-service.js';
 import {
   assertPrimaryRenewable,
   certificateCommonName,
+  isPrimaryReissueLimitReached,
   issuePrimaryCertificate,
   p12FileName,
   type Certificate,
   type RequestCertificateInput,
 } from './certificate-service.js';
+import { PERMISSIONS } from './permissions.js';
 
 // ใบรับรองประจำตัวแบบส่งคำขอ (ผู้มี certificate:apply แต่ไม่มี certificate:request — ตัดสินใจ 2026-10-24)
 // ผู้ใช้ส่งคำขอ → ผู้มี certificate:approve อนุมัติ → ผู้ใช้กด "รับใบรับรอง" ตั้งรหัส .p12 เอง ระบบจึงออกใบ (อายุตามนโยบาย)
 // กฎใบประจำตัว 1 ใบ + ช่วงต่ออายุ ตรวจทั้งตอนส่งและตอนรับ (assertPrimaryRenewable)
+// ผู้มี certificate:request ที่เพิกถอนเกินโควตา (isPrimaryReissueLimitReached) ก็ใช้คำขอนี้แทนการสร้างเอง (ตัดสินใจ 2026-10-29)
 
 /** อนุมัติแล้วต้องรับใบภายในกี่วัน (ตัดสินใจ 2026-10-24) เลยแล้วแสดงเป็น "หมดเวลารับใบ" */
 export const PRIMARY_CLAIM_DAYS = 30;
@@ -47,6 +50,13 @@ export type AdminPrimaryRequest = AdminPrimaryRequestRow;
 
 // ---- ผู้ขอ ----
 
+/** ใช้คำขอใบประจำตัวได้ = certificate:apply หรือ certificate:request (กรณีเพิกถอนเกินโควตา — ตรวจตอนส่งคำขอ) */
+function assertCanUsePrimaryRequests(user: AuthUser): void {
+  if (!hasPermission(user, PERMISSIONS.CERTIFICATE_APPLY) && !hasPermission(user, PERMISSIONS.CERTIFICATE_REQUEST)) {
+    throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
+  }
+}
+
 /** คำขอของผู้ใช้ปัจจุบัน ล่าสุดก่อน */
 export async function listMyPrimaryRequests(user: AuthUser): Promise<PrimaryRequest[]> {
   return listPrimaryRequestsByUser(pool, { userId: user.id, claimDays: PRIMARY_CLAIM_DAYS, limit: LIST_LIMIT });
@@ -58,6 +68,7 @@ async function findRequest(id: string): Promise<PrimaryRequest> {
 
 /** ส่งคำขอ — ล็อกผู้ใช้ก่อนตรวจ กันส่งซ้ำพร้อมกัน; คำขอค้างได้ 1 รายการ และต้องอยู่ในเงื่อนไขที่ขอใบประจำตัวใหม่ได้ */
 export async function submitPrimaryRequest(user: AuthUser, input: { purpose: string | null }): Promise<PrimaryRequest> {
+  assertCanUsePrimaryRequests(user);
   // ชื่อยาวเกินจะออกใบไม่ได้อยู่ดี — ไม่ควรให้ผู้อนุมัติเสียเวลา
   certificateCommonName(user);
   const id = await withTransaction(async (client) => {
@@ -68,6 +79,13 @@ export async function submitPrimaryRequest(user: AuthUser, input: { purpose: str
       throw new AppError(409, 'REQUEST_EXISTS', 'คุณมีคำขอที่รอดำเนินการอยู่แล้ว');
     }
     await assertPrimaryRenewable(client, user.id, new Date());
+    // สร้างเองได้ (certificate:request และยังไม่เกินโควตา) = ไม่ต้องรออนุมัติ
+    if (
+      !hasPermission(user, PERMISSIONS.CERTIFICATE_APPLY) &&
+      !(await isPrimaryReissueLimitReached(client, user.id, new Date()))
+    ) {
+      throw new AppError(409, 'REQUEST_NOT_NEEDED', 'คุณขอใบรับรองประจำตัวได้ทันทีโดยไม่ต้องส่งคำขอ');
+    }
     const { id } = await insertPrimaryRequest(client, { userId: user.id, purpose: input.purpose });
     await insertPrimaryRequestLog(client, { requestId: id, actorId: user.id, action: 'submit' });
     return id;
@@ -77,6 +95,7 @@ export async function submitPrimaryRequest(user: AuthUser, input: { purpose: str
 
 /** ผู้ขอยกเลิกคำขอของตัวเอง (รออนุมัติ หรืออนุมัติแล้วยังไม่รับใบ) — คำขอของคนอื่นตอบ "ไม่พบ" */
 export async function cancelMyPrimaryRequest(user: AuthUser, requestId: string): Promise<PrimaryRequest> {
+  assertCanUsePrimaryRequests(user);
   await withTransaction(async (client) => {
     const request = await findPrimaryRequestForUpdate(client, requestId, PRIMARY_CLAIM_DAYS);
     if (!request || request.userId !== user.id) throw new AppError(404, 'REQUEST_NOT_FOUND', 'ไม่พบคำขอนี้');
@@ -97,6 +116,7 @@ export async function claimPrimaryCertificate(
   requestId: string,
   input: RequestCertificateInput,
 ): Promise<{ certificate: Certificate; p12: Buffer; fileName: string }> {
+  assertCanUsePrimaryRequests(user);
   const commonName = certificateCommonName(user);
   return withTransaction(async (client) => {
     if (!(await lockUserForCertificate(client, user.id))) {

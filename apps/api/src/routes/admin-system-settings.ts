@@ -22,6 +22,7 @@ const settingsBody = z.object({
   sessionTtlDays: z.number().int().min(1).max(30),
   crlValidityDays: z.number().int().min(1).max(30),
   crlReissueHours: z.number().int().min(1).max(168),
+  primaryReissueLimit: z.number().int().min(0).max(20),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
 });
 

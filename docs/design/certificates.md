@@ -30,7 +30,7 @@
 | Key สำรอง (escrow) | **ต้องมี** — เพราะใบรับรองใช้เข้ารหัสอีเมล ถ้า key หายจะเปิดอีเมลเก่าไม่ได้ |
 | ที่สร้าง private key | บริการเซ็น (ฝั่ง server) เพราะต้องเก็บสำรองอยู่แล้ว — สร้างใน browser ไม่ได้ประโยชน์เพิ่ม |
 | รหัสผ่าน `.p12` | ผู้ใช้ตั้งเองทุกครั้งที่ดาวน์โหลด **ระบบไม่เก็บรหัสผ่าน** (ไม่มี CSV แบบเดิม) |
-| CRL | URL เดิม `https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมฝังไว้แล้ว เปลี่ยนไม่ได้) ระบบออก CRL ใหม่ทุกครั้งที่เพิกถอน และทุกวัน |
+| CRL | URL เดิม `https://cdp.msu.ac.th/msu-ca.crl` (ใบเดิมฝังไว้แล้ว เปลี่ยนไม่ได้) ระบบออก CRL ใหม่ทุกครั้งที่เพิกถอน และทุกวัน — มีเฉพาะใบที่เพิกถอนแล้วยังไม่หมดอายุ หรือหมดอายุไม่ถึง 30 วัน (หัวข้อ "การควบคุมการเพิกถอน") ใบที่หมดอายุเองไม่เคยอยู่ใน CRL |
 | อายุ CRL | 7 วัน (`system_settings.crl_validity_days` แก้ที่ `/admin/settings`, ระบบเดิม 30) — ผู้ตรวจอาจใช้ CRL ที่เก็บไว้จนถึง next update จึงสั้นลงให้การเพิกถอนมีผลเร็วขึ้น; ถ้า cron ของ cdp หยุดเกิน 7 วัน CRL จะหมดอายุ |
 | เลข CRL | เวลา Unix (วินาที) และเพิ่มขึ้นเสมอ — มากกว่าเลขจาก `crlnumber` ของระบบเดิมแน่นอน จึงไม่ต้องนำเข้า `crlnumber` |
 | รูปแบบไฟล์ CRL | PEM (`CRL_PUBLISH_FORMAT=pem`) เหมือนไฟล์ที่ `openssl ca -gencrl` สร้างแล้วเปลี่ยนชื่อขึ้น cdp — เปลี่ยนเป็น DER ได้ |
@@ -68,7 +68,7 @@ cdp.msu.ac.th ──(cron ดึง)──► GET /crl/msu-ca.crl (public)
 
 **ดาวน์โหลดใหม่ / กู้ key** — ผู้ใช้ตั้งรหัสผ่านใหม่ signer ถอด escrow แล้วสร้าง `.p12` ใหม่ (ใบรับรองเดิม ไม่ออกใบใหม่) เขียน audit log ทุกครั้ง — ใบที่หมดอายุ/เพิกถอนแล้วยังดาวน์โหลดได้เพื่อเปิดอีเมลเก่า (หน้าเว็บแสดงเป็นปุ่มรอง "ดาวน์โหลดไว้เปิดอีเมลเก่า") ยกเว้นเพิกถอนเพราะ key อาจหลุด (`keyCompromise`)
 
-**เพิกถอน** — ผู้ใช้เลือกใบของตัวเอง + เหตุผล → บันทึก `revoked_at` → signer ออก CRL ใหม่ทันที (`crl_number` = เวลา Unix เพิ่มขึ้นเสมอ)
+**เพิกถอน** — ผู้ใช้เลือกใบของตัวเอง + เหตุผล → บันทึก `revoked_at` → signer ออก CRL ใหม่ทันที (`crl_number` = เวลา Unix เพิ่มขึ้นเสมอ) — ใบประจำตัวที่เหตุผลไม่เร่งด่วนต้องรออนุมัติ (หัวข้อ "การควบคุมการเพิกถอน")
 
 ## ความเข้ากันได้ของ `.p12`
 
@@ -90,7 +90,7 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 | `certificate:request` | ขอ/ดาวน์โหลด/เพิกถอนใบรับรอง **ของตัวเอง** |
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง (ดู `document-signing.md`) |
 | `certificate:read` | ดูรายการใบรับรองของผู้อื่น |
-| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น |
+| `certificate:revoke` | เพิกถอนใบรับรองของผู้อื่น และอนุมัติ/ปฏิเสธคำขอเพิกถอนใบรับรอง (ขยาย 2026-10-29) |
 | `certificate_policy:manage` | กำหนดนโยบายอายุใบรับรองประจำตัวและเพดานของใบรับรองเสริม (ยืนยัน 2026-10-24) |
 | `supplementary_certificate:request` | ขอ รับ ดาวน์โหลด และเพิกถอนใบรับรองเสริม **ของตัวเอง** (ยืนยัน 2026-10-24) |
 | `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองประจำตัวและใบรับรองเสริมของผู้อื่น (ยืนยัน 2026-10-24) |
@@ -106,8 +106,9 @@ OpenSSL 3 สร้าง `.p12` แบบ AES-256 + PBKDF2 เป็นค่�
 
 - `certificates`: `id`, `user_id` (NULL ได้ถ้านำเข้าแล้วยังไม่พบผู้ใช้), `serial_number` (hex, UNIQUE), `subject_cn`, `email`, `not_before`, `not_after`, `revoked_at`, `revocation_reason`, `revoked_by`, `source` (`issued`/`imported`), `kind` (`primary`/`supplementary`, ค่าเริ่มต้น primary), `certificate_pem`, `fingerprint_sha256`, `created_at`, `updated_at` — ไม่มี soft delete (ใบรับรองลบไม่ได้ ต้องอยู่ใน CRL)
 - `certificate_key_escrows`: `certificate_id` (PK), `encrypted_key`, `wrapped_data_key`, `kek_id`, `created_at`, `updated_at` — แยกตารางเพื่อให้ query รายการใบรับรองไม่แตะ blob
-- `crls`: `crl_number` (bigint UNIQUE), `this_update`, `next_update`, `revoked_count` (จำนวนใบที่เพิกถอนตอนออก — จำนวนปัจจุบันมากกว่า = ต้องออกใหม่), `crl_der`, `created_at`, `updated_at` — เก็บทุกฉบับ
+- `crls`: `crl_number` (bigint UNIQUE), `this_update`, `next_update`, `revoked_count` (จำนวนใบที่เพิกถอนทั้งหมดตอนออก รวมใบที่ตัดออกจาก CRL แล้ว — เพิ่มขึ้นอย่างเดียว จำนวนปัจจุบันมากกว่า = ต้องออกใหม่), `crl_der`, `created_at`, `updated_at` — เก็บทุกฉบับ
 - `certificate_audit_logs`: `certificate_id`, `actor_id`, `action` (`issue`/`recover`/`revoke`/`import`/`sign`), `reason`, `created_at` — แก้/ลบไม่ได้
+- `certificate_revocation_requests`: `certificate_id`, `user_id`, `reason`, `status` (`pending`/`approved`/`rejected`/`cancelled`), `decided_by`, `decided_at`, `decision_note` (PDPA ล้างเมื่อลบบัญชี) — รออนุมัติได้ 1 รายการต่อใบ (partial unique index); ประวัติใน `certificate_revocation_request_logs` (`submit`/`approve`/`reject`/`cancel`) แก้/ลบไม่ได้
 - `certificate_policies`: แถวเดียว (`id` = true) — `primary_mode`, `primary_days`, `primary_expiry_month`, `primary_expiry_day`, `primary_min_days`, `renewal_window_days`, `supplementary_max_days`, `supplementary_max_active`, `supplementary_max_lead_days`, `updated_by`
 - `certificate_policy_logs`: `actor_id`, `before`, `after` (jsonb ค่าทั้งชุด), `created_at` — แก้/ลบไม่ได้
 - `supplementary_certificate_requests`: `user_id`, `purpose`, `requested_start/end` และ `approved_start/end` (date ตามเวลาไทย), `status` (`pending`/`approved`/`issued`/`rejected`/`cancelled` — "หมดเวลา" คำนวณจาก `approved_end` ไม่เก็บ), `decided_by`, `decided_at`, `decision_note`, `certificate_id` (UNIQUE), `created_at`, `updated_at`
@@ -177,21 +178,52 @@ super_admin ตั้ง **วิธีขอใบประจำตัว** �
 - **โปรไฟล์ใน signer** (`profile: 'document_signing'`): keyUsage `digitalSignature, nonRepudiation` (critical), EKU `documentSigning` (1.3.6.1.5.5.7.3.36) + Microsoft Document Signing (1.3.6.1.4.1.311.10.3.12) + Adobe Authentic Documents (1.2.840.113583.1.1.5) ไม่มี `emailProtection`; extensions อื่นเหมือน `[ smime ]`; ออกด้วย `openssl ca -startdate/-enddate` กับฐานข้อมูลชั่วคราว (`x509 -req` กำหนดวันเริ่มได้ตั้งแต่ OpenSSL 3.4 แต่เครื่อง dev ใช้ 3.2) ตัดตามเพดาน `CERT_VALIDITY_DAYS` และอายุ CA เหมือนเดิม — **ต้องทดสอบลงนามใน Acrobat/Foxit จริงก่อนใช้งาน**
 - หน้าเว็บ: ส่วน "ใบรับรองเสริม" ใน `/certificates`, `/certificates/supplementary/new`, `/certificates/supplementary/[id]/claim`, ผู้อนุมัติ `/admin/certificate-requests` (เมนู "อนุมัติ" สำหรับผู้มี `certificate:approve`)
 
+## การควบคุมการเพิกถอน (ตัดสินใจ 2026-10-29)
+
+ปัญหา: ผู้ใช้ใหม่ยังไม่เข้าใจการเพิกถอน และการเพิกถอนเป็นทางลัดไปขอใบประจำตัวใหม่ (กฎใบประจำตัว 1 ใบนับเฉพาะใบที่ยังไม่เพิกถอน) เช่น ลืมรหัส `.p12` แล้วเพิกถอนเพื่อขอใบใหม่ ทั้งที่ดาวน์โหลดใหม่จาก key สำรองได้ — CRL จึงโตขึ้นโดยไม่จำเป็น (ราว 50 ไบต์ต่อใบ และฝังอยู่ใน PDF ทุกไฟล์ที่ลงนามแบบ LTV)
+
+1. **CRL ตัดใบที่หมดอายุ:** ใบที่เพิกถอนแล้วหมดอายุครบ 30 วัน (`CRL_EXPIRED_RETENTION_DAYS` ใน `crl-service.ts`) ไม่อยู่ใน CRL — RFC 5280 5.1.2.6 ให้ตัดได้หลังปรากฏใน CRL ตามรอบอย่างน้อย 1 ฉบับหลังหมดอายุ; ใบที่ไม่ถูกเพิกถอนไม่เคยอยู่ใน CRL อยู่แล้ว ขนาด CRL จึงไม่เกินจำนวนใบที่เพิกถอนในรอบอายุใบ
+   - ลายมือชื่อบน PDF ที่ลงนามแล้วไม่กระทบ: CRL ณ ตอนลงนามฝังในไฟล์ (LTV) และมีเวลาจาก TSA
+   - `deploy/cdp/update-crl.sh` เปลี่ยนจาก "จำนวนใบห้ามลดลง" เป็น "ใบที่เพิกถอนภายใน 30 วันล่าสุดต้องยังอยู่ + ฉบับใหม่ห้ามว่างถ้าฉบับเดิมไม่ว่าง" (ใบที่ระบบตัดออกหมดอายุก่อน 30 วันที่แล้ว จึงถูกเพิกถอนก่อนนั้นด้วย) — ยังกัน CRL ว่าง/ฐานข้อมูลที่กู้จาก backup เก่าทับได้
+2. **เพิกถอนใบประจำตัวตามเหตุผล:**
+
+   | เหตุผล | ผล |
+   |---|---|
+   | `keyCompromise` | เพิกถอนทันที (key อาจหลุด รอไม่ได้) — ผลคือดาวน์โหลดใหม่ไม่ได้และเปิดอีเมลเข้ารหัสเก่าไม่ได้ จึงไม่คุ้มที่จะเลือกเพื่อเลี่ยงการอนุมัติ |
+   | `superseded`, `affiliationChanged`, `cessationOfOperation` | ส่ง **คำขอเพิกถอน** (เลือกเหตุผลอย่างเดียว ไม่มีข้อความจากผู้ขอ) รอผู้มี `certificate:revoke` อนุมัติ/ปฏิเสธตามกฎ `canManageUser` — ผูกกับ role ใดก็ได้ที่ `/admin/roles`, super_admin ผ่านอยู่แล้วใน `hasPermission` |
+
+   - อนุมัติ = เพิกถอนทันทีด้วยเหตุผลที่ผู้ขอเลือก (`revoked_by` = ผู้อนุมัติ, audit `revoke` เก็บบันทึกของผู้อนุมัติ) แล้วออก CRL — ไม่มีสถานะ "อนุมัติแล้วรอดำเนินการ"; ปฏิเสธต้องมีเหตุผล (ผู้ขอเห็น) ใบยังใช้งานได้
+   - ใบหนึ่งมีคำขอรออนุมัติได้ 1 รายการ (unique index), ผู้ขอยกเลิกได้ระหว่างรอ, ใบหมดอายุระหว่างรอ = อนุมัติไม่ได้ (`CERTIFICATE_EXPIRED`) ให้ปฏิเสธแทน
+   - ใบถูกเพิกถอนทางอื่น (เพิกถอนด่วนเอง / ผู้ดูแลเพิกถอน / ปิดบัญชี ลบบัญชี บัญชีหมดอายุ) → ยกเลิกคำขอที่ค้างอัตโนมัติ (log `cancel`)
+   - ผู้ที่ตัดสินเรื่องของตัวเองได้ (มี `certificate:revoke` + `canManageUser` ผ่านกับตัวเอง = super_admin) เพิกถอนใบประจำตัวของตัวเองได้ทันทีทุกเหตุผล (`canRevokeOwnPrimaryDirectly`) — ผู้มี `certificate:revoke` อื่นยังต้องส่งคำขอ
+   - ลำดับล็อก ผู้ใช้ → ใบ → คำขอ ทุกเส้นทาง กัน deadlock
+   - **ใบเสริมเพิกถอนเองได้ทันทีทุกเหตุผลเหมือนเดิม** — ใบอายุสั้น และขอใบใหม่ต้องผ่านการอนุมัติอยู่แล้ว จึงไม่มีทางลัด
+   - หน้าเว็บ: คำขอ/สถานะแสดงในการ์ดใบรับรองที่ `/certificates`, ผู้อนุมัติใช้แท็บ "เพิกถอน" ใน `/admin/certificate-requests` (เมนู "อนุมัติ" แสดงเมื่อมี `certificate:approve` หรือ `certificate:revoke`)
+3. **โควตาขอใบประจำตัวใหม่หลังเพิกถอน:** `system_settings.primary_reissue_limit` (ค่าเริ่มต้น 2, 0–20, แก้ที่ `/admin/settings`) นับใบประจำตัวที่ถูกเพิกถอนในรอบ 365 วันที่ผู้ใช้เป็นผู้เริ่ม (`revoked_by` = เจ้าของ หรือคำขอเพิกถอนของตัวเองที่ได้รับอนุมัติ — ไม่นับที่ผู้ดูแล/ระบบเพิกถอน) **เกิน**ค่านี้ = สร้างใบเองไม่ได้ (409 `REISSUE_LIMIT_REACHED`) ต้องส่งคำขอใบประจำตัว (รออนุมัติ) แม้มี `certificate:request` — เช่น ค่า 2: เพิกถอนครั้งที่ 1–2 ยังสร้างเองได้ ครั้งที่ 3 ต้องส่งคำขอ, ค่า 0 = เพิกถอนแล้วต้องส่งคำขอทุกครั้ง
+   - คำขอใบประจำตัว (ส่ง/ยกเลิก/รับใบ) ใช้ได้ทั้ง `certificate:apply` และ `certificate:request` (ตรวจใน service) — ผู้มีแค่ `certificate:request` ที่ยังไม่เกินโควตาส่งคำขอไม่ได้ (409 `REQUEST_NOT_NEEDED`); ใบที่รับจากคำขอที่อนุมัติแล้วไม่ติดโควตา
+   - ตรวจหลังล็อกแถวผู้ใช้ (`isPrimaryReissueLimitReached`), `GET /me/certificates` ส่ง `primaryRequest.reissueLimitReached` ให้หน้าเว็บแสดงปุ่มส่งคำขอแทนปุ่มขอใบ
+4. **หน้าเว็บถามเหตุการณ์ก่อนเพิกถอน:** กล่องเพิกถอนใบประจำตัวถาม "เกิดอะไรขึ้นกับใบรับรองนี้" ตัวเลือกแรก "ลืมรหัสผ่านไฟล์ หรือจะใช้บนเครื่องใหม่" ไม่เพิกถอน (ปุ่มยืนยันกดไม่ได้) แต่ชี้ไปดาวน์โหลดใหม่ — ใบที่ไม่มี key สำรองแจ้งว่าดาวน์โหลดใหม่ไม่ได้; ตัวเลือกอื่นตรงกับเหตุผลเดิม (ไฟล์อาจหลุด = `keyCompromise` เพิกถอนทันที, ข้อมูลผิด/ได้ใบใหม่/ไม่ใช้แล้ว = ส่งคำขอ) — ใบเสริมและผู้ดูแลไม่มีตัวเลือกนี้ (ทำที่หน้าเว็บอย่างเดียว ไม่มีผลต่อ API)
+
 ## API
 
 | Method | Path | สิทธิ์ |
 |---|---|---|
 | GET | `/me/certificates` | ต้อง login เท่านั้น — ใบของตัวเอง (รวมใบที่นำเข้า, มี `kind`) + `primaryRequest` (`renewableFrom` = วันที่เริ่มขอใบประจำตัวใหม่ได้ / null = ขอได้, `expiresAtIfRequested`, `renewalWindowDays`) |
-| POST | `/me/certificates` | `certificate:request` — ออกใบประจำตัว (อายุตามนโยบาย) คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store`; มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
-| POST | `/me/certificates/:id/revoke` | ตามประเภทใบ (ใบประจำตัว `certificate:request`, ใบเสริม `supplementary_certificate:request`) — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
+| POST | `/me/certificates` | `certificate:request` — ออกใบประจำตัว (อายุตามนโยบาย) คืน `.p12` (base64) ครั้งเดียว, `Cache-Control: no-store`; มีใบประจำตัวที่ใช้งานอยู่และยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS`, เพิกถอนเกินโควตา = 409 `REISSUE_LIMIT_REACHED` |
+| POST | `/me/certificates/:id/revoke` | ตามประเภทใบ (ใบประจำตัว `certificate:request`, ใบเสริม `supplementary_certificate:request`) — เพิกถอนใบของตัวเอง (เฉพาะใบที่ใช้งานอยู่) แล้วออก CRL ทันที; ใบประจำตัวเหตุผลอื่นนอกจาก `keyCompromise` = 409 `REVOCATION_REQUEST_REQUIRED` (ยกเว้น `canRevokeOwnPrimaryDirectly`); signer ล่ม = เพิกถอนสำเร็จ (`crlUpdated: false`) แล้ว job ออกให้ภายหลัง |
+| GET | `/me/certificate-revocation-requests` | ต้อง login เท่านั้น — คำขอเพิกถอนของตัวเอง (ล่าสุดก่อน) + `canRevokeDirectly` |
+| POST | `/me/certificates/:id/revocation-requests` | ตามประเภทใบ (เหมือนการเพิกถอน) — `reason` (`superseded`/`affiliationChanged`/`cessationOfOperation`); ใบเสริม = 409 `REVOCATION_REQUEST_NOT_NEEDED`, มีคำขอรออยู่ = 409 `REQUEST_EXISTS` |
+| POST | `/me/certificate-revocation-requests/:id/cancel` | ต้อง login เท่านั้น (คำขอของตัวเอง) — ยกเลิกคำขอที่รออนุมัติ |
+| GET | `/admin/certificate-revocation-requests` | `certificate:revoke` — `view=pending` (เก่าก่อน ≤ 100) หรือประวัติ `all`/`approved`/`rejected`/`cancelled` (ล่าสุดก่อน cursor หน้าละ 20) + `pendingCount` |
+| POST | `/admin/certificate-revocation-requests/:id/approve` · `/reject` | `certificate:revoke` — `note` (ปฏิเสธบังคับ) ตามกฎ `canManageUser`; อนุมัติคืน `crlUpdated` |
 | POST | `/me/certificates/:id/p12` | ตามประเภทใบ (เหมือนการเพิกถอน) — ดาวน์โหลด `.p12` ใหม่จาก key สำรองด้วยรหัสผ่านใหม่ (ใบเดิม) ได้ทุกสถานะรวมหมดอายุ/เพิกถอน (ไว้เปิดอีเมลเก่า) ยกเว้นเพิกถอนด้วย `keyCompromise` = 409 `KEY_COMPROMISED`, ใบที่ไม่มี key สำรอง = 409 `KEY_NOT_ESCROWED`, audit `recover` |
 | GET | `/me/supplementary-certificate-requests` | ต้อง login เท่านั้น — คำขอใบเสริมของตัวเอง (สถานะรวม `expired`) + `limits` (`maxDays`, `maxLeadDays`, `maxActive`, `open`, `today`) |
 | POST | `/me/supplementary-certificate-requests` | `supplementary_certificate:request` — ส่งคำขอ (`purpose`, `startDate`, `endDate`); ผิดนโยบาย = 422 `RANGE_INVALID`, เกินเพดาน = 409 `SUPPLEMENTARY_LIMIT_REACHED` |
 | POST | `/me/supplementary-certificate-requests/:id/cancel` | `supplementary_certificate:request` — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ |
 | POST | `/me/supplementary-certificate-requests/:id/certificate` | `supplementary_certificate:request` — รับใบจากคำขอที่อนุมัติแล้ว คืน `.p12` ครั้งเดียว (`no-store`); ยังไม่อนุมัติ = 409 `REQUEST_NOT_APPROVED`, เลยวันสิ้นสุด = 409 `REQUEST_EXPIRED`, รับแล้ว = 409 `REQUEST_ALREADY_ISSUED` |
 | GET | `/me/primary-certificate-requests` | ต้อง login เท่านั้น — คำขอใบประจำตัวของตัวเอง (สถานะรวม `expired`, `claimableUntil`) |
-| POST | `/me/primary-certificate-requests` | `certificate:apply` — `purpose` (ไม่บังคับ); มีคำขอค้าง = 409 `REQUEST_EXISTS`, ยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
-| POST | `/me/primary-certificate-requests/:id/cancel` · `/:id/certificate` | `certificate:apply` — ยกเลิก / รับใบ (คืน `.p12` ครั้งเดียว, `no-store`) |
+| POST | `/me/primary-certificate-requests` | `certificate:apply` หรือ `certificate:request` ที่เกินโควตา (ตรวจใน service, ไม่เกิน = 409 `REQUEST_NOT_NEEDED`) — `purpose` (ไม่บังคับ); มีคำขอค้าง = 409 `REQUEST_EXISTS`, ยังไม่ถึงช่วงต่ออายุ = 409 `PRIMARY_CERTIFICATE_EXISTS` |
+| POST | `/me/primary-certificate-requests/:id/cancel` · `/:id/certificate` | `certificate:apply` หรือ `certificate:request` (ตรวจใน service) — ยกเลิก / รับใบ (คืน `.p12` ครั้งเดียว, `no-store`) |
 | GET | `/admin/primary-certificate-requests` | `certificate:approve` — `view` เหมือนของใบเสริม + `pendingCount` |
 | POST | `/admin/primary-certificate-requests/:id/approve` · `/reject` | `certificate:approve` — `note` (ปฏิเสธบังคับ) ตามกฎ `canManageUser` |
 | PUT | `/admin/role-permissions/roles/:code/certificate-mode` | super_admin — `mode` (`off`/`apply`/`self`) + `reason` |
@@ -221,4 +253,8 @@ super_admin ตั้ง **วิธีขอใบประจำตัว** �
 | 6 | ใบประจำตัว 1 ใบ + ช่วงต่ออายุ + นโยบายอายุใบ (`/admin/certificate-policy`) | เสร็จ |
 | 7 | ใบเสริม: คำขอ + อนุมัติ (`certificate:approve`) + โปรไฟล์ลงนามเอกสารอย่างเดียว | เสร็จ (รอทดสอบใน Acrobat) |
 | 8 | ใบประจำตัวแบบส่งคำขอ (`certificate:apply`) + ตั้งวิธีขอใบต่อ role (ปิด / ส่งคำขอ / สร้างเองได้) | เสร็จ |
+| 9.1 | ควบคุมการเพิกถอน: CRL ตัดใบที่หมดอายุ + ปรับการตรวจของ `update-crl.sh` | เสร็จ |
+| 9.2 | คำขอเพิกถอนใบประจำตัว (เหตุผลไม่เร่งด่วน) + หน้าอนุมัติของผู้มี `certificate:revoke` | เสร็จ |
+| 9.3 | โควตาขอใบประจำตัวใหม่หลังเพิกถอน | เสร็จ |
+| 9.4 | หน้าเว็บถามเหตุการณ์ก่อนเพิกถอน | เสร็จ |
 | แยก | แจ้งเตือนใบใกล้หมดอายุ (รอระบบอีเมล), OCSP | |

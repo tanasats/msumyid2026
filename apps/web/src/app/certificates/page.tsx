@@ -5,6 +5,7 @@ import { ChevronDown, Download, FileBadge, FilePen, FilePlus, History } from 'lu
 import { Alert } from '@/components/Alert';
 import { buttonClasses } from '@/components/Button';
 import { CertificateStatusBadge } from '@/components/certificates/CertificateStatusBadge';
+import { CancelSupplementaryRequestButton } from '@/components/certificates/CancelSupplementaryRequestButton';
 import { PrimaryRequestCard } from '@/components/certificates/PrimaryRequestCard';
 import { RevokeCertificateButton } from '@/components/certificates/RevokeCertificateButton';
 import { SubmitPrimaryRequestButton } from '@/components/certificates/SubmitPrimaryRequestButton';
@@ -13,7 +14,9 @@ import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { Tag } from '@/components/UserStatusBadge';
 import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
-import { canRedownload, isKeyCompromised, type Certificate } from '@/lib/certificate';
+import { SELF_REVOCATION_REASONS, canRedownload, isKeyCompromised, type Certificate } from '@/lib/certificate';
+import { URGENT_REVOCATION_REASONS } from '@/lib/certificate-revocation-request';
+import { getMyRevocationRequests } from '@/lib/certificate-revocation-requests';
 import { getMyCertificates } from '@/lib/certificates';
 import { getMyPrimaryRequests } from '@/lib/primary-certificate-requests';
 import { getMySupplementaryRequests } from '@/lib/supplementary-certificates';
@@ -34,18 +37,24 @@ export default async function CertificatesPage({
   if (!user) redirect('/login');
   redirectUnlessReady(user);
 
-  const [{ certificates, primaryRequest }, supplementary, primaryRequests, params] = await Promise.all([
+  const [{ certificates, primaryRequest }, supplementary, primaryRequests, revocation, params] = await Promise.all([
     getMyCertificates(),
     getMySupplementaryRequests(),
     getMyPrimaryRequests(),
+    getMyRevocationRequests(),
     searchParams,
   ]);
-  const canRequest = user.permissions.includes('certificate:request');
+  const hasRequestPermission = user.permissions.includes('certificate:request');
+  // เพิกถอนใบประจำตัวเองเกินโควตาในรอบ 1 ปี: สร้างเองไม่ได้ ต้องส่งคำขอแทน (API ตรวจอีกครั้ง)
+  const mustApply = hasRequestPermission && primaryRequest.reissueLimitReached;
+  const canRequest = hasRequestPermission && !mustApply;
   // ส่งคำขอได้เฉพาะเมื่อสร้างเองไม่ได้ (มีทั้งสองสิทธิ์ = สร้างเองได้)
-  const canApply = !canRequest && user.permissions.includes('certificate:apply');
+  const canApply = (!hasRequestPermission && user.permissions.includes('certificate:apply')) || mustApply;
   const canRequestSupplementary = user.permissions.includes('supplementary_certificate:request');
   const canManage = (c: Pick<Certificate, 'kind'>) =>
-    c.kind === 'supplementary' ? canRequestSupplementary : canRequest || user.permissions.includes('certificate:apply');
+    c.kind === 'supplementary'
+      ? canRequestSupplementary
+      : hasRequestPermission || user.permissions.includes('certificate:apply');
   const hasOpenPrimaryRequest = primaryRequests.some((r) => r.status === 'pending' || r.status === 'approved');
   const { limits } = supplementary;
   const supplementaryFull = limits.open >= limits.maxActive;
@@ -62,6 +71,63 @@ export default async function CertificatesPage({
   const openRequests = supplementary.requests.filter((r) => isOpenRequest(r.status));
   const finishedRequests = supplementary.requests.filter((r) => !isOpenRequest(r.status));
   const historyCount = supplementaryHistory.length + finishedRequests.length;
+
+  // คำขอเพิกถอนล่าสุดของแต่ละใบ (API เรียงล่าสุดก่อน) — ใบประจำตัวที่เหตุผลไม่เร่งด่วนต้องรออนุมัติ (super_admin เพิกถอนเองได้)
+  const latestRevocationRequest = (certificateId: string) =>
+    revocation.requests.find((r) => r.certificate.id === certificateId);
+  const reasonLabel = (value: string) => SELF_REVOCATION_REASONS.find((r) => r.value === value)?.label ?? value;
+  const urgentReasons = SELF_REVOCATION_REASONS.filter((r) => URGENT_REVOCATION_REASONS.includes(r.value));
+
+  const revokeButton = (c: Certificate) => {
+    const pending = latestRevocationRequest(c.id)?.status === 'pending';
+    const needsRequest = c.kind === 'primary' && !revocation.canRevokeDirectly;
+    return (
+      <RevokeCertificateButton
+        endpoint={`/me/certificates/${c.id}/revoke`}
+        serialNumber={c.serialNumber}
+        // มีคำขอรออยู่แล้ว: เหลือเฉพาะการเพิกถอนด่วน (คำขอเดิมถูกยกเลิกอัตโนมัติ)
+        reasons={needsRequest && pending ? urgentReasons : undefined}
+        requestEndpoint={needsRequest && !pending ? `/me/certificates/${c.id}/revocation-requests` : undefined}
+        // ใบประจำตัว: ถามก่อนว่าแค่ลืมรหัสผ่าน/เปลี่ยนเครื่องหรือไม่ (ดาวน์โหลดใหม่ได้ ไม่ต้องเพิกถอน)
+        // ใบเสริมใช้ลงนามบนเว็บอย่างเดียว ไม่มีไฟล์ให้ลืมรหัสผ่าน
+        downloadHref={
+          c.kind === 'primary' ? (canRedownload(c) ? `/certificates/${c.id}/download` : null) : undefined
+        }
+      />
+    );
+  };
+
+  // สถานะคำขอเพิกถอนของใบที่ยังใช้งานอยู่: รออนุมัติ (ยกเลิกได้) หรือไม่อนุมัติ (แสดงเหตุผลจากผู้ดูแล)
+  const renderRevocationRequest = (c: Certificate) => {
+    const r = latestRevocationRequest(c.id);
+    if (!r || c.status !== 'active') return null;
+    if (r.status === 'pending') {
+      return (
+        <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm">
+            <span className="block font-medium">ส่งคำขอเพิกถอนแล้ว รอผู้ดูแลอนุมัติ</span>
+            <span className="block text-muted">เหตุผล: {reasonLabel(r.reason)} — ระหว่างนี้ใบยังใช้งานได้</span>
+          </p>
+          <div className="shrink-0">
+            <CancelSupplementaryRequestButton
+              requestId={r.id}
+              basePath="/me/certificate-revocation-requests"
+              description="ใบรับรองจะใช้งานได้ต่อตามปกติ ถ้ายังต้องการเพิกถอนต้องส่งคำขอใหม่"
+            />
+          </div>
+        </div>
+      );
+    }
+    if (r.status === 'rejected') {
+      return (
+        <p className="mt-4 border-t border-line pt-4 text-sm">
+          <span className="block font-medium">คำขอเพิกถอนไม่ได้รับอนุมัติ</span>
+          {r.decisionNote && <span className="block break-words text-muted">เหตุผล: {r.decisionNote}</span>}
+        </p>
+      );
+    }
+    return null;
+  };
 
   const renderCertificate = (c: Certificate) => (
     <li key={c.id} className="rounded-xl border border-line bg-surface shadow-card p-4 sm:p-5">
@@ -90,9 +156,10 @@ export default async function CertificatesPage({
         <dt className="text-muted">หมายเลขใบรับรอง</dt>
         <dd className="font-mono text-xs break-all">{c.serialNumber}</dd>
       </dl>
+      {canManage(c) && renderRevocationRequest(c)}
       {canManage(c) && c.status === 'active' && (
         <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
-          <RevokeCertificateButton endpoint={`/me/certificates/${c.id}/revoke`} serialNumber={c.serialNumber} />
+          {revokeButton(c)}
           {canRedownload(c) && (
             <Link
               href={`/certificates/${c.id}/download`}
@@ -142,6 +209,12 @@ export default async function CertificatesPage({
             บัญชีของคุณยังไม่ได้รับสิทธิ์ขอใบรับรอง หากต้องการใช้งาน กรุณาติดต่อผู้ดูแลระบบ
           </Alert>
         )}
+        {mustApply && !renewableFrom && (
+          <Alert tone="info" title="ขอใบรับรองประจำตัวใหม่ต้องส่งคำขอ">
+            คุณเพิกถอนใบรับรองประจำตัวครบจำนวนที่สร้างใบใหม่เองได้ในรอบ 1 ปีแล้ว ส่งคำขอด้านล่างแล้วรอผู้ดูแลอนุมัติ
+            (ลืมรหัสผ่านหรือเปลี่ยนเครื่องไม่ต้องเพิกถอน ใช้ &quot;ดาวน์โหลดไฟล์ใหม่&quot; ได้)
+          </Alert>
+        )}
         {(canRequest || canApply) && renewableFrom && (
           <Alert tone="info" title="คุณมีใบรับรองประจำตัวที่ใช้งานอยู่แล้ว">
             ขอใบใหม่เพื่อต่ออายุได้ตั้งแต่วันที่ {dateFormatter.format(renewableFrom)} (ก่อนใบเดิมหมดอายุ{' '}
@@ -172,7 +245,8 @@ export default async function CertificatesPage({
             {primaryRequests.length > 0 && (
               <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
                 {primaryRequests.map((r) => (
-                  <PrimaryRequestCard key={r.id} request={r} canAct={canApply} />
+                  // ผู้ที่ส่งคำขอเพราะเกินโควตา (certificate:request) รับใบ/ยกเลิกได้แม้โควตาคืนแล้ว
+                  <PrimaryRequestCard key={r.id} request={r} canAct={canApply || hasRequestPermission} />
                 ))}
               </ul>
             )}

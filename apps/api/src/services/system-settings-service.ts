@@ -76,6 +76,7 @@ export async function changeSystemSettings(
       sessionTtlDays: before.sessionTtlDays,
       crlValidityDays: before.crlValidityDays,
       crlReissueHours: before.crlReissueHours,
+      primaryReissueLimit: before.primaryReissueLimit,
     };
     if (JSON.stringify(beforeValues) === JSON.stringify(values)) {
       throw new AppError(400, 'NO_CHANGES', 'ค่าเหมือนเดิม ไม่มีอะไรเปลี่ยน');

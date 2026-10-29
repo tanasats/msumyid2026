@@ -18,6 +18,7 @@ const DEFAULTS = {
   sessionTtlDays: 7,
   crlValidityDays: 7,
   crlReissueHours: 24,
+  primaryReissueLimit: 2,
 };
 
 beforeEach(async () => {
@@ -73,10 +74,11 @@ describe('อ่าน / แก้ค่าตั้ง', () => {
       sessionTtlDays: 3,
       crlValidityDays: 10,
       crlReissueHours: 12,
+      primaryReissueLimit: 0,
       reason: 'นโยบายความปลอดภัยใหม่',
     });
     expect(res.status).toBe(200);
-    const after = { allowedEmailDomains: ['msu.ac.th', 'rbru.ac.th'], sessionTtlDays: 3, crlValidityDays: 10, crlReissueHours: 12 };
+    const after = { allowedEmailDomains: ['msu.ac.th', 'rbru.ac.th'], sessionTtlDays: 3, crlValidityDays: 10, crlReissueHours: 12, primaryReissueLimit: 0 };
     expect(res.body.settings).toMatchObject({ ...after, updatedBy: { id: admin.id } });
     expect(res.body.logs).toHaveLength(1);
     expect(res.body.logs[0]).toMatchObject({ actor: { id: admin.id }, before: DEFAULTS, after, reason: 'นโยบายความปลอดภัยใหม่' });
@@ -89,6 +91,7 @@ describe('อ่าน / แก้ค่าตั้ง', () => {
       { ...DEFAULTS, allowedEmailDomains: ['not a domain'] },
       { ...DEFAULTS, sessionTtlDays: 31 },
       { ...DEFAULTS, crlReissueHours: 0 },
+      { ...DEFAULTS, primaryReissueLimit: -1 },
       DEFAULTS, // ไม่มีเหตุผล
     ]) {
       expect((await put(admin.cookie, { reason: 'x', ...body, ...(body === DEFAULTS ? { reason: '' } : {}) })).status).toBe(400);
