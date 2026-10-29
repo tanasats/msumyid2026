@@ -85,6 +85,7 @@ export default async function CertificatesPage({
       <RevokeCertificateButton
         endpoint={`/me/certificates/${c.id}/revoke`}
         serialNumber={c.serialNumber}
+        trigger="link"
         // มีคำขอรออยู่แล้ว: เหลือเฉพาะการเพิกถอนด่วน (คำขอเดิมถูกยกเลิกอัตโนมัติ)
         reasons={needsRequest && pending ? urgentReasons : undefined}
         requestEndpoint={needsRequest && !pending ? `/me/certificates/${c.id}/revocation-requests` : undefined}
@@ -158,8 +159,9 @@ export default async function CertificatesPage({
       </dl>
       {canManage(c) && renderRevocationRequest(c)}
       {canManage(c) && c.status === 'active' && (
-        <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
-          {revokeButton(c)}
+        // ดาวน์โหลดเป็นงานหลักของการ์ด การเพิกถอนเป็นลิงก์ข้อความรอง (ไม่อยากให้เพิกถอนโดยไม่จำเป็น)
+        // มือถือ: ดาวน์โหลดบน ลิงก์ล่าง / จอใหญ่: ลิงก์ซ้าย ดาวน์โหลดขวา
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4 sm:flex-row-reverse sm:items-center sm:justify-between">
           {canRedownload(c) && (
             <Link
               href={`/certificates/${c.id}/download`}
@@ -169,6 +171,7 @@ export default async function CertificatesPage({
               ดาวน์โหลดไฟล์ใหม่
             </Link>
           )}
+          {revokeButton(c)}
         </div>
       )}
       {/* ใบประจำตัวที่ใช้ไม่ได้แล้ว: ปุ่มรองไว้เปิดอีเมลเก่าเท่านั้น (ลงนามใหม่ไม่ได้) — ใบเสริมไม่ใช้กับอีเมล จึงไม่มีปุ่มนี้ */}
