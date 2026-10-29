@@ -21,6 +21,8 @@ type ConfirmDialogProps = {
   confirmText?: { label: string; expected: string };
   /** ช่องกรอกเพิ่มเติมของงานนั้น (เช่น ตัวเลือกเหตุผลการเพิกถอน) — ผู้เรียกดูแล state เอง */
   children?: React.ReactNode;
+  /** ปิดปุ่มยืนยันชั่วคราว (เช่น ตัวเลือกที่เลือกอยู่ไม่ต้องทำงานนี้) */
+  confirmDisabled?: boolean;
   /** throw Error พร้อมข้อความภาษาไทยเพื่อแสดงในกล่อง (กล่องไม่ปิด ข้อมูลที่กรอกไม่หาย) */
   onConfirm: (reason: string, confirmText: string) => Promise<void>;
 };
@@ -41,6 +43,7 @@ export function ConfirmDialog({
   reasonHint = 'บันทึกไว้ในประวัติของบัญชีนี้',
   confirmText,
   children,
+  confirmDisabled = false,
   onConfirm,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -142,7 +145,10 @@ export function ConfirmDialog({
             variant={tone === 'danger' ? 'danger' : 'primary'}
             fullWidth
             loading={submitting}
-            disabled={!!confirmText && typedText.trim().toLowerCase() !== confirmText.expected.toLowerCase()}
+            disabled={
+              confirmDisabled ||
+              (!!confirmText && typedText.trim().toLowerCase() !== confirmText.expected.toLowerCase())
+            }
           >
             {confirmLabel}
           </Button>

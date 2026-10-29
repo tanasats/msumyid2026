@@ -88,6 +88,11 @@ export default async function CertificatesPage({
         // มีคำขอรออยู่แล้ว: เหลือเฉพาะการเพิกถอนด่วน (คำขอเดิมถูกยกเลิกอัตโนมัติ)
         reasons={needsRequest && pending ? urgentReasons : undefined}
         requestEndpoint={needsRequest && !pending ? `/me/certificates/${c.id}/revocation-requests` : undefined}
+        // ใบประจำตัว: ถามก่อนว่าแค่ลืมรหัสผ่าน/เปลี่ยนเครื่องหรือไม่ (ดาวน์โหลดใหม่ได้ ไม่ต้องเพิกถอน)
+        // ใบเสริมใช้ลงนามบนเว็บอย่างเดียว ไม่มีไฟล์ให้ลืมรหัสผ่าน
+        downloadHref={
+          c.kind === 'primary' ? (canRedownload(c) ? `/certificates/${c.id}/download` : null) : undefined
+        }
       />
     );
   };
