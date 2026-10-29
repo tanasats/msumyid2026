@@ -4,22 +4,34 @@ import { redirect } from 'next/navigation';
 import { Filter, Inbox, SearchX } from 'lucide-react';
 import { buttonClasses } from '@/components/Button';
 import { AdminPrimaryRequestCard } from '@/components/certificates/AdminPrimaryRequestCard';
+import { AdminRevocationRequestCard } from '@/components/certificates/AdminRevocationRequestCard';
 import { AdminSupplementaryRequestCard } from '@/components/certificates/AdminSupplementaryRequestCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
 import { getCurrentUser, redirectUnlessReady } from '@/lib/auth';
+import { REVOCATION_REQUEST_STATUS_LABELS } from '@/lib/certificate-revocation-request';
+import { listAdminRevocationRequests, type AdminRevocationRequestView } from '@/lib/certificate-revocation-requests';
 import { listAdminPrimaryRequests } from '@/lib/primary-certificate-requests';
 import { SUPPLEMENTARY_STATUS_LABELS } from '@/lib/supplementary-certificate';
 import { listAdminSupplementaryRequests, type AdminRequestView } from '@/lib/supplementary-certificates';
 
 export const metadata: Metadata = { title: 'คำขอใบรับรอง' };
 
-type RequestType = 'primary' | 'supplementary';
+type RequestType = 'primary' | 'supplementary' | 'revocation';
 
-const TYPE_LABELS: Record<RequestType, string> = { primary: 'ใบประจำตัว', supplementary: 'ใบเสริม' };
+const TYPE_LABELS: Record<RequestType, string> = { primary: 'ใบประจำตัว', supplementary: 'ใบเสริม', revocation: 'เพิกถอน' };
 
-// ตัวกรองของแท็บประวัติ (คำขอที่ตัดสินหรือปิดไปแล้ว) — สถานะชุดเดียวกันทั้งสองประเภท
-const HISTORY_OPTIONS: { value: Exclude<AdminRequestView, 'pending'>; label: string }[] = [
+// แท็บที่เห็นตามสิทธิ์ (ซ่อนเพื่อ UX — API ตรวจอีกครั้ง): คำขอใบรับรอง = certificate:approve, คำขอเพิกถอน = certificate:revoke
+const TYPE_PERMISSIONS: Record<RequestType, string> = {
+  primary: 'certificate:approve',
+  supplementary: 'certificate:approve',
+  revocation: 'certificate:revoke',
+};
+
+type HistoryOption<V> = { value: Exclude<V, 'pending'>; label: string };
+
+// ตัวกรองของแท็บประวัติ (คำขอที่ตัดสินหรือปิดไปแล้ว) — ใบประจำตัวและใบเสริมใช้สถานะชุดเดียวกัน
+const ISSUANCE_HISTORY_OPTIONS: HistoryOption<AdminRequestView>[] = [
   { value: 'all', label: 'ทุกสถานะ' },
   { value: 'approved', label: SUPPLEMENTARY_STATUS_LABELS.approved },
   { value: 'issued', label: SUPPLEMENTARY_STATUS_LABELS.issued },
@@ -28,12 +40,21 @@ const HISTORY_OPTIONS: { value: Exclude<AdminRequestView, 'pending'>; label: str
   { value: 'expired', label: SUPPLEMENTARY_STATUS_LABELS.expired },
 ];
 
+const REVOCATION_HISTORY_OPTIONS: HistoryOption<AdminRevocationRequestView>[] = [
+  { value: 'all', label: 'ทุกสถานะ' },
+  { value: 'approved', label: REVOCATION_REQUEST_STATUS_LABELS.approved },
+  { value: 'rejected', label: REVOCATION_REQUEST_STATUS_LABELS.rejected },
+  { value: 'cancelled', label: REVOCATION_REQUEST_STATUS_LABELS.cancelled },
+];
+
 const tabClass = (active: boolean) =>
   `flex min-h-11 flex-1 items-center justify-center rounded-full px-3 text-sm font-medium transition ${
     active ? 'bg-surface text-accent-soft-fg shadow-card ring-1 ring-ornament/60' : 'text-muted hover:text-fg'
   }`;
 
-// คำขอใบรับรองประจำตัวและใบรับรองเสริม (ต้องมี certificate:approve — API ตรวจ ส่วนเว็บซ่อนลิงก์เท่านั้น)
+const EMPTY = { requests: [], nextCursor: null, pendingCount: 0 };
+
+// คำขอใบรับรองประจำตัว ใบรับรองเสริม และคำขอเพิกถอน (ต้องมี certificate:approve หรือ certificate:revoke — API ตรวจ ส่วนเว็บซ่อนลิงก์เท่านั้น)
 export default async function AdminCertificateRequestsPage({
   searchParams,
 }: {
@@ -42,19 +63,38 @@ export default async function AdminCertificateRequestsPage({
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   redirectUnlessReady(user);
-  if (!user.permissions.includes('certificate:approve')) redirect('/forbidden');
+  const types = (['primary', 'supplementary', 'revocation'] as const).filter((t) =>
+    user.permissions.includes(TYPE_PERMISSIONS[t]),
+  );
+  if (types.length === 0) redirect('/forbidden');
 
   const params = await searchParams;
-  const type: RequestType = params.type === 'supplementary' ? 'supplementary' : 'primary';
-  const view: AdminRequestView = HISTORY_OPTIONS.find((o) => o.value === params.view)?.value ?? 'pending';
-  const cursor = view !== 'pending' && typeof params.cursor === 'string' ? params.cursor : undefined;
+  const type: RequestType = types.find((t) => t === params.type) ?? types[0]!;
+  const historyOptions: HistoryOption<string>[] =
+    type === 'revocation' ? REVOCATION_HISTORY_OPTIONS : ISSUANCE_HISTORY_OPTIONS;
+  const historyView = historyOptions.find((o) => o.value === params.view)?.value;
+  const view = historyView ?? 'pending';
+  const cursor = historyView && typeof params.cursor === 'string' ? params.cursor : undefined;
+  const can = (t: RequestType) => types.includes(t);
 
-  // ประเภทที่เลือกดึงตามมุมมอง อีกประเภทดึงเฉพาะจำนวนที่รอ (คิวรออนุมัติจำกัด 100 รายการอยู่แล้ว)
-  const [primary, supplementary] = await Promise.all([
-    listAdminPrimaryRequests(type === 'primary' ? { view, cursor } : { view: 'pending' }),
-    listAdminSupplementaryRequests(type === 'supplementary' ? { view, cursor } : { view: 'pending' }),
+  // ประเภทที่เลือกดึงตามมุมมอง ประเภทอื่นดึงเฉพาะจำนวนที่รอ (คิวรออนุมัติจำกัด 100 รายการอยู่แล้ว) — ไม่มีสิทธิ์ = ไม่เรียก API
+  const [primary, supplementary, revocation] = await Promise.all([
+    can('primary')
+      ? listAdminPrimaryRequests(type === 'primary' ? { view: view as AdminRequestView, cursor } : { view: 'pending' })
+      : EMPTY,
+    can('supplementary')
+      ? listAdminSupplementaryRequests(
+          type === 'supplementary' ? { view: view as AdminRequestView, cursor } : { view: 'pending' },
+        )
+      : null,
+    can('revocation')
+      ? listAdminRevocationRequests(
+          type === 'revocation' ? { view: view as AdminRevocationRequestView, cursor } : { view: 'pending' },
+        )
+      : EMPTY,
   ]);
-  const current = type === 'primary' ? primary : supplementary;
+  const byType = { primary, supplementary: supplementary ?? EMPTY, revocation };
+  const current = byType[type];
   const pendingCount = current.pendingCount;
 
   const canViewRequester = user.permissions.includes('user:read');
@@ -65,18 +105,20 @@ export default async function AdminCertificateRequestsPage({
   return (
     <PageShell title="คำขอใบรับรอง" backHref={backHref} user={user}>
       <div className="space-y-4">
-        <nav aria-label="ประเภทคำขอ" className="flex w-full max-w-md rounded-full border border-line bg-canvas p-1">
-          {(['primary', 'supplementary'] as const).map((t) => (
-            <Link
-              key={t}
-              href={`/admin/certificate-requests?type=${t}`}
-              aria-current={type === t ? 'page' : undefined}
-              className={tabClass(type === t)}
-            >
-              {TYPE_LABELS[t]} ({(t === 'primary' ? primary : supplementary).pendingCount})
-            </Link>
-          ))}
-        </nav>
+        {types.length > 1 && (
+          <nav aria-label="ประเภทคำขอ" className="flex w-full max-w-md rounded-full border border-line bg-canvas p-1">
+            {types.map((t) => (
+              <Link
+                key={t}
+                href={`/admin/certificate-requests?type=${t}`}
+                aria-current={type === t ? 'page' : undefined}
+                className={tabClass(type === t)}
+              >
+                {TYPE_LABELS[t]} ({byType[t].pendingCount})
+              </Link>
+            ))}
+          </nav>
+        )}
         <nav aria-label="มุมมอง" className="flex w-full max-w-md rounded-full border border-line bg-canvas p-1">
           <Link href={href({})} aria-current={!isHistory ? 'page' : undefined} className={tabClass(!isHistory)}>
             รออนุมัติ ({pendingCount})
@@ -100,7 +142,7 @@ export default async function AdminCertificateRequestsPage({
                 defaultValue={view}
                 className="block h-12 w-full rounded-lg border border-line-input bg-surface px-3 text-base"
               >
-                {HISTORY_OPTIONS.map((o) => (
+                {historyOptions.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
@@ -122,7 +164,8 @@ export default async function AdminCertificateRequestsPage({
               </StatusState>
             ) : (
               <StatusState icon={Inbox} title="ไม่มีคำขอที่รออนุมัติ">
-                คำขอ{TYPE_LABELS[type]}ใหม่จะแสดงที่นี่ เรียงจากคำขอที่รอนานที่สุด
+                {type === 'revocation' ? 'คำขอเพิกถอนใบรับรองประจำตัว' : `คำขอ${TYPE_LABELS[type]}`}ใหม่จะแสดงที่นี่
+                เรียงจากคำขอที่รอนานที่สุด
               </StatusState>
             )}
           </div>
@@ -134,18 +177,23 @@ export default async function AdminCertificateRequestsPage({
               </p>
             )}
             <ul className="grid gap-3 lg:grid-cols-2 lg:gap-4">
-              {type === 'primary'
-                ? primary.requests.map((r) => (
-                    <AdminPrimaryRequestCard key={r.id} request={r} canViewRequester={canViewRequester} />
-                  ))
-                : supplementary.requests.map((r) => (
-                    <AdminSupplementaryRequestCard
-                      key={r.id}
-                      request={r}
-                      limits={supplementary.limits}
-                      canViewRequester={canViewRequester}
-                    />
-                  ))}
+              {type === 'primary' &&
+                primary.requests.map((r) => (
+                  <AdminPrimaryRequestCard key={r.id} request={r} canViewRequester={canViewRequester} />
+                ))}
+              {type === 'supplementary' &&
+                supplementary?.requests.map((r) => (
+                  <AdminSupplementaryRequestCard
+                    key={r.id}
+                    request={r}
+                    limits={supplementary.limits}
+                    canViewRequester={canViewRequester}
+                  />
+                ))}
+              {type === 'revocation' &&
+                revocation.requests.map((r) => (
+                  <AdminRevocationRequestCard key={r.id} request={r} canViewRequester={canViewRequester} />
+                ))}
             </ul>
           </>
         )}

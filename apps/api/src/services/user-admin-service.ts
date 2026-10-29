@@ -37,6 +37,7 @@ import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } fr
 import { erasePersonalDataFromCertificates } from '../repositories/certificate-repository.js';
 import { erasePersonalDataFromRequests } from '../repositories/supplementary-certificate-request-repository.js';
 import { erasePersonalDataFromPrimaryRequests } from '../repositories/primary-certificate-request-repository.js';
+import { erasePersonalDataFromRevocationRequests } from '../repositories/certificate-revocation-request-repository.js';
 import { expireFilesOfUser } from '../repositories/file-repository.js';
 import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
 import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
@@ -466,6 +467,7 @@ export async function deleteUser(
     const erased = await erasePersonalDataFromCertificates(client, userId);
     const erasedRequests = await erasePersonalDataFromRequests(client, userId);
     const erasedPrimaryRequests = await erasePersonalDataFromPrimaryRequests(client, userId);
+    const erasedRevocationRequests = await erasePersonalDataFromRevocationRequests(client, userId);
     // ไฟล์ของการลงนาม/ภาพลายเซ็น: ล้างชื่อไฟล์และให้หมดอายุทันที (job ลบ object ใน storage) + ลบ PIN ลงนาม
     // งานลงนามที่ยังรอคิว worker ตั้งล้มเหลวเอง (บัญชีถูกลบ = ACCOUNT_NOT_ALLOWED)
     const expiredFiles = await expireFilesOfUser(client, userId);
@@ -485,6 +487,7 @@ export async function deleteUser(
         erasedCertificates: erased.certificates,
         erasedSupplementaryRequests: erasedRequests,
         erasedPrimaryRequests,
+        erasedRevocationRequests,
         expiredFiles,
         erasedSigningJobs,
         deletedKeyEscrows: erased.keyEscrows,

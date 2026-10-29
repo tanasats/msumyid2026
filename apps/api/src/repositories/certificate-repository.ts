@@ -204,6 +204,29 @@ export async function findCertificateForUpdate(db: Queryable, id: string): Promi
 }
 
 /**
+ * จำนวนใบประจำตัวที่ผู้ใช้เป็นผู้เริ่มเพิกถอนตั้งแต่ since (โควตาขอใบใหม่หลังเพิกถอน — ตัดสินใจ 2026-10-29)
+ * = เพิกถอนเอง (revoked_by = เจ้าของ) หรือผ่านคำขอเพิกถอนของตัวเองที่ได้รับอนุมัติ
+ * ไม่นับที่ผู้ดูแล/ระบบเพิกถอนเอง (เช่น ปิดบัญชี) — ใช้ index certificates_user_id_kind_idx
+ */
+export async function countSelfRevokedPrimaryCertificates(db: Queryable, userId: string, since: Date): Promise<number> {
+  const result = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n
+     FROM certificates c
+     WHERE c.user_id = $1
+       AND c.kind = 'primary'
+       AND c.revoked_at >= $2
+       AND (c.revoked_by = $1
+            OR EXISTS (SELECT 1
+                       FROM certificate_revocation_requests r
+                       WHERE r.certificate_id = c.id
+                         AND r.user_id = $1
+                         AND r.status = 'approved'))`,
+    [userId, since],
+  );
+  return result.rows[0]!.n;
+}
+
+/**
  * เพิกถอนใบรับรอง — เงื่อนไข revoked_at IS NULL กันเขียนทับเวลาเพิกถอนเดิม (ย้อนกลับไม่ได้)
  * คืน false ถ้าใบถูกเพิกถอนไปแล้ว
  */

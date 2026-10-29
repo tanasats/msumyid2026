@@ -16,12 +16,14 @@ export const metadata: Metadata = { title: 'รับใบรับรองป
 
 const dateFormatter = new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', timeZone: 'Asia/Bangkok' });
 
-// รับใบรับรองประจำตัวจากคำขอที่อนุมัติแล้ว: ตั้งรหัส .p12 แล้วระบบออกใบ (ต้องมี certificate:apply — API ตรวจอีกครั้ง)
+// รับใบรับรองประจำตัวจากคำขอที่อนุมัติแล้ว: ตั้งรหัส .p12 แล้วระบบออกใบ (ต้องมี certificate:apply หรือ certificate:request กรณีเพิกถอนเกินโควตา — API ตรวจอีกครั้ง)
 export default async function ClaimPrimaryCertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   redirectUnlessReady(user);
-  if (!user.permissions.includes('certificate:apply')) redirect('/forbidden');
+  if (!user.permissions.includes('certificate:apply') && !user.permissions.includes('certificate:request')) {
+    redirect('/forbidden');
+  }
 
   const { id } = await params;
   const [requests, { primaryRequest }] = await Promise.all([getMyPrimaryRequests(), getMyCertificates()]);

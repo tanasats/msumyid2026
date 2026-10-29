@@ -30,6 +30,7 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
     sessionTtlDays: String(initial.sessionTtlDays),
     crlValidityDays: String(initial.crlValidityDays),
     crlReissueHours: String(initial.crlReissueHours),
+    primaryReissueLimit: String(initial.primaryReissueLimit),
   });
   const [reason, setReason] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -58,6 +59,10 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
     else if (!errors.crlValidityDays && reissue >= validity * 24) {
       errors.crlReissueHours = `ต้องน้อยกว่าอายุ CRL (${validity * 24} ชั่วโมง) เพื่อให้ออกฉบับใหม่ก่อนฉบับเดิมหมดอายุ`;
     }
+    const reissueLimit = Number(values.primaryReissueLimit);
+    if (!Number.isInteger(reissueLimit) || reissueLimit < 0 || reissueLimit > 20) {
+      errors.primaryReissueLimit = 'กรอกจำนวนครั้ง 0–20';
+    }
     if (!reason.trim()) errors.reason = 'กรุณาระบุเหตุผล';
     return errors;
   }
@@ -79,6 +84,7 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
         sessionTtlDays: Number(values.sessionTtlDays),
         crlValidityDays: Number(values.crlValidityDays),
         crlReissueHours: Number(values.crlReissueHours),
+        primaryReissueLimit: Number(values.primaryReissueLimit),
         reason: reason.trim(),
       });
       setReason('');
@@ -161,6 +167,27 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
             error={fieldErrors.crlReissueHours}
           />
         </div>
+      </section>
+
+      <section className="space-y-5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
+        <div>
+          <h2 className="font-display text-lg font-semibold">การขอใบรับรองใหม่หลังเพิกถอน</h2>
+          <p className="mt-1 text-sm text-muted">
+            นับใบรับรองประจำตัวที่ผู้ใช้เพิกถอนเอง (รวมคำขอเพิกถอนที่อนุมัติแล้ว) ในรอบ 365 วัน ไม่นับที่ผู้ดูแลหรือระบบเพิกถอน
+          </p>
+        </div>
+        <TextField
+          name="primaryReissueLimit"
+          label="เพิกถอนแล้วขอใบใหม่เองได้ (ครั้ง/ปี)"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={20}
+          value={values.primaryReissueLimit}
+          onChange={set('primaryReissueLimit')}
+          hint="เกินจำนวนนี้ต้องส่งคำขอใบรับรองให้ผู้อนุมัติ — 0 = เพิกถอนแล้วต้องส่งคำขอทุกครั้ง"
+          error={fieldErrors.primaryReissueLimit}
+        />
       </section>
 
       <section className="space-y-1.5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">

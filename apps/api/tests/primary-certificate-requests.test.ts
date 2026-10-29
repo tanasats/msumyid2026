@@ -245,7 +245,7 @@ describe('รับใบรับรอง', () => {
     vi.spyOn(signer, 'generateCrl').mockResolvedValue(Buffer.from('crl'));
     const certId = res.body.certificate.id;
     expect((await post(user.cookie, `/me/certificates/${certId}/p12`, { p12Password: PASSWORD })).status).toBe(200);
-    expect((await post(user.cookie, `/me/certificates/${certId}/revoke`, { reason: 'superseded' })).status).toBe(200);
+    expect((await post(user.cookie, `/me/certificates/${certId}/revoke`, { reason: 'keyCompromise' })).status).toBe(200);
   });
 
   it('กดรับพร้อมกัน → ได้ใบเดียว / คำขอของคนอื่น → 404', async () => {

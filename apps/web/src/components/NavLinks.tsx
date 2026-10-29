@@ -8,8 +8,8 @@ type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** ต้องมี permission นี้จึงแสดงเมนู (ซ่อนเพื่อ UX เท่านั้น — API ตรวจสิทธิ์เสมอ) ไม่ระบุ = ทุกคนที่ login แล้ว */
-  permission?: string;
+  /** ต้องมี permission ใดใน list นี้จึงแสดงเมนู (ซ่อนเพื่อ UX เท่านั้น — API ตรวจสิทธิ์เสมอ) ไม่ระบุ = ทุกคนที่ login แล้ว */
+  permission?: string | string[];
 };
 
 /**
@@ -21,8 +21,14 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'หน้าหลัก', icon: House },
   { href: '/certificates', label: 'ใบรับรอง', icon: FileBadge },
   { href: '/admin/users', label: 'ผู้ใช้ระบบ', icon: Users, permission: 'user:read' },
-  // คำขอใบรับรอง (ใบประจำตัว + ใบเสริม) ที่รออนุมัติ — ผู้อนุมัติอาจไม่มีสิทธิ์ดูผู้ใช้/ใบรับรองทั้งหมด จึงต้องมีทางเข้าของตัวเอง
-  { href: '/admin/certificate-requests', label: 'อนุมัติ', icon: ClipboardCheck, permission: 'certificate:approve' },
+  // คำขอที่รออนุมัติ (ใบประจำตัว + ใบเสริม = certificate:approve, เพิกถอน = certificate:revoke)
+  // ผู้อนุมัติอาจไม่มีสิทธิ์ดูผู้ใช้/ใบรับรองทั้งหมด จึงต้องมีทางเข้าของตัวเอง
+  {
+    href: '/admin/certificate-requests',
+    label: 'อนุมัติ',
+    icon: ClipboardCheck,
+    permission: ['certificate:approve', 'certificate:revoke'],
+  },
   { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];
 
@@ -45,7 +51,9 @@ const VARIANT_CLASSES = {
 
 export function NavLinks({ permissions, variant }: { permissions: string[]; variant: 'bottom' | 'side' }) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((item) => !item.permission || permissions.includes(item.permission));
+  const items = NAV_ITEMS.filter(
+    (item) => !item.permission || [item.permission].flat().some((p) => permissions.includes(p)),
+  );
   const classes = VARIANT_CLASSES[variant];
 
   return (

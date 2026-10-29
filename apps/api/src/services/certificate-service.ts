@@ -5,6 +5,7 @@ import { lockManagedUser } from '../repositories/admin-user-repository.js';
 import { AppError } from '../errors.js';
 import { logger } from '../middlewares/logger.js';
 import {
+  countSelfRevokedPrimaryCertificates,
   findCertificateForUpdate,
   findCertificateOwnerId,
   findCertificateWithEscrow,
@@ -29,11 +30,17 @@ import {
   cancelOpenPrimaryRequestsByUser,
   insertPrimaryRequestLog,
 } from '../repositories/primary-certificate-request-repository.js';
+import {
+  cancelPendingRevocationRequestsByUser,
+  cancelPendingRevocationRequestsForCertificates,
+  insertRevocationRequestLog,
+} from '../repositories/certificate-revocation-request-repository.js';
 import { canManageUser, hasPermission, type AuthUser } from './authorization-service.js';
 import { DAY_MS, primaryExpiryPreview, primaryValidityDays } from './certificate-policy-service.js';
 import { issueCrlSafely } from './crl-service.js';
 import { PERMISSIONS } from './permissions.js';
 import { SignerError, signer, type IssuedCertificate } from './signer-client.js';
+import { readSystemSettings } from './system-settings-service.js';
 
 // ใบรับรอง S/MIME แบบบริการตนเอง (docs/design/certificates.md)
 
@@ -60,9 +67,25 @@ function primaryRenewableFrom(activeExpiries: Date[], renewalWindowDays: number,
   return from > now.getTime() ? new Date(from) : null;
 }
 
+/** รอบนับโควตาขอใบประจำตัวใหม่หลังเพิกถอน (ตัดสินใจ 2026-10-29) */
+export const PRIMARY_REISSUE_WINDOW_DAYS = 365;
+
+/**
+ * เพิกถอนใบประจำตัวเองเกินโควตา (system_settings.primary_reissue_limit) ในรอบ 365 วันแล้วหรือยัง
+ * เกิน = สร้างใบใหม่เองไม่ได้ ต้องส่งคำขอใบประจำตัว (รออนุมัติ) แม้มี certificate:request — ปิดทางลัด เพิกถอนแล้วขอใหม่ ไม่จำกัด
+ * เช่น โควตา 2: เพิกถอนครั้งที่ 1–2 ยังสร้างเองได้ ครั้งที่ 3 ต้องส่งคำขอ
+ */
+export async function isPrimaryReissueLimitReached(db: Queryable, userId: string, now: Date): Promise<boolean> {
+  const { primaryReissueLimit } = await readSystemSettings(db);
+  const since = new Date(now.getTime() - PRIMARY_REISSUE_WINDOW_DAYS * DAY_MS);
+  return (await countSelfRevokedPrimaryCertificates(db, userId, since)) > primaryReissueLimit;
+}
+
 export type PrimaryRequestStatus = {
   /** วันที่เริ่มขอใบประจำตัวใหม่ได้ (null = ขอได้ตอนนี้) */
   renewableFrom: Date | null;
+  /** เพิกถอนเกินโควตาแล้ว — ต้องส่งคำขอใบประจำตัวแทนการสร้างเอง */
+  reissueLimitReached: boolean;
   /** วันหมดอายุโดยประมาณถ้าขอตอนนี้ (ตามนโยบาย ไม่เกินอายุของ CA) */
   expiresAtIfRequested: Date;
   renewalWindowDays: number;
@@ -71,12 +94,14 @@ export type PrimaryRequestStatus = {
 /** สถานะการขอใบประจำตัวของผู้ใช้ — ให้หน้าเว็บแสดงวันหมดอายุล่วงหน้าและวันที่ต่ออายุได้ (API ตรวจซ้ำตอนขอเสมอ) */
 export async function getMyPrimaryRequestStatus(user: AuthUser): Promise<PrimaryRequestStatus> {
   const now = new Date();
-  const [policy, expiries] = await Promise.all([
+  const [policy, expiries, reissueLimitReached] = await Promise.all([
     getCertificatePolicy(pool),
     listActiveCertificateExpiries(pool, user.id, 'primary'),
+    isPrimaryReissueLimitReached(pool, user.id, now),
   ]);
   return {
     renewableFrom: primaryRenewableFrom(expiries, policy.renewalWindowDays, now),
+    reissueLimitReached,
     expiresAtIfRequested: primaryExpiryPreview(policy, now),
     renewalWindowDays: policy.renewalWindowDays,
   };
@@ -119,6 +144,14 @@ export async function requestCertificate(
   return withTransaction(async (client) => {
     if (!(await lockUserForCertificate(client, user.id))) {
       throw new AppError(403, 'FORBIDDEN', 'คุณไม่มีสิทธิ์ดำเนินการนี้');
+    }
+    // ตรวจหลังล็อกผู้ใช้ — การเพิกถอนของผู้ใช้คนเดียวกันที่ทำพร้อมกันจึงนับได้ถูก (ใบจากคำขอที่อนุมัติแล้วไม่ตรวจ)
+    if (await isPrimaryReissueLimitReached(client, user.id, new Date())) {
+      throw new AppError(
+        409,
+        'REISSUE_LIMIT_REACHED',
+        'คุณเพิกถอนใบรับรองประจำตัวเกินจำนวนที่กำหนดในรอบ 1 ปีแล้ว กรุณาส่งคำขอใบรับรองให้ผู้ดูแลอนุมัติ',
+      );
     }
     return issuePrimaryCertificate(client, { user, commonName, input });
   });
@@ -232,7 +265,7 @@ export function p12FileName(email: string, serialNumber: string): string {
  * permission ที่ต้องมีเพื่อจัดการใบของตัวเอง (เพิกถอน / ดาวน์โหลดใหม่) ตามประเภทใบ
  * ใบประจำตัว = certificate:request หรือ certificate:apply (ได้ใบผ่านคำขอ), ใบเสริม = supplementary_certificate:request
  */
-function assertCanManageOwnCertificate(user: AuthUser, kind: CertificateKind): void {
+export function assertCanManageOwnCertificate(user: AuthUser, kind: CertificateKind): void {
   const allowed =
     kind === 'supplementary'
       ? hasPermission(user, PERMISSIONS.SUPPLEMENTARY_CERTIFICATE_REQUEST)
@@ -242,12 +275,39 @@ function assertCanManageOwnCertificate(user: AuthUser, kind: CertificateKind): v
   }
 }
 
+/**
+ * เพิกถอนใบประจำตัวของตัวเองด้วยเหตุผลที่ไม่เร่งด่วนได้ทันทีหรือไม่ (ตัดสินใจ 2026-10-29)
+ * = มีสิทธิ์อนุมัติคำขอเพิกถอน และกฎ canManageUser ให้ตัดสินเรื่องของตัวเองได้ (ปัจจุบันคือ super_admin)
+ * ผู้อื่นต้องส่งคำขอเพิกถอนรออนุมัติ — ไม่เช็คชื่อ role ตรง ๆ
+ */
+export function canRevokeOwnPrimaryDirectly(user: AuthUser): boolean {
+  return (
+    hasPermission(user, PERMISSIONS.CERTIFICATE_REVOKE) &&
+    canManageUser(user, { id: user.id, hasPrivilegedRole: false }) === null
+  );
+}
+
+/** เหตุผลที่ใบประจำตัวเพิกถอนเองได้ทันทีเสมอ — key อาจหลุด รอการอนุมัติไม่ได้ */
+export const URGENT_REVOCATION_REASONS: readonly RevocationReason[] = ['keyCompromise'];
+
+/**
+ * ใบถูกเพิกถอนแล้ว (ทางใดก็ตาม) → ยกเลิกคำขอเพิกถอนที่ค้างของใบนั้น พร้อม log
+ * ต้องเรียกใน transaction เดียวกับการเพิกถอน หลังล็อกใบแล้ว (ลำดับ ใบ → คำขอ)
+ */
+async function cancelRevocationRequestsOfRevoked(db: Queryable, certificateIds: string[], actorId: string | null) {
+  for (const requestId of await cancelPendingRevocationRequestsForCertificates(db, certificateIds)) {
+    await insertRevocationRequestLog(db, { requestId, actorId, action: 'cancel' });
+  }
+}
+
 /** เหตุผลที่ผู้ใช้เลือกได้เมื่อเพิกถอนใบของตัวเอง (unspecified/CACompromise สงวนไว้ให้ระบบและผู้ดูแล) */
 export const SELF_REVOCATION_REASONS = ['keyCompromise', 'superseded', 'affiliationChanged', 'cessationOfOperation'] as const;
 export type SelfRevocationReason = (typeof SELF_REVOCATION_REASONS)[number] & RevocationReason;
 
 /**
  * ผู้ใช้เพิกถอนใบรับรองของตัวเอง — มีผลทันทีในระบบ แล้วออก CRL ใหม่
+ * - ใบประจำตัว: เฉพาะ keyCompromise (หรือผู้ที่ canRevokeOwnPrimaryDirectly) เหตุผลอื่นต้องส่งคำขอเพิกถอน
+ *   (409 REVOCATION_REQUEST_REQUIRED) — ใบเสริมเพิกถอนเองได้ทุกเหตุผล
  * - ใบของคนอื่นตอบ "ไม่พบ" เหมือนใบที่ไม่มีอยู่ (ไม่บอกว่ามีใบนั้นอยู่)
  * - เพิกถอนได้เฉพาะใบที่ยังใช้งานอยู่ (ใบที่หมดอายุแล้วไม่ต้องอยู่ใน CRL)
  * การเพิกถอนกับ audit log อยู่ใน transaction เดียวกัน ส่วน CRL ออกหลัง commit:
@@ -270,8 +330,20 @@ export async function revokeMyCertificate(
     if (certificate.notAfter <= new Date()) {
       throw new AppError(409, 'CERTIFICATE_EXPIRED', 'ใบรับรองนี้หมดอายุแล้ว ไม่ต้องเพิกถอน');
     }
+    if (
+      certificate.kind === 'primary' &&
+      !URGENT_REVOCATION_REASONS.includes(reason) &&
+      !canRevokeOwnPrimaryDirectly(user)
+    ) {
+      throw new AppError(
+        409,
+        'REVOCATION_REQUEST_REQUIRED',
+        'การเพิกถอนใบรับรองประจำตัวด้วยเหตุผลนี้ต้องส่งคำขอให้ผู้ดูแลอนุมัติ',
+      );
+    }
     await revokeCertificate(client, { id: certificate.id, reason, revokedBy: user.id });
     await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: user.id, action: 'revoke', reason });
+    await cancelRevocationRequestsOfRevoked(client, [certificate.id], user.id);
   });
 
   return { crlUpdated: await issueCrlSafely() };
@@ -332,6 +404,7 @@ export async function downloadMyCertificateP12(
 /**
  * เพิกถอนใบที่ใช้งานอยู่ทั้งหมดของผู้ใช้ เมื่อปิดบัญชี / ลบบัญชี / บัญชีหมดอายุ (ตัดสินใจ 2026-10-08)
  * และยกเลิกคำขอใบเสริมและคำขอใบประจำตัวที่ค้างอยู่ (รออนุมัติ / อนุมัติแล้วยังไม่รับ) — ไม่ให้ออกใบหลังบัญชีถูกปิด
+ * รวมถึงคำขอเพิกถอนที่รออนุมัติ (ใบถูกเพิกถอนไปแล้ว)
  * ต้องเรียกใน transaction เดียวกับการปิดบัญชี และหลังล็อกแถวผู้ใช้แล้ว — ผู้เรียกออก CRL หลัง commit (issueCrlSafely)
  * actorId = null คือระบบทำเอง (บัญชีหมดอายุ)
  */
@@ -352,6 +425,9 @@ export async function revokeCertificatesOfClosedAccount(
   }
   for (const requestId of await cancelOpenPrimaryRequestsByUser(db, input.userId)) {
     await insertPrimaryRequestLog(db, { requestId, actorId: input.actorId, action: 'cancel' });
+  }
+  for (const requestId of await cancelPendingRevocationRequestsByUser(db, input.userId)) {
+    await insertRevocationRequestLog(db, { requestId, actorId: input.actorId, action: 'cancel' });
   }
   return ids.length;
 }
@@ -432,6 +508,7 @@ export async function adminRevokeCertificate(
     }
     await revokeCertificate(client, { id: certificate.id, reason, revokedBy: actor.id });
     await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: actor.id, action: 'revoke', reason: note });
+    await cancelRevocationRequestsOfRevoked(client, [certificate.id], actor.id);
   });
   return { crlUpdated: await issueCrlSafely() };
 }

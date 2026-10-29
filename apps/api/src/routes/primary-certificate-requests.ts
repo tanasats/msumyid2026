@@ -46,30 +46,30 @@ primaryCertificateRequestsRouter.get('/me/primary-certificate-requests', require
   res.json({ requests: await listMyPrimaryRequests(req.user!) });
 });
 
-// สิทธิ์: certificate:apply — ส่งคำขอใบประจำตัว (รอผู้มี certificate:approve อนุมัติ)
+// สิทธิ์: certificate:apply หรือ certificate:request ที่เพิกถอนเกินโควตา (ตรวจใน service) — ส่งคำขอใบประจำตัว (รอผู้มี certificate:approve อนุมัติ)
 primaryCertificateRequestsRouter.post(
   '/me/primary-certificate-requests',
-  requirePermission(PERMISSIONS.CERTIFICATE_APPLY),
+  requireAuth,
   async (req, res) => {
     const input = submitBody.parse(req.body);
     res.status(201).json({ request: await submitPrimaryRequest(req.user!, input) });
   },
 );
 
-// สิทธิ์: certificate:apply — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ
+// สิทธิ์: certificate:apply หรือ certificate:request (ตรวจใน service) — ยกเลิกคำขอของตัวเองที่ยังไม่ออกใบ
 primaryCertificateRequestsRouter.post(
   '/me/primary-certificate-requests/:id/cancel',
-  requirePermission(PERMISSIONS.CERTIFICATE_APPLY),
+  requireAuth,
   async (req, res) => {
     const { id } = requestIdParams.parse(req.params);
     res.json({ request: await cancelMyPrimaryRequest(req.user!, id) });
   },
 );
 
-// สิทธิ์: certificate:apply — รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
+// สิทธิ์: certificate:apply หรือ certificate:request (ตรวจใน service) — รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
 primaryCertificateRequestsRouter.post(
   '/me/primary-certificate-requests/:id/certificate',
-  requirePermission(PERMISSIONS.CERTIFICATE_APPLY),
+  requireAuth,
   async (req, res) => {
     const { id } = requestIdParams.parse(req.params);
     const { certificate, p12, fileName } = await claimPrimaryCertificate(req.user!, id, p12Body.parse(req.body));

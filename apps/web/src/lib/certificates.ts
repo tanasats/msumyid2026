@@ -9,6 +9,8 @@ export type PrimaryRequestStatus = {
   expiresAtIfRequested: string;
   /** ขอใบใหม่ได้เมื่อใบประจำตัวเดิมเหลือไม่เกินกี่วัน */
   renewalWindowDays: number;
+  /** เพิกถอนใบประจำตัวเองเกินโควตาในรอบ 1 ปีแล้ว — ต้องส่งคำขอแทนการสร้างเอง */
+  reissueLimitReached: boolean;
 };
 
 /** ใบรับรองของผู้ใช้ปัจจุบัน (ล่าสุดก่อน) พร้อมสถานะการขอใบประจำตัว */

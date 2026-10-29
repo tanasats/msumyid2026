@@ -7,6 +7,7 @@ const LABELS: Record<keyof SystemSettingsValues, string> = {
   sessionTtlDays: 'อายุการเข้าสู่ระบบ (วัน)',
   crlValidityDays: 'อายุ CRL (วัน)',
   crlReissueHours: 'ออก CRL ใหม่ทุก (ชั่วโมง)',
+  primaryReissueLimit: 'เพิกถอนแล้วขอใบใหม่เองได้ (ครั้ง/ปี)',
 };
 
 const format = (value: SystemSettingsValues[keyof SystemSettingsValues]) =>

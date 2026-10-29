@@ -8,6 +8,8 @@ export type SystemSettingsValues = {
   sessionTtlDays: number;
   crlValidityDays: number;
   crlReissueHours: number;
+  /** เพิกถอนใบประจำตัวเองได้กี่ครั้งต่อ 365 วันโดยยังสร้างใบใหม่เองได้ — เกินแล้วต้องส่งคำขอ */
+  primaryReissueLimit: number;
 };
 
 export type SystemSettings = SystemSettingsValues & {
@@ -19,7 +21,8 @@ export type SystemSettings = SystemSettingsValues & {
 const VALUE_COLUMNS = `s.allowed_email_domains AS "allowedEmailDomains",
             s.session_ttl_days      AS "sessionTtlDays",
             s.crl_validity_days     AS "crlValidityDays",
-            s.crl_reissue_hours     AS "crlReissueHours"`;
+            s.crl_reissue_hours     AS "crlReissueHours",
+            s.primary_reissue_limit AS "primaryReissueLimit"`;
 
 /** ค่าตั้งที่ใช้งาน (อ่านทุกครั้งที่ต้องใช้ — แถวเดียวผ่าน PK จึงเร็ว และแก้แล้วมีผลทันทีโดยไม่ต้อง restart) */
 export async function getSystemSettingsValues(db: Queryable): Promise<SystemSettingsValues> {
@@ -54,9 +57,17 @@ export async function updateSystemSettings(db: Queryable, values: SystemSettings
          session_ttl_days = $2,
          crl_validity_days = $3,
          crl_reissue_hours = $4,
-         updated_by = $5
+         primary_reissue_limit = $5,
+         updated_by = $6
      WHERE id = true`,
-    [values.allowedEmailDomains, values.sessionTtlDays, values.crlValidityDays, values.crlReissueHours, actorId],
+    [
+      values.allowedEmailDomains,
+      values.sessionTtlDays,
+      values.crlValidityDays,
+      values.crlReissueHours,
+      values.primaryReissueLimit,
+      actorId,
+    ],
   );
 }
 

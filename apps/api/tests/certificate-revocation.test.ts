@@ -194,7 +194,7 @@ describe('POST /me/certificates/:id/revoke (certificate:request)', () => {
       request(app).post('/me/certificates').set('Cookie', user.cookie).set('Origin', ORIGIN).send({ p12Password: 'password1' });
 
     expect((await ask()).status).toBe(409);
-    await revoke(user.cookie, first.id, { reason: 'superseded' });
+    await revoke(user.cookie, first.id, { reason: 'keyCompromise' });
     expect((await ask()).status).toBe(201);
   });
 });
