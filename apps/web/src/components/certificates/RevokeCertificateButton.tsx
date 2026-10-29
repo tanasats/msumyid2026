@@ -20,6 +20,8 @@ const NO_REVOKE = 'noRevoke';
  * requestEndpoint (ใบประจำตัวของตัวเอง): เหตุผลที่ไม่เร่งด่วนส่งเป็นคำขอเพิกถอนรออนุมัติแทน (API ตรวจกฎอีกครั้ง)
  * downloadHref (ใบของตัวเอง): เพิ่มตัวเลือกแรก "ลืมรหัสผ่าน/เปลี่ยนเครื่อง" ซึ่งแนะนำให้ดาวน์โหลดใหม่แทนการเพิกถอน
  *   (ระยะ 9.4 — ผู้ใช้ใหม่มักเพิกถอนเพราะเข้าใจว่าเป็นทางเดียวที่จะได้ไฟล์ใหม่)
+ * trigger="link" (ใบของตัวเอง): ทางเข้าเป็นลิงก์ข้อความเบา ๆ "ใบรับรองมีปัญหา?" แทนปุ่ม — ไม่ชวนให้กดเพิกถอน
+ *   กล่องถามเหตุการณ์ก่อน และไม่ใช้คำว่า "เพิกถอน" จนกว่าจะเลือกเหตุการณ์ที่ต้องเพิกถอนจริง
  */
 export function RevokeCertificateButton({
   endpoint,
@@ -28,6 +30,7 @@ export function RevokeCertificateButton({
   requireNote = false,
   requestEndpoint,
   downloadHref,
+  trigger = 'button',
 }: {
   /** API สำหรับเพิกถอน เช่น /me/certificates/:id/revoke */
   endpoint: string;
@@ -38,6 +41,8 @@ export function RevokeCertificateButton({
   requestEndpoint?: string;
   /** หน้าดาวน์โหลดไฟล์ใหม่ — null = ใบนี้ดาวน์โหลดใหม่ไม่ได้ (ไม่มี key สำรอง), ไม่ระบุ = ไม่แสดงตัวเลือก "ไม่ต้องเพิกถอน" */
   downloadHref?: string | null;
+  /** button = ปุ่ม "เพิกถอน" (ผู้ดูแล), link = ลิงก์ "ใบรับรองมีปัญหา?" (เจ้าของใบ) */
+  trigger?: 'button' | 'link';
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -46,6 +51,8 @@ export function RevokeCertificateButton({
   // เหตุผลที่เลือกต้องรออนุมัติ — ยังไม่เลือกถือว่าเพิกถอนทันที (ข้อความเตือนแบบเข้มไว้ก่อน)
   const asRequest =
     Boolean(requestEndpoint) && reason !== null && !noRevoke && !URGENT_REVOCATION_REASONS.includes(reason);
+  // แบบลิงก์: ยังไม่เลือก/เลือก "ไม่ต้องเพิกถอน" = ถามเหตุการณ์ (ไม่มีคำเตือนการเพิกถอน)
+  const asking = trigger === 'link' && (reason === null || noRevoke);
 
   function openDialog() {
     setReason(null);
@@ -76,16 +83,35 @@ export function RevokeCertificateButton({
 
   return (
     <>
-      <Button variant="secondary" size="sm" fullWidth onClick={openDialog}>
-        <Ban className="size-4" aria-hidden />
-        เพิกถอน
-      </Button>
+      {trigger === 'link' ? (
+        // ข้อความรอง (muted + ขีดเส้นใต้ ไม่สื่อด้วยสีอย่างเดียว) แต่พื้นที่แตะยังสูง 44px
+        <button
+          type="button"
+          onClick={openDialog}
+          className="inline-flex min-h-11 items-center self-start rounded-lg px-1 text-sm text-muted underline underline-offset-4 hover:text-fg sm:self-center"
+        >
+          ใบรับรองมีปัญหา?
+        </button>
+      ) : (
+        <Button variant="secondary" size="sm" fullWidth onClick={openDialog}>
+          <Ban className="size-4" aria-hidden />
+          เพิกถอน
+        </Button>
+      )}
       <ConfirmDialog
         open={open}
         onClose={() => setOpen(false)}
-        title={asRequest ? 'ส่งคำขอเพิกถอนใบรับรองนี้หรือไม่?' : 'เพิกถอนใบรับรองนี้หรือไม่?'}
+        title={
+          asking
+            ? 'เกิดอะไรขึ้นกับใบรับรองนี้?'
+            : asRequest
+              ? 'ส่งคำขอเพิกถอนใบรับรองนี้หรือไม่?'
+              : 'เพิกถอนใบรับรองนี้หรือไม่?'
+        }
         description={
-          asRequest ? (
+          asking ? (
+            'เลือกข้อที่ตรงที่สุด ระบบจะบอกว่าต้องทำอะไรต่อ'
+          ) : asRequest ? (
             <>
               ใบรับรองหมายเลข <span className="font-mono text-xs break-all">{serialNumber}</span>{' '}
               ยังใช้งานได้จนกว่าผู้ดูแลจะอนุมัติ เมื่ออนุมัติแล้วจะยกเลิกการเพิกถอนไม่ได้ ระหว่างรอยกเลิกคำขอได้
@@ -99,14 +125,15 @@ export function RevokeCertificateButton({
         }
         confirmLabel={asRequest ? 'ส่งคำขอเพิกถอน' : 'เพิกถอนใบรับรอง'}
         tone="danger"
-        confirmDisabled={noRevoke}
+        confirmDisabled={reason === null || noRevoke}
         reason={requireNote ? 'required' : undefined}
         reasonHint="บันทึกไว้ในประวัติของใบรับรองนี้ — ห้ามใส่ข้อมูลส่วนบุคคล"
         onConfirm={handleConfirm}
       >
         <fieldset className="space-y-2">
-          <legend className="mb-2 text-sm font-medium">
-            {downloadHref === undefined ? 'เหตุผลที่เพิกถอน' : 'เกิดอะไรขึ้นกับใบรับรองนี้'}
+          {/* แบบลิงก์ หัวข้อกล่องเป็นคำถามอยู่แล้ว — legend ซ่อนไว้ให้โปรแกรมอ่านหน้าจอ */}
+          <legend className={trigger === 'link' ? 'sr-only' : 'mb-2 text-sm font-medium'}>
+            {trigger === 'link' ? 'เกิดอะไรขึ้นกับใบรับรองนี้' : 'เหตุผลที่เพิกถอน'}
           </legend>
           {options.map((r) => (
             <label
