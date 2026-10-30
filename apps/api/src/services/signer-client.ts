@@ -203,4 +203,12 @@ export const signer = {
     }
     return parsed.data.crlDer;
   },
+
+  /** signer พร้อมทำงานหรือไม่ (GET /health ตรวจว่าอ่าน CA ได้) — ใช้ในหน้าสถานะระบบ จึงรอไม่เกิน 3 วินาที */
+  async isHealthy(): Promise<boolean> {
+    const res = await fetch(`${config.signer.url}/health`, {
+      signal: AbortSignal.timeout(Math.min(config.signer.timeoutMs, 3000)),
+    });
+    return res.ok;
+  },
 };

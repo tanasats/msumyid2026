@@ -14,6 +14,7 @@ import { adminCertificatePolicyRouter } from './routes/admin-certificate-policy.
 import { adminCertificatesRouter } from './routes/admin-certificates.js';
 import { adminRolesRouter } from './routes/admin-roles.js';
 import { adminSystemSettingsRouter } from './routes/admin-system-settings.js';
+import { adminDashboardRouter } from './routes/admin-dashboard.js';
 import { adminSupplementaryRequestsRouter } from './routes/admin-supplementary-certificate-requests.js';
 import { adminUsersRouter } from './routes/admin-users.js';
 import { certificatesRouter } from './routes/certificates.js';
@@ -51,6 +52,7 @@ export function createApp() {
   app.use(adminUsersRouter);
   app.use(adminRolesRouter);
   app.use(adminSystemSettingsRouter);
+  app.use(adminDashboardRouter);
   app.use(adminCertificatesRouter);
   app.use(adminCertificatePolicyRouter);
   app.use(adminSupplementaryRequestsRouter);
