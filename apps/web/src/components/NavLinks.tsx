@@ -12,6 +12,8 @@ type NavItem = {
   icon: LucideIcon;
   /** ต้องมี permission ใดใน list นี้จึงแสดงเมนู (ซ่อนเพื่อ UX เท่านั้น — API ตรวจสิทธิ์เสมอ) ไม่ระบุ = ทุกคนที่ login แล้ว */
   permission?: string | string[];
+  /** ซ่อนเมื่อเมนู href นี้แสดงอยู่ (หน้านั้นมีทางเข้าเดียวกันแล้ว) */
+  hiddenWith?: string;
 };
 
 /**
@@ -32,12 +34,13 @@ const NAV_ITEMS: NavItem[] = [
     permission: ['user:read', 'certificate:read', 'certificate_policy:manage'],
   },
   // คำขอที่รออนุมัติ (ใบประจำตัว + ใบเสริม = certificate:approve, เพิกถอน = certificate:revoke)
-  // ผู้อนุมัติอาจไม่มีสิทธิ์ดูผู้ใช้/ใบรับรองทั้งหมด จึงต้องมีทางเข้าของตัวเอง
+  // ทางเข้าของผู้อนุมัติที่ไม่เห็น จัดการระบบ — เห็น จัดการระบบ แล้วเข้าคิวจากส่วน รอดำเนินการ ได้ จึงซ่อน (ตัดสินใจ 2026-10-31)
   {
     href: '/admin/certificate-requests',
     label: 'อนุมัติ',
     icon: ClipboardCheck,
     permission: ['certificate:approve', 'certificate:revoke'],
+    hiddenWith: '/admin',
   },
   { href: '/account', label: 'โปรไฟล์', icon: UserRound },
 ];
@@ -68,9 +71,10 @@ const VARIANT_CLASSES = {
 
 export function NavLinks({ permissions, variant }: { permissions: string[]; variant: 'bottom' | 'side' }) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter(
+  const allowed = NAV_ITEMS.filter(
     (item) => !item.permission || [item.permission].flat().some((p) => permissions.includes(p)),
   );
+  const items = allowed.filter((item) => !item.hiddenWith || !allowed.some((other) => other.href === item.hiddenWith));
   const classes = VARIANT_CLASSES[variant];
   const current = activeHref(pathname, items);
 
