@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronRight, FileBadge, FilePen, FileSearch, ShieldCheck, UserRound, Users, type LucideIcon } from 'lucide-react';
+import { ChevronRight, FileBadge, FilePen, FileSearch, LayoutDashboard, ShieldCheck, UserRound, type LucideIcon } from 'lucide-react';
 import { BentoGrid, cardClasses } from '@/components/Card';
 import { IdentityCard } from '@/components/IdentityCard';
 import { Landing } from '@/components/landing/Landing';
@@ -48,8 +48,9 @@ export default async function HomePage() {
       title: 'ติดตั้งใบรับรองหลัก',
       detail: 'ให้ Acrobat และ Foxit เชื่อถือลายมือชื่อของมหาวิทยาลัย',
     },
-    user.permissions.includes('user:read')
-      ? { href: '/admin/users', icon: Users, title: 'ผู้ใช้ระบบ', detail: 'ค้นหา อนุมัติ และจัดการบัญชีผู้ใช้' }
+    // สิทธิ์ชุดเดียวกับเมนู จัดการระบบ ใน NavLinks
+    ['user:read', 'certificate:read', 'certificate_policy:manage'].some((p) => user.permissions.includes(p))
+      ? { href: '/admin', icon: LayoutDashboard, title: 'จัดการระบบ', detail: 'งานที่รอดำเนินการ สถานะระบบ และเครื่องมือผู้ดูแล' }
       : { href: '/account', icon: UserRound, title: 'บัญชีของฉัน', detail: 'ข้อมูลบัญชี โหมดสว่าง/มืด และขนาดตัวอักษร' },
   ];
 
