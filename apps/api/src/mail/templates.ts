@@ -23,7 +23,21 @@ export type EmailNotice =
         note: string | null;
       };
     }
-  | { template: 'certificate_downloaded'; params: { kind: CertificateKind; serialNumber: string } };
+  | { template: 'certificate_downloaded'; params: { kind: CertificateKind; serialNumber: string } }
+  // ระยะที่ 2 — งานตามรอบ (services/notification-service.ts)
+  | {
+      template: 'certificate_expiring';
+      params: { kind: CertificateKind; serialNumber: string; notAfter: string; daysBefore: number };
+    }
+  | { template: 'approver_digest'; params: ApproverDigestCounts };
+
+/** จำนวนงานค้างที่ผู้รับมีสิทธิ์ดำเนินการ — คิวที่ไม่มีสิทธิ์ไม่ใส่ */
+export type ApproverDigestCounts = {
+  userApprovals?: number;
+  primaryRequests?: number;
+  supplementaryRequests?: number;
+  revocationRequests?: number;
+};
 
 export type EmailTemplateName = EmailNotice['template'];
 
@@ -37,6 +51,8 @@ export const EMAIL_TEMPLATES: readonly EmailTemplateName[] = [
   'revocation_request_rejected',
   'certificate_revoked',
   'certificate_downloaded',
+  'certificate_expiring',
+  'approver_digest',
 ];
 
 export type RenderedEmail = { subject: string; text: string };
@@ -67,6 +83,19 @@ function thaiDate(isoDate: string): string {
     new Date(`${isoDate}T00:00:00+07:00`),
   );
 }
+
+/** เวลา (ISO) → วันที่ภาษาไทยตามเวลาไทย */
+function thaiDateTime(iso: string): string {
+  return new Intl.DateTimeFormat('th-TH', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Bangkok' }).format(new Date(iso));
+}
+
+// คิวในสรุปงาน — ลิงก์เดียวกับส่วน "รอดำเนินการ" ของหน้า /admin
+const DIGEST_QUEUES: { key: keyof ApproverDigestCounts; label: string; path: string }[] = [
+  { key: 'userApprovals', label: 'บัญชีรออนุมัติ', path: '/admin/users?status=pending' },
+  { key: 'primaryRequests', label: 'คำขอใบรับรองประจำตัว', path: '/admin/certificate-requests?type=primary' },
+  { key: 'supplementaryRequests', label: 'คำขอใบรับรองเสริม', path: '/admin/certificate-requests?type=supplementary' },
+  { key: 'revocationRequests', label: 'คำขอเพิกถอนใบรับรอง', path: '/admin/certificate-requests?type=revocation' },
+];
 
 function noteLine(label: string, note: string | null): string[] {
   return note ? ['', `${label}: ${note}`] : [];
@@ -185,6 +214,42 @@ export function renderEmail(notice: EmailNotice, ctx: { recipientName: string | 
             ...(by === 'self' ? ['ถ้าคุณไม่ได้เพิกถอนเอง ให้แจ้งผู้ดูแลระบบทันที'] : []),
           ],
           link: certificatesLink,
+        }),
+      };
+    }
+    case 'certificate_expiring': {
+      const { kind, daysBefore } = notice.params;
+      return {
+        subject: `${KIND_LABELS[kind]}ของคุณจะหมดอายุในอีก ${daysBefore} วัน`,
+        text: body({
+          name,
+          lines: [
+            `${KIND_LABELS[kind]}หมายเลข ${serial(notice.params.serialNumber)} จะหมดอายุ ${thaiDateTime(notice.params.notAfter)}`,
+            '',
+            kind === 'primary'
+              ? 'ขอใบใหม่เพื่อต่ออายุได้ที่หน้าใบรับรองของฉัน (หน้าเว็บบอกวันที่เริ่มต่ออายุได้) ใบเดิมยังใช้ได้จนถึงวันหมดอายุ'
+              : 'ถ้ายังต้องใช้หลังวันนั้น ให้ส่งคำขอใบรับรองเสริมใบใหม่ที่หน้าใบรับรองของฉัน',
+            'เอกสารที่ลงนามไว้ก่อนใบหมดอายุยังตรวจสอบได้ตามปกติ',
+          ],
+          link: certificatesLink,
+        }),
+      };
+    }
+    case 'approver_digest': {
+      const queues = DIGEST_QUEUES.filter((q) => (notice.params[q.key] ?? 0) > 0);
+      const total = queues.reduce((sum, q) => sum + notice.params[q.key]!, 0);
+      return {
+        subject: `มีงานรอดำเนินการ ${total} รายการในระบบ ${SYSTEM_NAME}`,
+        text: body({
+          name,
+          lines: [
+            'งานที่รอคุณดำเนินการ ณ เช้าวันนี้:',
+            '',
+            ...queues.map((q) => `- ${q.label} ${notice.params[q.key]} รายการ: ${url(q.path)}`),
+            '',
+            'คุณได้รับสรุปนี้ทุกเช้าวันทำการที่มีงานค้าง เพราะมีสิทธิ์พิจารณางานข้างต้น',
+          ],
+          link: { label: 'เปิดระบบ', url: url('/') },
         }),
       };
     }
