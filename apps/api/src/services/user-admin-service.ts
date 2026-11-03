@@ -43,7 +43,11 @@ import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
 import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
 import { deleteSignatureImage } from '../repositories/signature-image-repository.js';
 import { deleteEmailsOfUser } from '../repositories/email-outbox-repository.js';
-import { enqueueEmail } from '../mail/outbox.js';
+import {
+  deleteNotificationPreferencesOfUser,
+  deleteNotificationsOfUser,
+} from '../repositories/user-notification-repository.js';
+import { notify } from './user-notification-service.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -244,7 +248,7 @@ export async function approveUser(actor: AuthUser, userId: string, reason: strin
       changes: { approvalStatus: { from: target.approvalStatus, to: 'approved' } },
       reason,
     });
-    await enqueueEmail(client, userId, { template: 'account_approved', params: {} });
+    await notify(client, userId, { template: 'account_approved', params: {} });
   });
 }
 
@@ -264,7 +268,7 @@ export async function rejectUser(actor: AuthUser, userId: string, reason: string
       changes: { approvalStatus: { from: 'pending', to: 'rejected' } },
       reason,
     });
-    await enqueueEmail(client, userId, { template: 'account_rejected', params: { reason } });
+    await notify(client, userId, { template: 'account_rejected', params: { reason } });
   });
 }
 
@@ -480,6 +484,9 @@ export async function deleteUser(
     await deleteSignatureImage(client, userId);
     // อีเมลในคิว (รวมที่ยังไม่ส่ง) มีบันทึกของผู้อนุมัติได้ — ลบพร้อมข้อมูลอื่น
     const deletedEmails = await deleteEmailsOfUser(client, userId);
+    // การแจ้งเตือนในระบบมีเหตุผล/บันทึกของผู้พิจารณาเช่นกัน + การตั้งค่าการแจ้งเตือน
+    const deletedNotifications = await deleteNotificationsOfUser(client, userId);
+    await deleteNotificationPreferencesOfUser(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,
@@ -498,6 +505,7 @@ export async function deleteUser(
         erasedSigningJobs,
         deletedKeyEscrows: erased.keyEscrows,
         deletedEmails,
+        deletedNotifications,
       },
       reason,
     });

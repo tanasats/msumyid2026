@@ -125,6 +125,15 @@ describe('แม่แบบ', () => {
     expect(digest.text).toContain('- คำขอเพิกถอนใบรับรอง 1 รายการ: https://did.msu.ac.th/admin/certificate-requests?type=revocation');
     expect(digest.text).not.toContain('บัญชีรออนุมัติ');
   });
+
+  it('หมวดที่ปิดได้มีลิงก์ไปตั้งค่า / หมวดความปลอดภัยและบัญชีไม่มี (ปิดไม่ได้)', () => {
+    const ctx = { recipientName: null, webUrl: 'https://did.msu.ac.th' };
+    const link = 'https://did.msu.ac.th/account#notifications';
+    expect(renderEmail(samples[3]!, ctx).text).toContain(link);
+    expect(renderEmail(samples[9]!, ctx).text).toContain(link);
+    expect(renderEmail(samples[7]!, ctx).text).not.toContain(link);
+    expect(renderEmail(samples[0]!, ctx).text).not.toContain(link);
+  });
 });
 
 describe('คิว email_outbox', () => {

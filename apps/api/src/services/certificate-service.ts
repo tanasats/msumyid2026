@@ -1,4 +1,4 @@
-import { enqueueEmail } from '../mail/outbox.js';
+import { notify } from './user-notification-service.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import type { Queryable } from '../db/types.js';
@@ -346,7 +346,7 @@ export async function revokeMyCertificate(
     await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: user.id, action: 'revoke', reason });
     await cancelRevocationRequestsOfRevoked(client, [certificate.id], user.id);
     // แจ้งเพื่อความปลอดภัย (ถ้ามีผู้อื่นเข้าบัญชีแล้วเพิกถอน เจ้าของรู้)
-    await enqueueEmail(client, user.id, {
+    await notify(client, user.id, {
       template: 'certificate_revoked',
       params: { kind: certificate.kind, serialNumber: certificate.serialNumber, reason, by: 'self', note: null },
     });
@@ -401,10 +401,10 @@ export async function downloadMyCertificateP12(
     throw new AppError(503, 'SIGNER_UNAVAILABLE', 'ระบบออกใบรับรองไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่ภายหลัง');
   }
 
-  // audit log + อีเมลเตือนเจ้าของใน transaction เดียวกัน ก่อนคืนไฟล์ (มีผู้อื่นเข้าบัญชีแล้วดาวน์โหลด key = เจ้าของรู้)
+  // audit log + แจ้งเตือนเจ้าของ (ในระบบ + อีเมล) ใน transaction เดียวกัน ก่อนคืนไฟล์ (มีผู้อื่นเข้าบัญชีแล้วดาวน์โหลด key = เจ้าของรู้)
   await withTransaction(async (client) => {
     await insertCertificateAuditLog(client, { certificateId: certificate.id, actorId: user.id, action: 'recover', reason: null });
-    await enqueueEmail(client, user.id, {
+    await notify(client, user.id, {
       template: 'certificate_downloaded',
       params: { kind: certificate.kind, serialNumber: certificate.serialNumber },
     });
@@ -524,7 +524,7 @@ export async function adminRevokeCertificate(
     await cancelRevocationRequestsOfRevoked(client, [certificate.id], actor.id);
     // ใบที่เจ้าของถูกลบบัญชีไปแล้ว (userId = null) ไม่มีผู้รับ
     if (certificate.userId) {
-      await enqueueEmail(client, certificate.userId, {
+      await notify(client, certificate.userId, {
         template: 'certificate_revoked',
         params: { kind: certificate.kind, serialNumber: certificate.serialNumber, reason, by: 'admin', note },
       });

@@ -57,6 +57,36 @@ export const EMAIL_TEMPLATES: readonly EmailTemplateName[] = [
 
 export type RenderedEmail = { subject: string; text: string };
 
+/**
+ * หมวดการแจ้งเตือน (docs/design/notifications.md) — ผู้ใช้เปิด/ปิดได้เฉพาะ OPTIONAL_CATEGORIES
+ * account = ผลการอนุมัติบัญชี (ส่งอีเมลเสมอ — ผู้ใช้ยังเข้าระบบมาตั้งค่าไม่ได้), security = ใบถูกเพิกถอน/ดาวน์โหลดใหม่ (ปิดไม่ได้ —
+ * ผู้ที่แอบเข้าบัญชีต้องปิดการเตือนนี้ไม่ได้)
+ */
+export type NotificationCategory = 'account' | 'decisions' | 'security' | 'expiry' | 'approver_digest';
+export const OPTIONAL_CATEGORIES = ['decisions', 'expiry', 'approver_digest'] as const;
+export type OptionalCategory = (typeof OPTIONAL_CATEGORIES)[number];
+
+export const NOTICE_CATEGORIES: Record<EmailTemplateName, NotificationCategory> = {
+  account_approved: 'account',
+  account_rejected: 'account',
+  primary_request_approved: 'decisions',
+  primary_request_rejected: 'decisions',
+  supplementary_request_approved: 'decisions',
+  supplementary_request_rejected: 'decisions',
+  revocation_request_rejected: 'decisions',
+  certificate_revoked: 'security',
+  certificate_downloaded: 'security',
+  certificate_expiring: 'expiry',
+  approver_digest: 'approver_digest',
+};
+
+/** แม่แบบที่ส่งทางอีเมลอย่างเดียว — สรุปงานรายวันในระบบไม่มีประโยชน์ (ตัวเลขงานค้างดูที่เมนูแทน) */
+export const EMAIL_ONLY_TEMPLATES: readonly EmailTemplateName[] = ['approver_digest'];
+
+export function isOptionalCategory(category: NotificationCategory): category is OptionalCategory {
+  return (OPTIONAL_CATEGORIES as readonly string[]).includes(category);
+}
+
 const KIND_LABELS: Record<CertificateKind, string> = {
   primary: 'ใบรับรองประจำตัว',
   supplementary: 'ใบรับรองเสริม',
@@ -101,7 +131,13 @@ function noteLine(label: string, note: string | null): string[] {
   return note ? ['', `${label}: ${note}`] : [];
 }
 
-function body(input: { name: string | null; lines: string[]; link: { label: string; url: string } }): string {
+function baseBody(input: {
+  name: string | null;
+  lines: string[];
+  link: { label: string; url: string };
+  /** หมวดที่ปิดได้ — บอกทางปิด */
+  preferencesUrl: string | null;
+}): string {
   return [
     `เรียน ${input.name ?? 'ผู้ใช้งาน'}`,
     '',
@@ -110,6 +146,7 @@ function body(input: { name: string | null; lines: string[]; link: { label: stri
     `${input.link.label}: ${input.link.url}`,
     '',
     '--',
+    ...(input.preferencesUrl ? [`เปิด/ปิดการแจ้งเตือนประเภทนี้ได้ที่: ${input.preferencesUrl}`] : []),
     `อีเมลฉบับนี้ส่งอัตโนมัติจากระบบ ${SYSTEM_NAME} มหาวิทยาลัยมหาสารคาม`,
   ].join('\n');
 }
@@ -118,6 +155,9 @@ export function renderEmail(notice: EmailNotice, ctx: { recipientName: string | 
   const url = (path: string) => new URL(path, ctx.webUrl).toString();
   const certificatesLink = { label: 'ดูใบรับรองของคุณ', url: url('/certificates') };
   const name = ctx.recipientName;
+  const preferencesUrl = isOptionalCategory(NOTICE_CATEGORIES[notice.template]) ? url('/account#notifications') : null;
+  const body = (input: { name: string | null; lines: string[]; link: { label: string; url: string } }) =>
+    baseBody({ ...input, preferencesUrl });
 
   switch (notice.template) {
     case 'account_approved':
@@ -267,5 +307,72 @@ export function renderEmail(notice: EmailNotice, ctx: { recipientName: string | 
           link: certificatesLink,
         }),
       };
+  }
+}
+
+export type RenderedInAppNotification = { title: string; body: string; href: string };
+
+/** ข้อความของการแจ้งเตือนในระบบ (สั้นกว่าอีเมล ไม่มีคำขึ้นต้น) — href = หน้าในระบบที่เกี่ยวข้อง */
+export function renderInAppNotification(notice: EmailNotice): RenderedInAppNotification {
+  const withNote = (text: string, label: string, note: string | null) => (note ? `${text} — ${label}: ${note}` : text);
+  switch (notice.template) {
+    case 'account_approved':
+      return { title: 'บัญชีได้รับอนุมัติแล้ว', body: 'ขอใบรับรองดิจิทัลได้ทันที', href: '/certificates' };
+    case 'account_rejected':
+      return { title: 'บัญชีไม่ได้รับอนุมัติ', body: `เหตุผล: ${notice.params.reason}`, href: '/' };
+    case 'primary_request_approved':
+      return {
+        title: 'คำขอใบรับรองประจำตัวได้รับอนุมัติ',
+        body: withNote('ตั้งรหัสผ่านไฟล์และรับใบรับรองได้แล้ว', 'บันทึก', notice.params.note),
+        href: '/certificates',
+      };
+    case 'primary_request_rejected':
+      return { title: 'คำขอใบรับรองประจำตัวไม่ได้รับอนุมัติ', body: `เหตุผล: ${notice.params.note}`, href: '/certificates' };
+    case 'supplementary_request_approved':
+      return {
+        title: 'คำขอใบรับรองเสริมได้รับอนุมัติ',
+        body: withNote(
+          `ใช้งานได้ ${thaiDate(notice.params.startDate)} – ${thaiDate(notice.params.endDate)} รับใบรับรองได้แล้ว`,
+          'บันทึก',
+          notice.params.note,
+        ),
+        href: '/certificates',
+      };
+    case 'supplementary_request_rejected':
+      return { title: 'คำขอใบรับรองเสริมไม่ได้รับอนุมัติ', body: `เหตุผล: ${notice.params.note}`, href: '/certificates' };
+    case 'revocation_request_rejected':
+      return {
+        title: 'คำขอเพิกถอนไม่ได้รับอนุมัติ',
+        body: `ใบหมายเลข ${serial(notice.params.serialNumber)} ยังใช้งานได้ — เหตุผล: ${notice.params.note}`,
+        href: '/certificates',
+      };
+    case 'certificate_revoked': {
+      const { kind, by } = notice.params;
+      const who = by === 'admin' ? 'ผู้ดูแลระบบเพิกถอน' : by === 'request' ? 'อนุมัติคำขอเพิกถอนแล้ว' : 'เพิกถอนแล้ว';
+      return {
+        title: `${KIND_LABELS[kind]}ถูกเพิกถอน`,
+        body: withNote(
+          `หมายเลข ${serial(notice.params.serialNumber)} ${who} (${REASON_LABELS[notice.params.reason]})`,
+          'บันทึก',
+          by === 'self' ? null : notice.params.note,
+        ),
+        href: '/certificates',
+      };
+    }
+    case 'certificate_downloaded':
+      return {
+        title: `มีการดาวน์โหลด${KIND_LABELS[notice.params.kind]}`,
+        body: `หมายเลข ${serial(notice.params.serialNumber)} ถ้าคุณไม่ได้ทำเอง ให้เพิกถอนใบนี้ทันที`,
+        href: '/certificates',
+      };
+    case 'certificate_expiring':
+      return {
+        title: `${KIND_LABELS[notice.params.kind]}จะหมดอายุในอีก ${notice.params.daysBefore} วัน`,
+        body: `หมายเลข ${serial(notice.params.serialNumber)} หมดอายุ ${thaiDateTime(notice.params.notAfter)}`,
+        href: '/certificates',
+      };
+    case 'approver_digest':
+      // ไม่สร้างในระบบ (EMAIL_ONLY_TEMPLATES) — กรณีนี้มีไว้ให้ครบทุกแม่แบบ
+      return { title: 'มีงานรอดำเนินการ', body: 'ดูคิวงานที่หน้าจัดการระบบ', href: '/admin' };
   }
 }

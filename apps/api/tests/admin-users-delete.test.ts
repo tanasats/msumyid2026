@@ -71,7 +71,9 @@ describe('DELETE /admin/users/:id', () => {
        VALUES ($1, '1234567', 'สมชาย', 'ใจดี', now())`,
       [target.id],
     );
-    // อีเมลที่ยังรอส่ง (มีบันทึกของผู้อนุมัติ) ต้องถูกลบไปด้วย
+    // อีเมลที่ยังรอส่ง / การแจ้งเตือนในระบบ / การตั้งค่าการแจ้งเตือน ต้องถูกลบไปด้วย
+    await pool.query(`INSERT INTO notifications (user_id, template, params) VALUES ($1, 'account_rejected', '{"reason":"x"}')`, [target.id]);
+    await pool.query(`INSERT INTO notification_preferences (user_id, category, email) VALUES ($1, 'expiry', false)`, [target.id]);
     await pool.query(
       `INSERT INTO email_outbox (recipient_user_id, template, params) VALUES ($1, 'account_rejected', '{"reason":"x"}')`,
       [target.id],
@@ -113,10 +115,15 @@ describe('DELETE /admin/users/:id', () => {
       target.id,
     ]);
     expect(audit.rows).toEqual([
-      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, erasedRevocationRequests: 0, expiredFiles: 0, erasedSigningJobs: 0, deletedKeyEscrows: 0, deletedEmails: 1 } },
+      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, erasedRevocationRequests: 0, expiredFiles: 0, erasedSigningJobs: 0, deletedKeyEscrows: 0, deletedEmails: 1, deletedNotifications: 1 } },
     ]);
     expect(JSON.stringify(audit.rows)).not.toMatch(/somchai|สมชาย/i);
     expect(await queuedEmails(target.id)).toEqual([]);
+    const left = await pool.query(
+      `SELECT (SELECT count(*) FROM notifications WHERE user_id = $1)::int AS n, (SELECT count(*) FROM notification_preferences WHERE user_id = $1)::int AS p`,
+      [target.id],
+    );
+    expect(left.rows[0]).toEqual({ n: 0, p: 0 });
   });
 
   it('หลังลบ: ไม่พบในรายการและหน้ารายละเอียด', async () => {
