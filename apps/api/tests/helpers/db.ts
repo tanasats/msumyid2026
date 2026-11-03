@@ -122,3 +122,12 @@ export async function loginAs(userId: string): Promise<string> {
   const { token } = await createSession(pool, userId);
   return `${process.env.SESSION_COOKIE_NAME}=${token}`;
 }
+
+/** อีเมลในคิวของผู้ใช้ (เรียงตามเวลาที่เข้าคิว) */
+export async function queuedEmails(userId: string): Promise<{ template: string; params: Record<string, unknown> }[]> {
+  const { rows } = await pool.query<{ template: string; params: Record<string, unknown> }>(
+    `SELECT template, params FROM email_outbox WHERE recipient_user_id = $1 ORDER BY created_at, id`,
+    [userId],
+  );
+  return rows;
+}

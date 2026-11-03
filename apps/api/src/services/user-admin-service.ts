@@ -42,6 +42,8 @@ import { expireFilesOfUser } from '../repositories/file-repository.js';
 import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
 import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
 import { deleteSignatureImage } from '../repositories/signature-image-repository.js';
+import { deleteEmailsOfUser } from '../repositories/email-outbox-repository.js';
+import { enqueueEmail } from '../mail/outbox.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
@@ -242,6 +244,7 @@ export async function approveUser(actor: AuthUser, userId: string, reason: strin
       changes: { approvalStatus: { from: target.approvalStatus, to: 'approved' } },
       reason,
     });
+    await enqueueEmail(client, userId, { template: 'account_approved', params: {} });
   });
 }
 
@@ -261,6 +264,7 @@ export async function rejectUser(actor: AuthUser, userId: string, reason: string
       changes: { approvalStatus: { from: 'pending', to: 'rejected' } },
       reason,
     });
+    await enqueueEmail(client, userId, { template: 'account_rejected', params: { reason } });
   });
 }
 
@@ -474,6 +478,8 @@ export async function deleteUser(
     const erasedSigningJobs = await eraseSigningJobNamesOfUser(client, userId);
     await deleteSigningPin(client, userId);
     await deleteSignatureImage(client, userId);
+    // อีเมลในคิว (รวมที่ยังไม่ส่ง) มีบันทึกของผู้อนุมัติได้ — ลบพร้อมข้อมูลอื่น
+    const deletedEmails = await deleteEmailsOfUser(client, userId);
     await anonymizeUser(client, { userId, actorId: actor.id });
     await insertUserAuditLog(client, {
       actorId: actor.id,
@@ -491,6 +497,7 @@ export async function deleteUser(
         expiredFiles,
         erasedSigningJobs,
         deletedKeyEscrows: erased.keyEscrows,
+        deletedEmails,
       },
       reason,
     });

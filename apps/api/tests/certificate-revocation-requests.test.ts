@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { signer } from '../src/services/signer-client.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // คำขอเพิกถอนใบรับรองประจำตัว (ตัดสินใจ 2026-10-29): keyCompromise เพิกถอนเองทันที เหตุผลอื่นรอผู้มี certificate:revoke อนุมัติ
 // mock เฉพาะบริการเซ็น (ออก CRL) ฐานข้อมูลใช้ app_test จริง
@@ -216,6 +216,14 @@ describe('ผู้อนุมัติ (certificate:revoke)', () => {
       'REQUEST_NOT_PENDING',
     );
 
+    // อนุมัติ = แจ้งว่าใบถูกเพิกถอน (ฉบับเดียว ไม่แยกแจ้งผลคำขอ)
+    expect(await queuedEmails(user.id)).toEqual([
+      {
+        template: 'certificate_revoked',
+        params: { kind: 'primary', serialNumber: expect.any(String), reason: 'superseded', by: 'request', note: 'ตรวจแล้ว' },
+      },
+    ]);
+
     const history = await get(admin.cookie, '/admin/certificate-revocation-requests?view=approved');
     expect(history.body.requests.map((r: { id: string }) => r.id)).toEqual([id]);
   });
@@ -232,6 +240,9 @@ describe('ผู้อนุมัติ (certificate:revoke)', () => {
     expect((await certificateState(certificateId)).revoked).toBe(false);
     const mine = await get(user.cookie, '/me/certificate-revocation-requests');
     expect(mine.body.requests[0]).toMatchObject({ status: 'rejected', decisionNote: 'ใช้ใบเดิมต่อได้' });
+    expect(await queuedEmails(user.id)).toEqual([
+      { template: 'revocation_request_rejected', params: { serialNumber: expect.any(String), note: 'ใช้ใบเดิมต่อได้' } },
+    ]);
   });
 
   it('กฎ canManageUser: คำขอของตัวเองไม่ได้, คำขอของผู้ดูแลสิทธิ์สูงต้องเป็น super_admin, super_admin ตัดสินคำขอตัวเองได้', async () => {
@@ -278,6 +289,12 @@ describe('ผู้อนุมัติ (certificate:revoke)', () => {
 
     await post(admin.cookie, `/admin/certificates/${first}/revoke`, { reason: 'affiliationChanged', note: 'ย้ายหน่วยงาน' });
     expect((await requestLogs(firstRequest)).at(-1)).toEqual({ action: 'cancel', actor_id: admin.id });
+    expect(await queuedEmails(user.id)).toEqual([
+      {
+        template: 'certificate_revoked',
+        params: { kind: 'primary', serialNumber: expect.any(String), reason: 'affiliationChanged', by: 'admin', note: 'ย้ายหน่วยงาน' },
+      },
+    ]);
 
     const res = await post(admin.cookie, `/admin/users/${user.id}/deactivate`, { reason: 'พ้นสภาพ' });
     expect(res.status).toBe(204);

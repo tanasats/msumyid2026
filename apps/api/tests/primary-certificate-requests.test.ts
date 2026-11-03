@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { SignerError, signer, type IssuedCertificate } from '../src/services/signer-client.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // ใบรับรองประจำตัวแบบส่งคำขอ: certificate:apply → certificate:approve อนุมัติ → ผู้ขอรับใบ
 // และการตั้งวิธีขอใบของ role (ปิด / ส่งคำขอ / สร้างเองได้) — super_admin เท่านั้น
@@ -180,6 +180,7 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
     expect(res.body.request).toMatchObject({ status: 'approved', decidedBy: { id: actor.id }, decisionNote: 'อนุมัติตามคำขอ' });
     const until = Date.parse(res.body.request.claimableUntil) - Date.parse(res.body.request.decidedAt);
     expect(until).toBe(30 * DAY);
+    expect(await queuedEmails(user.id)).toEqual([{ template: 'primary_request_approved', params: { note: 'อนุมัติตามคำขอ' } }]);
     expect((await approve(actor.cookie, body.request.id)).body.error.code).toBe('REQUEST_NOT_PENDING');
   });
 
@@ -193,6 +194,9 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
       status: 'rejected',
       decisionNote: 'ยังไม่ผ่านการตรวจสอบสถานภาพ',
     });
+    expect(await queuedEmails(user.id)).toEqual([
+      { template: 'primary_request_rejected', params: { note: 'ยังไม่ผ่านการตรวจสอบสถานภาพ' } },
+    ]);
     expect((await submit(user.cookie)).status).toBe(201);
 
     await createTestRole('test_both', ['certificate:apply', 'certificate:approve']);

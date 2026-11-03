@@ -406,6 +406,7 @@ or (http.host eq "did.msu.ac.th" and http.request.uri.path eq "/api/crl/msu-ca.c
 - [ ] cron `archive-logs.sh` ทำงาน และ logrotate ของ nginx เก็บ 90 วัน (`docs/design/pdpa.md`)
 - [ ] ทดลอง restore อย่างน้อย 1 ครั้ง (รวมดาวน์โหลด `.p12` ซ้ำจาก key สำรองหลัง restore)
 - [ ] super_admin คนแรกเข้าใช้ได้
+- [ ] อีเมลแจ้งเตือน (`docs/design/email.md`): ประกาศฉบับที่ 2 ผ่าน DPO, retention rule 30 วันของกล่อง "ส่งแล้ว" ของบัญชีผู้ส่ง, `MAIL_TRANSPORT=gmail` + `MAIL_FROM_*` + `GMAIL_*` ใน `env/api.env` และ `node dist/scripts/mail-test.js --to <อีเมล>` ส่งถึง
 
 ## 14. เรื่องที่ยังเปิดอยู่
 

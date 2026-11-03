@@ -59,8 +59,29 @@ const envSchema = z.object({
   CRL_PUBLISH_FORMAT: z.enum(['pem', 'der']).default('pem'),
   // LTV (ระยะ D4b): ดึง CRL ของ CA อื่นในสายใบ (เช่น TUC) จาก URL ในใบรับรอง — เกินเวลา = ลงนามต่อแบบไม่มี LTV
   CRL_FETCH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
+  // อีเมลแจ้งเตือน (docs/design/email.md): log = เขียน log แทนการส่ง (dev/test), gmail = ส่งด้วย Gmail API ของบัญชีระบบ @msu.ac.th
+  MAIL_TRANSPORT: z.enum(['log', 'gmail']).default('log'),
+  // บัญชีผู้ส่ง = บัญชีที่ให้สิทธิ์ gmail.send (pnpm --filter api mail:authorize)
+  MAIL_FROM_ADDRESS: z.email().optional(),
+  // ใส่ใน header From จึงห้ามมีขึ้นบรรทัดใหม่และอักขระที่ทำให้ header ผิดรูป
+  MAIL_FROM_NAME: z.string().min(1).max(100).regex(/^[^\r\n"<>]+$/).default('MSU Digital ID'),
+  // OAuth client แบบ Desktop app แยกจากของ login + refresh token ของบัญชีผู้ส่ง (scope gmail.send เท่านั้น)
+  GMAIL_CLIENT_ID: z.string().min(1).optional(),
+  GMAIL_CLIENT_SECRET: z.string().min(1).optional(),
+  GMAIL_REFRESH_TOKEN: z.string().min(1).optional(),
+  // รอบส่งอีเมลจากคิว
+  MAIL_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(30_000),
+  // เพดานอีเมลต่อ 24 ชั่วโมง — ต่ำกว่าโควตา Gmail ของ Workspace (~2,000/วัน/บัญชี) เกินแล้วรอในคิว ไม่ทิ้ง
+  MAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(2000).default(1500),
+  // รอบตรวจงานแจ้งเตือนตามเวลา (เตือนใบใกล้หมดอายุ, สรุปงานให้ผู้อนุมัติ 08:00)
+  NOTIFICATION_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(900_000),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
+}).superRefine((env, ctx) => {
+  if (env.MAIL_TRANSPORT !== 'gmail') return;
+  for (const key of ['MAIL_FROM_ADDRESS', 'GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'] as const) {
+    if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'ต้องกำหนดเมื่อ MAIL_TRANSPORT=gmail' });
+  }
 });
 
 /**
@@ -75,7 +96,7 @@ export function oauthCookiePath(redirectUri: string): string {
 
 // production อ่าน secret จากไฟล์ (Docker secret) — deploy/compose.yml
 try {
-  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'S3_ACCESS_KEY', 'S3_SECRET_KEY']);
+  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']);
 } catch (err) {
   console.error('ค่า env ไม่ถูกต้อง:', err instanceof Error ? err.message : err);
   process.exit(1);
@@ -148,5 +169,19 @@ export const config = {
     publishFormat: env.CRL_PUBLISH_FORMAT,
     fetchTimeoutMs: env.CRL_FETCH_TIMEOUT_MS,
   },
+  mail: {
+    // test ไม่ส่งอีเมลจริงเสมอ (test mock mailTransport)
+    transport: env.NODE_ENV === 'test' ? ('log' as const) : env.MAIL_TRANSPORT,
+    fromAddress: env.MAIL_FROM_ADDRESS ?? null,
+    fromName: env.MAIL_FROM_NAME,
+    gmail: {
+      clientId: env.GMAIL_CLIENT_ID ?? '',
+      clientSecret: env.GMAIL_CLIENT_SECRET ?? '',
+      refreshToken: env.GMAIL_REFRESH_TOKEN ?? '',
+    },
+    pollIntervalMs: env.MAIL_POLL_INTERVAL_MS,
+    dailyLimit: env.MAIL_DAILY_LIMIT,
+  },
+  notificationCheckIntervalMs: env.NOTIFICATION_CHECK_INTERVAL_MS,
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

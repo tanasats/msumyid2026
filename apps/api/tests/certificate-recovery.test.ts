@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { SignerError, signer } from '../src/services/signer-client.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // กู้ key: ดาวน์โหลด .p12 ใหม่จาก key สำรองด้วยรหัสผ่านใหม่
 // mock เฉพาะบริการเซ็น (signer ทดสอบการถอด key และสร้าง .p12 กับ OpenSSL จริงแล้ว) ฐานข้อมูลใช้ app_test จริง
@@ -116,6 +116,9 @@ describe('POST /me/certificates/:id/p12 (certificate:request)', () => {
       [cert.id],
     );
     expect(rows).toEqual([{ action: 'recover', actor_id: user.id }]);
+    expect(await queuedEmails(user.id)).toEqual([
+      { template: 'certificate_downloaded', params: { kind: 'primary', serialNumber: cert.serialNumber } },
+    ]);
   });
 
   it('ใบที่หมดอายุ/ถูกเพิกถอนก็กู้ได้ (ใช้เปิดอีเมลเก่าที่เข้ารหัสไว้)', async () => {
@@ -167,7 +170,7 @@ describe('POST /me/certificates/:id/p12 (certificate:request)', () => {
     expect(rebuild).not.toHaveBeenCalled();
   });
 
-  it('signer ล่ม → 503 และไม่เขียน audit log', async () => {
+  it('signer ล่ม → 503 ไม่เขียน audit log และไม่ส่งอีเมล', async () => {
     vi.spyOn(signer, 'rebuildP12').mockRejectedValue(new SignerError('ล่ม'));
     const user = await requester();
     const cert = await insertCertificate(user.id);
@@ -175,6 +178,7 @@ describe('POST /me/certificates/:id/p12 (certificate:request)', () => {
     expect(res.status).toBe(503);
     const { rows } = await pool.query('SELECT count(*)::int AS n FROM certificate_audit_logs');
     expect(rows[0].n).toBe(0);
+    expect(await queuedEmails(user.id)).toEqual([]);
   });
 
   it('รายการใบรับรองบอกว่าใบไหนมี key สำรอง', async () => {

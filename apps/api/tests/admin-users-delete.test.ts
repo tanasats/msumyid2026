@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, queuedEmails, resetDatabase } from './helpers/db.js';
 import * as google from './helpers/google.js';
 
 // ลบบัญชีและข้อมูลส่วนบุคคล (ระยะ 3) — ฐานข้อมูลจริง app_test (CLAUDE.md หัวข้อ 15)
@@ -71,6 +71,11 @@ describe('DELETE /admin/users/:id', () => {
        VALUES ($1, '1234567', 'สมชาย', 'ใจดี', now())`,
       [target.id],
     );
+    // อีเมลที่ยังรอส่ง (มีบันทึกของผู้อนุมัติ) ต้องถูกลบไปด้วย
+    await pool.query(
+      `INSERT INTO email_outbox (recipient_user_id, template, params) VALUES ($1, 'account_rejected', '{"reason":"x"}')`,
+      [target.id],
+    );
 
     const res = await deleteUser(target.id, admin.cookie, {
       confirmEmail: 'SOMCHAI.J@msu.ac.th',
@@ -108,9 +113,10 @@ describe('DELETE /admin/users/:id', () => {
       target.id,
     ]);
     expect(audit.rows).toEqual([
-      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, erasedRevocationRequests: 0, expiredFiles: 0, erasedSigningJobs: 0, deletedKeyEscrows: 0 } },
+      { action: 'delete', changes: { personalData: 'deleted', revokedSessions: 1, revokedRoles: 2, revokedCertificates: 0, erasedCertificates: 0, erasedSupplementaryRequests: 0, erasedPrimaryRequests: 0, erasedRevocationRequests: 0, expiredFiles: 0, erasedSigningJobs: 0, deletedKeyEscrows: 0, deletedEmails: 1 } },
     ]);
     expect(JSON.stringify(audit.rows)).not.toMatch(/somchai|สมชาย/i);
+    expect(await queuedEmails(target.id)).toEqual([]);
   });
 
   it('หลังลบ: ไม่พบในรายการและหน้ารายละเอียด', async () => {

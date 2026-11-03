@@ -1,3 +1,4 @@
+import { enqueueEmail } from '../mail/outbox.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import type { Queryable } from '../db/types.js';
@@ -200,6 +201,13 @@ export async function decidePrimaryCertificateRequest(
       note: input.note,
     });
     await insertPrimaryRequestLog(client, { requestId: request.id, actorId: actor.id, action: input.decision });
+    await enqueueEmail(
+      client,
+      request.userId,
+      input.decision === 'approve'
+        ? { template: 'primary_request_approved', params: { note: input.note } }
+        : { template: 'primary_request_rejected', params: { note: input.note! } },
+    );
   });
   return findRequest(requestId);
 }

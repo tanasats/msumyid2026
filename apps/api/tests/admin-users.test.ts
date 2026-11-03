@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { upsertGoogleUser } from '../src/repositories/user-repository.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // ระบบจัดการบัญชีผู้ใช้ — ฐานข้อมูลจริง app_test (CLAUDE.md หัวข้อ 15)
 
@@ -295,6 +295,7 @@ describe('อนุมัติ/ปฏิเสธบุคลากรภาย
       [target.id],
     );
     expect(roleLogs.rows).toEqual([{ action: 'grant', actor_id: admin.id }]);
+    expect(await queuedEmails(target.id)).toEqual([{ template: 'account_approved', params: {} }]);
   });
 
   it('ปฏิเสธ: ต้องมีเหตุผล และทำได้เฉพาะบัญชีที่รออนุมัติ', async () => {
@@ -305,6 +306,7 @@ describe('อนุมัติ/ปฏิเสธบุคลากรภาย
     const res = await post(`/admin/users/${target.id}/reject`, admin.cookie, { reason: 'ไม่ใช่ผู้เกี่ยวข้อง' });
     expect(res.status).toBe(204);
     expect(await userState(target.id)).toMatchObject({ approval_status: 'rejected' });
+    expect(await queuedEmails(target.id)).toEqual([{ template: 'account_rejected', params: { reason: 'ไม่ใช่ผู้เกี่ยวข้อง' } }]);
 
     const again = await post(`/admin/users/${target.id}/reject`, admin.cookie, { reason: 'ซ้ำ' });
     expect(again.body.error.code).toBe('NOT_PENDING');

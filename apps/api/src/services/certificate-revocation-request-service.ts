@@ -1,3 +1,4 @@
+import { enqueueEmail } from '../mail/outbox.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import { AppError } from '../errors.js';
@@ -179,6 +180,22 @@ export async function decideRevocationRequestByAdmin(
       note: input.note,
     });
     await insertRevocationRequestLog(client, { requestId: request.id, actorId: actor.id, action: input.decision });
+    await enqueueEmail(
+      client,
+      request.userId,
+      input.decision === 'approve'
+        ? {
+            template: 'certificate_revoked',
+            params: {
+              kind: certificate.kind,
+              serialNumber: certificate.serialNumber,
+              reason: request.reason,
+              by: 'request',
+              note: input.note,
+            },
+          }
+        : { template: 'revocation_request_rejected', params: { serialNumber: certificate.serialNumber, note: input.note! } },
+    );
   });
 
   const crlUpdated = input.decision === 'approve' ? await issueCrlSafely() : null;
