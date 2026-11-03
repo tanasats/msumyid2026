@@ -232,7 +232,7 @@ describe('ลำดับและเพดานต่อวัน', () => {
     });
     await enqueueEmail(pool, user.id, { template: 'account_approved', params: {} });
 
-    await processEmailOutbox(new Date(), 1);
+    await processEmailOutbox(1);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]![0].subject).toContain('อนุมัติ');
   });
@@ -242,11 +242,11 @@ describe('ลำดับและเพดานต่อวัน', () => {
     const user = await createUser();
     for (let i = 0; i < 3; i++) await enqueueEmail(pool, user.id, { template: 'account_approved', params: {} });
 
-    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 2, limited: true });
-    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 0, limited: true });
+    expect(await processEmailOutbox(2)).toMatchObject({ sent: 2, limited: true });
+    expect(await processEmailOutbox(2)).toMatchObject({ sent: 0, limited: true });
     expect(send).toHaveBeenCalledTimes(2);
     // ส่งไปเมื่อเกิน 24 ชั่วโมงแล้วไม่นับ
     await pool.query(`UPDATE email_outbox SET sent_at = now() - interval '25 hours' WHERE status = 'sent'`);
-    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 1, limited: false });
+    expect(await processEmailOutbox(2)).toMatchObject({ sent: 1, limited: false });
   });
 });

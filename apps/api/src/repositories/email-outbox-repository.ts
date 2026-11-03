@@ -28,52 +28,51 @@ export async function insertEmail(
  * ดึงอีเมลที่ถึงเวลาส่ง 1 ฉบับ และล็อกแถวไว้จนจบ transaction ของผู้เรียก
  * SKIP LOCKED: API หลายตัวรันพร้อมกันได้โดยไม่ส่งซ้ำ — ผู้รับอ่านจาก users ตอนส่ง (อีเมลล่าสุด)
  * priority ก่อน (0 = ปกติ ส่งก่อนเตือนใบใกล้หมดอายุ) แล้วเวลา — ตรงกับ index email_outbox_due_idx
+ * เวลาทั้งหมดของคิวใช้นาฬิกาของฐานข้อมูล (next_attempt_at DEFAULT now()) — ไม่ปนกับนาฬิกาของ API
  */
-export async function lockNextDueEmail(client: PoolClient, now: Date): Promise<DueEmailRow | null> {
+export async function lockNextDueEmail(client: PoolClient): Promise<DueEmailRow | null> {
   const result = await client.query<DueEmailRow>(
     `SELECT o.id, o.template, o.params, o.attempts,
             CASE WHEN u.deleted_at IS NULL THEN u.email END        AS "recipientEmail",
             CASE WHEN u.deleted_at IS NULL THEN u.display_name END AS "recipientName"
      FROM email_outbox o
      JOIN users u ON u.id = o.recipient_user_id
-     WHERE o.status = 'pending' AND o.next_attempt_at <= $1
+     WHERE o.status = 'pending' AND o.next_attempt_at <= now()
      ORDER BY o.priority, o.next_attempt_at
      LIMIT 1
      FOR UPDATE OF o SKIP LOCKED`,
-    [now],
   );
   return result.rows[0] ?? null;
 }
 
-/** จำนวนอีเมลที่ส่งสำเร็จตั้งแต่เวลาที่ระบุ (index email_outbox_sent_at_idx) */
-export async function countEmailsSentSince(db: Queryable, since: Date): Promise<number> {
+/** จำนวนอีเมลที่ส่งสำเร็จใน 24 ชั่วโมงล่าสุด (index email_outbox_sent_at_idx) */
+export async function countEmailsSentLast24Hours(db: Queryable): Promise<number> {
   const result = await db.query<{ n: number }>(
-    `SELECT count(*)::int AS n FROM email_outbox WHERE status = 'sent' AND sent_at >= $1`,
-    [since],
+    `SELECT count(*)::int AS n FROM email_outbox WHERE status = 'sent' AND sent_at >= now() - interval '24 hours'`,
   );
   return result.rows[0]!.n;
 }
 
-export async function markEmailSent(db: Queryable, id: string, now: Date): Promise<void> {
+export async function markEmailSent(db: Queryable, id: string): Promise<void> {
   await db.query(
-    `UPDATE email_outbox SET status = 'sent', sent_at = $2, attempts = attempts + 1, last_error = NULL WHERE id = $1`,
-    [id, now],
+    `UPDATE email_outbox SET status = 'sent', sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = $1`,
+    [id],
   );
 }
 
-/** ส่งไม่สำเร็จ: nextAttemptAt = null คือเลิกลอง (failed) */
+/** ส่งไม่สำเร็จ: retryInMinutes = null คือเลิกลอง (failed) */
 export async function markEmailAttemptFailed(
   db: Queryable,
-  input: { id: string; error: string; nextAttemptAt: Date | null },
+  input: { id: string; error: string; retryInMinutes: number | null },
 ): Promise<void> {
   await db.query(
     `UPDATE email_outbox
      SET attempts = attempts + 1,
          last_error = left($2, 1000),
-         status = CASE WHEN $3::timestamptz IS NULL THEN 'failed' ELSE 'pending' END,
-         next_attempt_at = COALESCE($3, next_attempt_at)
+         status = CASE WHEN $3::integer IS NULL THEN 'failed' ELSE 'pending' END,
+         next_attempt_at = COALESCE(now() + make_interval(mins => $3::integer), next_attempt_at)
      WHERE id = $1`,
-    [input.id, input.error, input.nextAttemptAt],
+    [input.id, input.error, input.retryInMinutes],
   );
 }
 
