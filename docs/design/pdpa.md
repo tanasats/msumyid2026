@@ -1,7 +1,8 @@
 # PDPA — ประกาศความเป็นส่วนตัวของ MSU Digital ID
 
 > สถานะ: ประกาศฉบับที่ 1 มีผล **5 พฤศจิกายน 2569** — ผู้ร่าง: Claude, ผู้ตรวจ: ธนศาสตร์ สุดจริง (กรรมการ DPO ของมหาวิทยาลัย, 2026-10-26)
-> ฉบับที่ 2 (ร่าง 2026-11-03): เพิ่มอีเมลแจ้งเตือน รวมเตือนใบใกล้หมดอายุและสรุปงานผู้อนุมัติ (`docs/design/email.md`) — **รอ DPO ตรวจ** และกำหนดวันที่มีผล (`PRIVACY_NOTICE_EFFECTIVE_DATE`) ก่อน deploy
+> ฉบับที่ 2 (2026-11-03, deploy แล้ว): เพิ่มอีเมลแจ้งเตือน รวมเตือนใบใกล้หมดอายุและสรุปงานผู้อนุมัติ (`docs/design/email.md`)
+> ฉบับที่ 3 (ร่าง 2026-11-03): การแจ้งเตือนในระบบ + การตั้งค่าการแจ้งเตือน (`docs/design/notifications.md`) — **รอ DPO ตรวจฉบับที่ 2–3** และกำหนดวันที่มีผล (`PRIVACY_NOTICE_EFFECTIVE_DATE`) ก่อน deploy
 > **ข้อความประกาศอยู่ที่ `apps/web/src/components/privacy/PrivacyNotice.tsx` ที่เดียว** (หน้า `/privacy`) — ไฟล์นี้เก็บหลักการ รายการข้อมูล และการตัดสินใจ
 
 ## หลักการ (CLAUDE.md §18)
@@ -43,6 +44,8 @@
 | log การดำเนินการ | `user_audit_logs`, `role_change_logs`, `certificate_audit_logs`, … | ใครทำอะไรกับใคร เมื่อไร (ไม่เก็บค่าชื่อ/อีเมลใน log) | ถาวร (แก้/ลบไม่ได้) |
 | session | `sessions` + cookie `msumyid_session` | hash ของ token, เวลาใช้งานล่าสุด | ลบเมื่อหมดอายุ (job) หรือ logout |
 | อีเมลแจ้งเตือน | `email_outbox` + กล่อง "ส่งแล้ว" ของบัญชีผู้ส่ง (Gmail) | ผู้รับ (user id — อีเมลอ่านจาก `users` ตอนส่ง), แม่แบบ, serial/ช่วงวันที่/เหตุผลของผู้พิจารณา, สถานะ | 30 วัน (job ลบในระบบ + retention rule ของ Workspace สำหรับกล่องส่งแล้ว), ลบบัญชี = ลบทันที |
+| การแจ้งเตือนในระบบ | `notifications` | ผู้รับ, แม่แบบ, serial/ช่วงวันที่/เหตุผลของผู้พิจารณา, เวลาที่อ่าน | 90 วัน (job), ลบบัญชี = ลบทันที |
+| ตั้งค่าการแจ้งเตือน | `notification_preferences` | หมวด × เปิด/ปิด ในระบบ/อีเมล | จนลบบัญชี |
 | | `certificate_expiry_notices`, `notification_runs` | id ของใบ + รอบที่เตือน / วันที่ส่งสรุปงาน — ไม่มีข้อมูลส่วนบุคคล | ถาวร (ลบตามใบรับรอง) |
 | log เซิร์ฟเวอร์ | pino (API) + nginx | method, path, header (รวม User-Agent, IP ผ่าน proxy) — ไม่ log cookie/token/query string | 90 วัน |
 | backup | `deploy/scripts/backup.sh` | ฐานข้อมูลทั้งหมด | 14 วัน (`BACKUP_KEEP_DAYS`) |
