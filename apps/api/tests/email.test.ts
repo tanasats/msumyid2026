@@ -87,6 +87,11 @@ describe('แม่แบบ', () => {
       params: { kind: 'primary', serialNumber: '1abc', reason: 'keyCompromise', by: 'self', note: null },
     },
     { template: 'certificate_downloaded', params: { kind: 'supplementary', serialNumber: '1abc' } },
+    {
+      template: 'certificate_expiring',
+      params: { kind: 'primary', serialNumber: '1abc', notAfter: '2027-05-31T16:59:59.000Z', daysBefore: 30 },
+    },
+    { template: 'approver_digest', params: { primaryRequests: 3, revocationRequests: 1 } },
   ];
 
   it('ทุกแม่แบบแสดงผลได้: มีชื่อผู้รับ ลิงก์ไป WEB_URL และไม่มีค่าว่าง/undefined', () => {
@@ -110,6 +115,15 @@ describe('แม่แบบ', () => {
     const revoked = renderEmail(samples[7]!, { recipientName: null, webUrl: 'https://did.msu.ac.th' });
     expect(revoked.text).toContain('1ABC');
     expect(revoked.text).toContain('ถ้าคุณไม่ได้เพิกถอนเอง');
+    const expiring = renderEmail(samples[9]!, { recipientName: null, webUrl: 'https://did.msu.ac.th' });
+    expect(expiring.subject).toContain('อีก 30 วัน');
+    expect(expiring.text).toContain('31 พฤษภาคม 2570');
+    // สรุปงาน: เฉพาะคิวที่มีงาน พร้อมลิงก์ตรงไปคิวนั้น ยอดรวมในหัวเรื่อง
+    const digest = renderEmail(samples[10]!, { recipientName: null, webUrl: 'https://did.msu.ac.th' });
+    expect(digest.subject).toContain('4 รายการ');
+    expect(digest.text).toContain('- คำขอใบรับรองประจำตัว 3 รายการ: https://did.msu.ac.th/admin/certificate-requests?type=primary');
+    expect(digest.text).toContain('- คำขอเพิกถอนใบรับรอง 1 รายการ: https://did.msu.ac.th/admin/certificate-requests?type=revocation');
+    expect(digest.text).not.toContain('บัญชีรออนุมัติ');
   });
 });
 
@@ -129,13 +143,13 @@ describe('คิว email_outbox', () => {
     const user = await createUser({ email: 'somchai@msu.ac.th', name: 'สมชาย ใจดี' });
     await enqueueEmail(pool, user.id, { template: 'account_approved', params: {} });
 
-    expect(await processEmailOutbox()).toEqual({ sent: 1, retry: 0, failed: 0, cancelled: 0 });
+    expect(await processEmailOutbox()).toEqual({ sent: 1, retry: 0, failed: 0, cancelled: 0, limited: false });
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'somchai@msu.ac.th', toName: 'สมชาย ใจดี', subject: expect.stringContaining('อนุมัติ') }),
     );
     expect(await outboxRow(user.id)).toMatchObject({ status: 'sent', attempts: 1, sent: true, last_error: null });
     // ส่งแล้วไม่ส่งซ้ำ
-    expect(await processEmailOutbox()).toEqual({ sent: 0, retry: 0, failed: 0, cancelled: 0 });
+    expect(await processEmailOutbox()).toEqual({ sent: 0, retry: 0, failed: 0, cancelled: 0, limited: false });
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -205,5 +219,34 @@ describe('คิว email_outbox', () => {
     expect(await purgeOldEmails()).toBe(1);
     const { rows } = await pool.query(`SELECT template FROM email_outbox`);
     expect(rows).toEqual([{ template: 'account_approved' }]);
+  });
+});
+
+describe('ลำดับและเพดานต่อวัน', () => {
+  it('อีเมลปกติส่งก่อนเตือนใบใกล้หมดอายุ แม้เข้าคิวทีหลัง', async () => {
+    const send = vi.spyOn(mailTransport, 'send').mockResolvedValue();
+    const user = await createUser();
+    await enqueueEmail(pool, user.id, {
+      template: 'certificate_expiring',
+      params: { kind: 'primary', serialNumber: '1abc', notAfter: new Date().toISOString(), daysBefore: 30 },
+    });
+    await enqueueEmail(pool, user.id, { template: 'account_approved', params: {} });
+
+    await processEmailOutbox(new Date(), 1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0].subject).toContain('อนุมัติ');
+  });
+
+  it('ครบเพดานใน 24 ชั่วโมง → หยุดส่ง (limited) ที่เหลือยังรอในคิว', async () => {
+    const send = vi.spyOn(mailTransport, 'send').mockResolvedValue();
+    const user = await createUser();
+    for (let i = 0; i < 3; i++) await enqueueEmail(pool, user.id, { template: 'account_approved', params: {} });
+
+    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 2, limited: true });
+    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 0, limited: true });
+    expect(send).toHaveBeenCalledTimes(2);
+    // ส่งไปเมื่อเกิน 24 ชั่วโมงแล้วไม่นับ
+    await pool.query(`UPDATE email_outbox SET sent_at = now() - interval '25 hours' WHERE status = 'sent'`);
+    expect(await processEmailOutbox(new Date(), 2)).toMatchObject({ sent: 1, limited: false });
   });
 });

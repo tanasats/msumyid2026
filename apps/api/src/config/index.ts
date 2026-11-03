@@ -71,6 +71,10 @@ const envSchema = z.object({
   GMAIL_REFRESH_TOKEN: z.string().min(1).optional(),
   // รอบส่งอีเมลจากคิว
   MAIL_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(30_000),
+  // เพดานอีเมลต่อ 24 ชั่วโมง — ต่ำกว่าโควตา Gmail ของ Workspace (~2,000/วัน/บัญชี) เกินแล้วรอในคิว ไม่ทิ้ง
+  MAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(2000).default(1500),
+  // รอบตรวจงานแจ้งเตือนตามเวลา (เตือนใบใกล้หมดอายุ, สรุปงานให้ผู้อนุมัติ 08:00)
+  NOTIFICATION_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(900_000),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 }).superRefine((env, ctx) => {
@@ -176,6 +180,8 @@ export const config = {
       refreshToken: env.GMAIL_REFRESH_TOKEN ?? '',
     },
     pollIntervalMs: env.MAIL_POLL_INTERVAL_MS,
+    dailyLimit: env.MAIL_DAILY_LIMIT,
   },
+  notificationCheckIntervalMs: env.NOTIFICATION_CHECK_INTERVAL_MS,
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

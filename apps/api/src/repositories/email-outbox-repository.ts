@@ -15,11 +15,11 @@ export type DueEmailRow = {
 
 export async function insertEmail(
   db: Queryable,
-  input: { recipientUserId: string; template: string; params: Record<string, unknown> },
+  input: { recipientUserId: string; template: string; params: Record<string, unknown>; priority: 0 | 1 },
 ): Promise<string> {
   const result = await db.query<{ id: string }>(
-    `INSERT INTO email_outbox (recipient_user_id, template, params) VALUES ($1, $2, $3) RETURNING id`,
-    [input.recipientUserId, input.template, JSON.stringify(input.params)],
+    `INSERT INTO email_outbox (recipient_user_id, template, params, priority) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [input.recipientUserId, input.template, JSON.stringify(input.params), input.priority],
   );
   return result.rows[0]!.id;
 }
@@ -27,6 +27,7 @@ export async function insertEmail(
 /**
  * ดึงอีเมลที่ถึงเวลาส่ง 1 ฉบับ และล็อกแถวไว้จนจบ transaction ของผู้เรียก
  * SKIP LOCKED: API หลายตัวรันพร้อมกันได้โดยไม่ส่งซ้ำ — ผู้รับอ่านจาก users ตอนส่ง (อีเมลล่าสุด)
+ * priority ก่อน (0 = ปกติ ส่งก่อนเตือนใบใกล้หมดอายุ) แล้วเวลา — ตรงกับ index email_outbox_due_idx
  */
 export async function lockNextDueEmail(client: PoolClient, now: Date): Promise<DueEmailRow | null> {
   const result = await client.query<DueEmailRow>(
@@ -36,12 +37,21 @@ export async function lockNextDueEmail(client: PoolClient, now: Date): Promise<D
      FROM email_outbox o
      JOIN users u ON u.id = o.recipient_user_id
      WHERE o.status = 'pending' AND o.next_attempt_at <= $1
-     ORDER BY o.next_attempt_at
+     ORDER BY o.priority, o.next_attempt_at
      LIMIT 1
      FOR UPDATE OF o SKIP LOCKED`,
     [now],
   );
   return result.rows[0] ?? null;
+}
+
+/** จำนวนอีเมลที่ส่งสำเร็จตั้งแต่เวลาที่ระบุ (index email_outbox_sent_at_idx) */
+export async function countEmailsSentSince(db: Queryable, since: Date): Promise<number> {
+  const result = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM email_outbox WHERE status = 'sent' AND sent_at >= $1`,
+    [since],
+  );
+  return result.rows[0]!.n;
 }
 
 export async function markEmailSent(db: Queryable, id: string, now: Date): Promise<void> {
