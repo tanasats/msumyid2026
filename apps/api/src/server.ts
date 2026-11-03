@@ -6,6 +6,7 @@ import { startAccountExpiryJob } from './services/account-expiry-service.js';
 import { startCrlJob } from './services/crl-service.js';
 import { startEmailJob } from './mail/outbox.js';
 import { startFileCleanupJob } from './services/file-service.js';
+import { startNotificationJob } from './services/notification-service.js';
 import { startSessionCleanupJob } from './services/session-service.js';
 
 const app = createApp();
@@ -24,6 +25,8 @@ const stopFileCleanupJob = startFileCleanupJob(config.s3.cleanupIntervalMs);
 const stopSessionCleanupJob = startSessionCleanupJob(config.sessionCleanupIntervalMs);
 // ส่งอีเมลแจ้งเตือนจากคิว + ลบอีเมลที่เกินระยะเก็บ (docs/design/email.md)
 const stopEmailJob = startEmailJob(config.mail.pollIntervalMs);
+// เตือนใบใกล้หมดอายุ + สรุปงานค้างให้ผู้อนุมัติ 08:00 วันทำการ (เข้าคิวอีเมล)
+const stopNotificationJob = startNotificationJob(config.notificationCheckIntervalMs);
 
 server.on('error', (err) => {
   logger.fatal({ err }, 'เปิด HTTP server ไม่สำเร็จ');
@@ -42,6 +45,7 @@ function shutdown(signal: string) {
   stopFileCleanupJob();
   stopSessionCleanupJob();
   stopEmailJob();
+  stopNotificationJob();
 
   // กันค้าง: ถ้าปิดไม่เสร็จใน 10 วินาทีให้บังคับออก
   const forceExit = setTimeout(() => {
