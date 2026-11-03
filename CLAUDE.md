@@ -252,7 +252,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
 
 ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`
-ระบบใบรับรอง (บริการเซ็น `apps/signer`, key สำรอง, CRL, นำเข้าใบเดิม, ระยะการพัฒนา): ดู `docs/design/certificates.md` — ลงนามเอกสารบนเว็บ: `docs/design/document-signing.md` — ตรวจลายมือชื่อบนเอกสาร (หน้า `/verify` สาธารณะ): `docs/design/signature-verification.md` — อีเมลแจ้งเตือน (คิว `email_outbox`, `enqueueEmail` ใน transaction ของงาน): `docs/design/email.md`
+ระบบใบรับรอง (บริการเซ็น `apps/signer`, key สำรอง, CRL, นำเข้าใบเดิม, ระยะการพัฒนา): ดู `docs/design/certificates.md` — ลงนามเอกสารบนเว็บ: `docs/design/document-signing.md` — ตรวจลายมือชื่อบนเอกสาร (หน้า `/verify` สาธารณะ): `docs/design/signature-verification.md` — การแจ้งเตือน (ในระบบ + อีเมล ตามการตั้งค่าของผู้ใช้ — ทุกเหตุการณ์เรียก `notify()` ใน transaction ของงาน ห้ามเรียก `enqueueEmail` ตรง): `docs/design/notifications.md`, ช่องทางอีเมล: `docs/design/email.md`
 
 บัญชีบุคลากรภายนอก (ตัดสินใจ 2026-10-07):
 - เข้าระบบได้ 2 ทาง: Google (Gmail ทุกโดเมน) หรือรหัสผ่านของระบบ (สำหรับผู้ไม่มีบัญชี Google) — นิสิต/บุคลากร มมส. ใช้ Google เท่านั้น
