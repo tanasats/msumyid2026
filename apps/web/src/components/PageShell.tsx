@@ -4,6 +4,7 @@ import type { CurrentUser } from '@/lib/auth';
 import { Avatar } from './Avatar';
 import { MsuMark } from './BrandLogo';
 import { NavLinks } from './NavLinks';
+import { NotificationBell } from './notifications/NotificationBell';
 import { SiteCredit } from './SiteCredit';
 
 type PageShellProps = {
@@ -84,6 +85,8 @@ export function PageShell({ children, title, backHref, user, width = 'wide', hea
           </div>
 
           {headerAction}
+
+          {navUser && <NotificationBell />}
 
           {navUser && (
             <Link

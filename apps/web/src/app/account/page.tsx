@@ -6,11 +6,13 @@ import { Alert } from '@/components/Alert';
 import { BentoGrid, Card } from '@/components/Card';
 import { IdentityCard } from '@/components/IdentityCard';
 import { LogoutButton } from '@/components/LogoutButton';
+import { NotificationPreferences } from '@/components/notifications/NotificationPreferences';
 import { PageShell } from '@/components/PageShell';
 import { StaffProfileCard } from '@/components/StaffProfileCard';
 import { TextSizeSwitcher } from '@/components/TextSizeSwitcher';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { ACCOUNT_TYPE_LABELS, getCurrentUser, redirectUnlessReady } from '@/lib/auth';
+import { getMyNotificationPreferences } from '@/lib/notifications';
 import { getMyStaffProfile } from '@/lib/staff-profile';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
 
@@ -23,7 +25,11 @@ export default async function AccountPage() {
   redirectUnlessReady(user);
 
   const staffProfile = user.accountType === 'staff' ? await getMyStaffProfile() : null;
-  const [theme, textSize] = await Promise.all([getThemePreference(), getTextSize()]);
+  const [theme, textSize, notificationPreferences] = await Promise.all([
+    getThemePreference(),
+    getTextSize(),
+    getMyNotificationPreferences(),
+  ]);
 
   const isStaff = user.accountType === 'staff';
 
@@ -63,6 +69,13 @@ export default async function AccountPage() {
             <TextSizeSwitcher initial={textSize} />
           </div>
         </Card>
+
+        {/* id = ปลายทางของลิงก์ "เปิด/ปิดการแจ้งเตือน" ท้ายอีเมล และปุ่มตั้งค่าในหน้าการแจ้งเตือน */}
+        <div id="notifications" className="scroll-mt-20 md:col-span-2 lg:col-span-3">
+          <Card title="การแจ้งเตือน" description="เลือกว่าจะรับการแจ้งเตือนแต่ละเรื่องทางใด — ผลการอนุมัติบัญชีส่งทางอีเมลเสมอ">
+            <NotificationPreferences initial={notificationPreferences} />
+          </Card>
+        </div>
 
         <Card
           title="ความเป็นส่วนตัว"
