@@ -11,7 +11,7 @@ import {
   issueCrlIfOutdated,
 } from '../src/services/crl-service.js';
 import { SignerError, signer } from '../src/services/signer-client.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // เพิกถอนใบรับรองของตัวเอง + ออก/เผยแพร่ CRL
 // mock เฉพาะบริการเซ็น (signer ทดสอบการออก CRL กับ OpenSSL จริงแล้ว) ฐานข้อมูลใช้ app_test จริง
@@ -115,6 +115,12 @@ describe('POST /me/certificates/:id/revoke (certificate:request)', () => {
         action: 'revoke',
         actor_id: user.id,
         reason: 'keyCompromise',
+      },
+    ]);
+    expect(await queuedEmails(user.id)).toEqual([
+      {
+        template: 'certificate_revoked',
+        params: { kind: 'primary', serialNumber: cert.serialNumber, reason: 'keyCompromise', by: 'self', note: null },
       },
     ]);
     expect(generate).toHaveBeenCalledTimes(1);

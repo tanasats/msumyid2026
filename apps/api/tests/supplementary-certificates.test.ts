@@ -5,7 +5,7 @@ import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 import { SignerError, SignerRejectedError, signer, type IssuedCertificate } from '../src/services/signer-client.js';
 import { bangkokToday, rangeDays, rangeToValidity } from '../src/services/supplementary-certificate-service.js';
-import { createTestRole, createUser, loginAs, resetDatabase } from './helpers/db.js';
+import { createTestRole, createUser, loginAs, resetDatabase, queuedEmails } from './helpers/db.js';
 
 // ใบรับรองเสริม: คำขอ → อนุมัติ → รับใบ (supplementary_certificate:request / certificate:approve)
 // mock เฉพาะบริการเซ็น ฐานข้อมูลใช้ app_test จริง (CLAUDE.md หัวข้อ 15)
@@ -301,6 +301,9 @@ describe('อนุมัติ / ปฏิเสธ (certificate:approve)', () 
     expect(rows).toEqual([
       { actor_id: user.id, action: 'submit', s: day(1), e: day(30) },
       { actor_id: actor.id, action: 'approve', s: day(2), e: day(10) },
+    ]);
+    expect(await queuedEmails(user.id)).toEqual([
+      { template: 'supplementary_request_approved', params: { startDate: day(2), endDate: day(10), note: 'ลดเหลือช่วงงาน' } },
     ]);
     // อนุมัติซ้ำ → 409
     expect((await approve(actor.cookie, body.request.id)).status).toBe(409);
