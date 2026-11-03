@@ -12,6 +12,8 @@
     "cert:import": "tsx scripts/import-legacy-certificates.ts",
     "pdf:sign-sample": "tsx scripts/sign-sample-pdf.ts",
     "storage:cors": "tsx scripts/storage-cors.ts",
+    "mail:authorize": "tsx scripts/gmail-authorize.ts",
+    "mail:test": "tsx scripts/mail-test.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "node-pg-migrate --migrations-dir migrations --migration-file-language sql --envPath .env -d DATABASE_URL",
