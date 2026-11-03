@@ -88,6 +88,8 @@ MAIL_TRANSPORT=log
 MAIL_FROM_ADDRESS=... MAIL_FROM_NAME=MSU Digital ID
 GMAIL_CLIENT_ID=... GMAIL_CLIENT_SECRET=... GMAIL_REFRESH_TOKEN=...   # OAuth client แบบ Desktop app + token จาก mail:authorize
 MAIL_POLL_INTERVAL_MS=30000
+MAIL_DAILY_LIMIT=1500                     # เพดานต่อ 24 ชม. (โควตา Gmail) เกินแล้วรอในคิว
+NOTIFICATION_CHECK_INTERVAL_MS=900000     # เตือนใบใกล้หมดอายุ + สรุปงานผู้อนุมัติ 08:00 จ.-ศ.
 
 # บริการเซ็น (ค่า SIGNER_TOKEN เดียวกับ apps/signer/.env)
 SIGNER_URL=http://localhost:4020
@@ -374,7 +376,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - **สรุปท้ายงาน:** บอกว่าแก้ไฟล์ไหนบ้าง และต้องรันคำสั่งอะไรต่อ (เช่น migration)
 
 ## 18. ข้อควรระวังเฉพาะโปรเจกต์
-> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) PDPA สร้างแล้ว (2026-10-26, ประกาศฉบับที่ 1 มีผล 2026-11-05) อีเมลแจ้งเตือนระยะที่ 1 สร้างแล้ว (2026-11-03, `docs/design/email.md`) ส่วนต่อไปนี้ **ยังไม่ได้สร้าง**: หน้าจับคู่หน่วยงาน ERP แบบ `manual`, อีเมลระยะที่ 2 (ใบใกล้หมดอายุ, แจ้งผู้อนุมัติ) — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) สร้างแล้ว 2026-10-15 (production ยังไม่มี Garage)
+> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) PDPA สร้างแล้ว (2026-10-26, ประกาศฉบับที่ 1 มีผล 2026-11-05) อีเมลแจ้งเตือนระยะที่ 1–2 สร้างแล้ว (2026-11-03, `docs/design/email.md`) ส่วนต่อไปนี้ **ยังไม่ได้สร้าง**: หน้าจับคู่หน่วยงาน ERP แบบ `manual` — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) สร้างแล้ว 2026-10-15 (production ยังไม่มี Garage)
 - **ERP-HR** (`ERP_HR_STAFFINFO_URL`): เรียกด้วย Google access token ของผู้ใช้ตอน callback เท่านั้น ห้ามเก็บ access token ลงฐานข้อมูลหรือ log เรียกนอก transaction และถ้าล้มเหลวต้องไม่ทำให้ login ล้ม (รายละเอียด API: `docs/erp_hr_msu_staff_info_integration.md`)
 - ข้อมูลบุคลากรเก็บที่ `staff_profiles` (รหัสบุคลากร, ชื่อไทย/อังกฤษ, ตำแหน่ง, คณะ/กอง/กลุ่มงาน) อัปเดตทุกครั้งที่ login ถ้า ERP ล้มเหลวใช้ข้อมูลเดิม — `users.display_name` ของบุคลากร = ชื่อ-นามสกุลไทยจาก ERP (ไม่มีคำนำหน้า) ส่วนนิสิต/บุคลากรภายนอก = ชื่อจาก Google ทุกหน้าที่แสดงชื่อผู้ใช้ต้องใช้ `display_name`
 - รหัสหน่วยงานของ ERP (`facultyid`/`departmentid` 12 หลัก) เป็นคนละชุดกับ `org_units.code` (2 หลัก) ห้ามนำมาเทียบกันตรง ๆ ให้ผูกผ่านตาราง `erp_org_units` (จับคู่ด้วยรหัส ERP, ระบบจับคู่จากชื่อที่ตรงกันให้อัตโนมัติ, การจับคู่แบบ `manual` ห้ามถูกทับ) หน่วยงานของบุคลากรใช้ระดับกอง/ฝ่ายก่อน แล้วค่อยคณะ/สำนัก
