@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { History } from 'lucide-react';
 import { CreateRoleButton } from '@/components/admin/CreateRoleButton';
+import { MfaRequirementSection } from '@/components/admin/MfaRequirementSection';
 import { RolePermissionCard } from '@/components/admin/RolePermissionCard';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
@@ -45,13 +46,15 @@ export default async function AdminRolesPage() {
           ))}
         </ul>
 
+        <MfaRequirementSection roles={roles} />
+
         <section aria-labelledby="role-history" className="rounded-xl border border-line bg-surface shadow-card">
           <h2 id="role-history" className="px-5 pt-5 font-display text-lg font-semibold sm:px-6 sm:pt-6">
             ประวัติล่าสุด
           </h2>
           {logs.length === 0 ? (
             <StatusState icon={History} title="ยังไม่มีการเปลี่ยนแปลง">
-              การสร้างบทบาท เปลี่ยนชื่อ และให้/ถอนสิทธิ์ จะบันทึกไว้ที่นี่ แก้หรือลบไม่ได้
+              การสร้างบทบาท เปลี่ยนชื่อ ให้/ถอนสิทธิ์ และการบังคับยืนยันตัวตนสองขั้นตอน จะบันทึกไว้ที่นี่ แก้หรือลบไม่ได้
             </StatusState>
           ) : (
             <ol className="mt-3 divide-y divide-line">

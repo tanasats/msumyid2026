@@ -67,6 +67,8 @@ export type UserDetail = {
   history: UserHistoryItem[];
   manageable: boolean;
   isSelf: boolean;
+  /** เปิดการยืนยันตัวตนสองขั้นตอนแล้ว (แสดงปุ่มรีเซ็ต) */
+  mfaEnabled: boolean;
 };
 
 export type AssignableRole = {

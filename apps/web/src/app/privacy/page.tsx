@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { AcknowledgeForm } from '@/components/privacy/AcknowledgeForm';
 import { PrivacyNotice } from '@/components/privacy/PrivacyNotice';
 import { PageShell } from '@/components/PageShell';
-import { getCurrentUser } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+import { getCurrentUser, isMfaPending } from '@/lib/auth';
 
 export const metadata: Metadata = { title: 'ประกาศความเป็นส่วนตัว' };
 
@@ -12,6 +13,8 @@ export const metadata: Metadata = { title: 'ประกาศความเป
  */
 export default async function PrivacyPage() {
   const user = await getCurrentUser();
+  // ยังไม่ใส่รหัส MFA: ต้องยืนยันตัวตนก่อนกดรับทราบ (API ปฏิเสธ) — ผู้ที่ยังไม่ login อ่านประกาศได้ตามปกติ
+  if (user && isMfaPending(user)) redirect('/mfa');
   const mustAcknowledge = user !== null && !user.privacyAcknowledged;
 
   return (

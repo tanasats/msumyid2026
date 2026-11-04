@@ -83,12 +83,38 @@ export function apiUpload<T>(
   });
 }
 
-/** ส่งคำขอเปลี่ยนข้อมูล — คืน JSON ที่ API ตอบ (204 No Content = undefined) */
+/** error ที่ API ตอบเมื่อรายการนั้นต้องยืนยันตัวตนซ้ำ (reauth-service ฝั่ง API) */
+export type StepUpCode = 'MFA_STEP_UP_REQUIRED' | 'RECENT_LOGIN_REQUIRED';
+const STEP_UP_CODES: readonly string[] = ['MFA_STEP_UP_REQUIRED', 'RECENT_LOGIN_REQUIRED'];
+
+/** คืน true = ผู้ใช้ยืนยันตัวตนแล้ว (ส่งคำขอเดิมซ้ำได้), false = ยกเลิก */
+type StepUpHandler = (code: StepUpCode, message: string) => Promise<boolean>;
+let stepUpHandler: StepUpHandler | null = null;
+
+/** StepUpDialog ลงทะเบียนตัวเองตอน mount — apiMutate ทุกจุดจึงขอรหัสแล้วลองใหม่ได้โดยไม่ต้องแก้ผู้เรียก */
+export function setStepUpHandler(handler: StepUpHandler | null): void {
+  stepUpHandler = handler;
+}
+
+/**
+ * ส่งคำขอเปลี่ยนข้อมูล — คืน JSON ที่ API ตอบ (204 No Content = undefined)
+ * ถ้า API ขอให้ยืนยันตัวตนซ้ำ: เปิดกล่องขอรหัส แล้วส่งคำขอเดิมซ้ำ 1 ครั้ง (ยกเลิก = throw error เดิม)
+ */
 export async function apiMutate<T = void>(
   path: string,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body: object = {},
 ): Promise<T> {
+  try {
+    return await sendMutation<T>(path, method, body);
+  } catch (err) {
+    if (!(err instanceof ApiClientError) || !STEP_UP_CODES.includes(err.code) || !stepUpHandler) throw err;
+    if (!(await stepUpHandler(err.code as StepUpCode, err.message))) throw err;
+    return sendMutation<T>(path, method, body);
+  }
+}
+
+async function sendMutation<T>(path: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body: object): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${path}`, {

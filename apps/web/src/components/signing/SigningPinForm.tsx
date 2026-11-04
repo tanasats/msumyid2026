@@ -73,7 +73,11 @@ export function SigningPinForm({
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {error && (
-        <Alert tone="danger" title={error.code === 'RECENT_LOGIN_REQUIRED' ? 'ต้องยืนยันตัวตนก่อนตั้ง PIN ใหม่' : undefined}>
+        <Alert tone="danger" title={
+            error.code === 'RECENT_LOGIN_REQUIRED' || error.code === 'MFA_STEP_UP_REQUIRED'
+              ? 'ต้องยืนยันตัวตนก่อนตั้ง PIN ใหม่'
+              : undefined
+          }>
           {error.message}
         </Alert>
       )}
@@ -89,7 +93,7 @@ export function SigningPinForm({
             name="currentPin"
             label="PIN เดิม"
             optional
-            hint="ลืม PIN: ออกจากระบบแล้วเข้าสู่ระบบใหม่ จากนั้นตั้ง PIN ใหม่ภายใน 10 นาทีโดยเว้นช่องนี้ว่าง"
+            hint="ลืม PIN: เว้นช่องนี้ว่าง ระบบจะขอยืนยันตัวตนอีกครั้ง (รหัสจากแอป Authenticator หรือเข้าสู่ระบบใหม่)"
             value={currentPin}
             onChange={(e) => setCurrentPin(e.target.value.trim())}
             error={fieldErrors.currentPin}
