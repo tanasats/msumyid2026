@@ -23,6 +23,12 @@ if [[ ! -s secrets/escrow_kek ]]; then
   log "  cat /opt/msumyid/secrets/escrow_kek   (ESCROW_KEK_ID ใน env/signer.env)"
 fi
 
+# key เข้ารหัส secret ของ MFA (API) — หายแล้วผู้ใช้ทุกคนต้องตั้ง MFA ใหม่ จึงสำรองนอก VM แยกจาก backup ฐานข้อมูลเช่นเดียวกับ KEK
+if [[ ! -s secrets/mfa_encryption_key ]]; then
+  openssl rand -base64 32 > secrets/mfa_encryption_key
+  log "สร้าง secrets/mfa_encryption_key แล้ว — สำรองนอก VM และห้ามเก็บรวมกับ backup ฐานข้อมูล (MFA_ENCRYPTION_KEY_ID ใน env/api.env)"
+fi
+
 # Garage (ที่เก็บไฟล์): rpc_secret = hex 32 ไบต์ตามที่ Garage กำหนด, admin_token ใช้กับ garage CLI ใน container เท่านั้น
 if [[ ! -s secrets/garage_rpc_secret ]]; then
   openssl rand -hex 32 > secrets/garage_rpc_secret
