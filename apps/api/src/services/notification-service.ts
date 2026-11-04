@@ -1,6 +1,6 @@
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
-import { enqueueEmail } from '../mail/outbox.js';
+import { notify } from './user-notification-service.js';
 import type { ApproverDigestCounts } from '../mail/templates.js';
 import { logger } from '../middlewares/logger.js';
 import { countPendingRevocationRequests } from '../repositories/certificate-revocation-request-repository.js';
@@ -15,10 +15,12 @@ import {
 import { countPendingPrimaryRequests } from '../repositories/primary-certificate-request-repository.js';
 import { countPendingRequests as countPendingSupplementaryRequests } from '../repositories/supplementary-certificate-request-repository.js';
 import { hasPermission, type AuthUser } from './authorization-service.js';
+import { purgeOldNotifications } from './user-notification-service.js';
 import { PERMISSIONS, SUPER_ADMIN_ROLE } from './permissions.js';
 
 // งานแจ้งเตือนตามรอบ (docs/design/email.md ระยะที่ 2): เตือนใบใกล้หมดอายุ + สรุปงานค้างให้ผู้อนุมัติ
-// ทั้งสองงานเขียนเฉพาะคิวอีเมล (email_outbox) — การส่งจริงเป็นของ job ใน mail/outbox.ts (มีเพดานต่อวัน)
+// ทั้งสองงานแจ้งผ่าน notify (ในระบบ + อีเมลตามการตั้งค่าของผู้รับ) — การส่งอีเมลจริงเป็นของ job ใน mail/outbox.ts (มีเพดานต่อวัน)
+// job นี้ลบการแจ้งเตือนในระบบที่เกินระยะเก็บด้วย
 
 /** รอบเตือนใบใกล้หมดอายุ (วันก่อนหมดอายุ) เรียงจากน้อยไปมาก */
 export const EXPIRY_NOTICE_DAYS = [7, 30] as const;
@@ -39,7 +41,7 @@ export async function queueCertificateExpiryNotices(now = new Date()): Promise<n
       // บันทึกรอบ + เข้าคิวใน transaction เดียว: insert ไม่สำเร็จ (มีแล้ว) = ไม่ส่งซ้ำ
       const inserted = await withTransaction(async (client) => {
         if (!(await insertExpiryNotice(client, certificate.id, daysBefore))) return false;
-        await enqueueEmail(client, certificate.userId, {
+        await notify(client, certificate.userId, {
           template: 'certificate_expiring',
           params: {
             kind: certificate.kind,
@@ -111,8 +113,8 @@ export async function queueApproverDigest(now = new Date()): Promise<number | nu
           counts.revocationRequests = revocationRequests;
         }
         if (Object.keys(counts).length === 0) continue;
-        await enqueueEmail(client, user.id, { template: 'approver_digest', params: counts });
-        queued++;
+        // ผู้รับปิดสรุปงานทางอีเมลได้ — นับเฉพาะที่เข้าคิวจริง
+        if ((await notify(client, user.id, { template: 'approver_digest', params: counts })).email) queued++;
       }
     }
     await setNotificationRunQueued(client, APPROVER_DIGEST_KIND, clock.date, queued);
@@ -127,9 +129,11 @@ export function startNotificationJob(intervalMs: number): () => void {
     running = true;
     try {
       const expiring = await queueCertificateExpiryNotices();
-      if (expiring > 0) logger.info({ queued: expiring }, 'เข้าคิวอีเมลเตือนใบใกล้หมดอายุ');
+      if (expiring > 0) logger.info({ queued: expiring }, 'แจ้งเตือนใบใกล้หมดอายุ');
       const digest = await queueApproverDigest();
       if (digest !== null) logger.info({ queued: digest }, 'เข้าคิวสรุปงานให้ผู้อนุมัติ');
+      const purged = await purgeOldNotifications();
+      if (purged > 0) logger.info({ deleted: purged }, 'ลบการแจ้งเตือนในระบบที่เกินระยะเก็บ');
     } catch (err) {
       logger.error({ err }, 'job แจ้งเตือนตามรอบผิดพลาด');
     } finally {

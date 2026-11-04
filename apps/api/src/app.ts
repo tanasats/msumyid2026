@@ -10,6 +10,7 @@ import { loadSession } from './middlewares/auth.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { meRouter } from './routes/me.js';
+import { notificationsRouter } from './routes/notifications.js';
 import { adminCertificatePolicyRouter } from './routes/admin-certificate-policy.js';
 import { adminCertificatesRouter } from './routes/admin-certificates.js';
 import { adminRolesRouter } from './routes/admin-roles.js';
@@ -49,6 +50,7 @@ export function createApp() {
   app.use(healthRouter);
   app.use(authRouter);
   app.use(meRouter);
+  app.use(notificationsRouter);
   app.use(adminUsersRouter);
   app.use(adminRolesRouter);
   app.use(adminSystemSettingsRouter);

@@ -1,4 +1,4 @@
-import { enqueueEmail } from '../mail/outbox.js';
+import { notify } from './user-notification-service.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import type { Queryable } from '../db/types.js';
@@ -324,7 +324,7 @@ export async function approveSupplementaryRequest(
       rangeStart: input.startDate,
       rangeEnd: input.endDate,
     });
-    await enqueueEmail(client, request.userId, {
+    await notify(client, request.userId, {
       template: 'supplementary_request_approved',
       params: { startDate: input.startDate, endDate: input.endDate, note: input.note },
     });
@@ -342,7 +342,7 @@ export async function rejectSupplementaryRequest(
     const request = await lockPendingRequestForDecision(client, actor, requestId);
     await rejectRequest(client, { id: request.id, actorId: actor.id, note });
     await insertRequestLog(client, { requestId: request.id, actorId: actor.id, action: 'reject' });
-    await enqueueEmail(client, request.userId, { template: 'supplementary_request_rejected', params: { note } });
+    await notify(client, request.userId, { template: 'supplementary_request_rejected', params: { note } });
   });
   return findRequest(requestId);
 }

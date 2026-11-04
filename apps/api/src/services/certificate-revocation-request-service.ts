@@ -1,4 +1,4 @@
-import { enqueueEmail } from '../mail/outbox.js';
+import { notify } from './user-notification-service.js';
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import { AppError } from '../errors.js';
@@ -180,7 +180,7 @@ export async function decideRevocationRequestByAdmin(
       note: input.note,
     });
     await insertRevocationRequestLog(client, { requestId: request.id, actorId: actor.id, action: input.decision });
-    await enqueueEmail(
+    await notify(
       client,
       request.userId,
       input.decision === 'approve'
