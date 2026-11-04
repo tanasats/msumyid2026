@@ -75,6 +75,14 @@ const envSchema = z.object({
   MAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(2000).default(1500),
   // รอบตรวจงานแจ้งเตือนตามเวลา (เตือนใบใกล้หมดอายุ, สรุปงานให้ผู้อนุมัติ 08:00)
   NOTIFICATION_CHECK_INTERVAL_MS: z.coerce.number().int().min(60_000).default(900_000),
+  // MFA (docs/design/mfa.md): key เข้ารหัส secret ของ TOTP (AES-256-GCM) — base64 ของ 32 ไบต์ (openssl rand -base64 32)
+  // หายแล้วผู้ใช้ทุกคนต้องตั้ง MFA ใหม่ (ผู้ดูแลรีเซ็ตให้) — ห้ามเก็บรวมกับ backup ฐานข้อมูล
+  MFA_ENCRYPTION_KEY: z
+    .string()
+    .transform((v) => Buffer.from(v, 'base64'))
+    .refine((key) => key.length === 32, 'MFA_ENCRYPTION_KEY ต้องเป็น base64 ของข้อมูล 32 ไบต์'),
+  // ชื่อของ key ตัวปัจจุบัน (เก็บคู่กับ secret ทุกแถว เพื่อรองรับการเปลี่ยน key ภายหลัง)
+  MFA_ENCRYPTION_KEY_ID: z.string().regex(/^[a-z0-9-]{1,32}$/),
   // ใช้เฉพาะสคริปต์ seed:super-admin (ไม่บังคับตอนรัน API) — สคริปต์ตรวจเองว่ามีค่า
   INITIAL_SUPER_ADMIN_EMAIL: z.email().optional(),
 }).superRefine((env, ctx) => {
@@ -96,7 +104,7 @@ export function oauthCookiePath(redirectUri: string): string {
 
 // production อ่าน secret จากไฟล์ (Docker secret) — deploy/compose.yml
 try {
-  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']);
+  loadSecretFiles(process.env, ['SIGNER_TOKEN', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN', 'MFA_ENCRYPTION_KEY']);
 } catch (err) {
   console.error('ค่า env ไม่ถูกต้อง:', err instanceof Error ? err.message : err);
   process.exit(1);
@@ -183,5 +191,9 @@ export const config = {
     dailyLimit: env.MAIL_DAILY_LIMIT,
   },
   notificationCheckIntervalMs: env.NOTIFICATION_CHECK_INTERVAL_MS,
+  mfa: {
+    encryptionKey: env.MFA_ENCRYPTION_KEY,
+    encryptionKeyId: env.MFA_ENCRYPTION_KEY_ID,
+  },
   initialSuperAdminEmail: env.INITIAL_SUPER_ADMIN_EMAIL,
 } as const;

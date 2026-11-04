@@ -19,6 +19,9 @@ export default defineConfig({
       S3_ACCESS_KEY: 'test-access-key',
       S3_SECRET_KEY: 'test-secret-key',
       S3_BUCKET: 'app-files-test',
+      // MFA: key คงที่ของ test (ไม่ใช่ค่าจริง)
+      MFA_ENCRYPTION_KEY: 'dGVzdC1tZmEta2V5LTAxMjM0NTY3ODlhYmNkZWYwMTI=',
+      MFA_ENCRYPTION_KEY_ID: 'test-1',
     },
     // migrate ฐาน app_test อัตโนมัติก่อนเริ่ม test
     globalSetup: ['./tests/global-setup.ts'],

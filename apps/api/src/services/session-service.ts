@@ -8,6 +8,7 @@ import {
   deleteSessionsByUser,
   findSessionUser,
   insertSession,
+  rotateSessionTokenAfterMfa,
   touchSession,
 } from '../repositories/session-repository.js';
 import type { AuthUser } from './authorization-service.js';
@@ -36,11 +37,23 @@ export async function createSession(
   return { token, expiresAt };
 }
 
+/** สถานะ MFA ของ session (docs/design/mfa.md) — แยกจาก AuthUser เพราะเป็นของ session ไม่ใช่ของผู้ใช้ */
+export type MfaSessionState = {
+  /** ผู้ใช้เปิด MFA แล้ว */
+  enabled: boolean;
+  /** ผู้ใช้ถือ role ที่บังคับ MFA */
+  required: boolean;
+  /** session นี้ยืนยัน MFA ล่าสุดเมื่อไร (null = ยังไม่ยืนยัน) */
+  verifiedAt: Date | null;
+};
+
 /**
  * อ่านผู้ใช้จาก session token — อ่านจากฐานข้อมูลใหม่ทุกครั้ง (ไม่เชื่อข้อมูลจาก client)
  * คืน null ถ้า token ไม่ถูกต้อง หมดอายุ หรือผู้ใช้ถูกระงับ
  */
-export async function resolveSession(token: string): Promise<{ sessionId: string; user: AuthUser } | null> {
+export async function resolveSession(
+  token: string,
+): Promise<{ sessionId: string; user: AuthUser; mfa: MfaSessionState } | null> {
   if (!TOKEN_PATTERN.test(token)) return null;
 
   const row = await findSessionUser(pool, hashSessionToken(token), PRIVACY_NOTICE_VERSION);
@@ -68,7 +81,18 @@ export async function resolveSession(token: string): Promise<{ sessionId: string
       roles: row.roles,
       permissions: row.permissions,
     },
+    mfa: { enabled: row.mfaEnabled, required: row.mfaRequired, verifiedAt: row.mfaVerifiedAt },
   };
+}
+
+/**
+ * ยืนยัน MFA ตอนเข้าสู่ระบบ — รหัสถูกแล้วออก token ใหม่ให้ session เดิม (token ก่อนยืนยันใช้ต่อไม่ได้)
+ * session หมดอายุระหว่างนั้น = ต้อง login ใหม่
+ */
+export async function completeMfaLogin(sessionId: string): Promise<{ token: string; expiresAt: Date } | null> {
+  const token = randomBytes(32).toString('base64url');
+  const rotated = await rotateSessionTokenAfterMfa(pool, { sessionId, tokenHash: hashSessionToken(token) });
+  return rotated ? { token, expiresAt: rotated.expiresAt } : null;
 }
 
 const CLEANUP_BATCH_SIZE = 1000;

@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start:prod": "node --enable-source-maps dist/src/server.js",
     "seed:super-admin": "tsx scripts/seed-super-admin.ts",
+    "mfa:reset": "tsx scripts/mfa-reset.ts",
     "cert:import": "tsx scripts/import-legacy-certificates.ts",
     "pdf:sign-sample": "tsx scripts/sign-sample-pdf.ts",
     "storage:cors": "tsx scripts/storage-cors.ts",

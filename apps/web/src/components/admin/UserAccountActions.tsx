@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleCheck, CircleSlash, RotateCcw, ShieldX, Trash2 } from 'lucide-react';
+import { CircleCheck, CircleSlash, RotateCcw, ShieldOff, ShieldX, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ACCOUNT_TYPE_LABELS, type AccountType } from '@/lib/account-type';
 import { apiMutate } from '@/lib/api-client';
 
-type Action = 'approve' | 'reject' | 'deactivate' | 'activate' | 'delete';
+type Action = 'approve' | 'reject' | 'deactivate' | 'activate' | 'mfa/reset' | 'delete';
 
 const ACTIONS: Record<
   Action,
@@ -49,6 +49,14 @@ const ACTIONS: Record<
     tone: 'primary',
     reason: 'required',
   },
+  'mfa/reset': {
+    title: 'รีเซ็ตการยืนยันตัวตนสองขั้นตอนหรือไม่?',
+    description:
+      'ใช้เมื่อผู้ใช้ทำโทรศัพท์หายและไม่มีรหัสกู้คืน — ลบการตั้งค่าแอป Authenticator และรหัสกู้คืน ออกจากระบบทุกอุปกรณ์ แล้วแจ้งเจ้าของบัญชีทางอีเมล ตรวจสอบตัวตนของผู้ขอก่อนทุกครั้ง (เช่น พบตัวหรือโทรกลับเบอร์ที่ลงทะเบียนไว้)',
+    confirmLabel: 'รีเซ็ต',
+    tone: 'danger',
+    reason: 'required',
+  },
   delete: {
     title: 'ลบบัญชีและข้อมูลส่วนบุคคลหรือไม่?',
     description:
@@ -65,6 +73,11 @@ const SELF_ACTIONS: Partial<Record<Action, { title: string; description: string 
     title: 'ปิดบัญชีของคุณหรือไม่?',
     description:
       'คุณจะถูกออกจากระบบทันทีและเข้าระบบไม่ได้จนกว่าผู้ดูแลระบบสูงสุดคนอื่นจะเปิดบัญชีคืน ใบรับรองที่ใช้งานอยู่ของคุณจะถูกเพิกถอนถาวร',
+  },
+  'mfa/reset': {
+    title: 'รีเซ็ตการยืนยันตัวตนสองขั้นตอนของคุณหรือไม่?',
+    description:
+      'คุณจะถูกออกจากระบบทุกอุปกรณ์ทันที เข้าสู่ระบบครั้งถัดไปต้องตั้งค่าแอป Authenticator ใหม่ (ถ้าบทบาทบังคับ)',
   },
   delete: {
     title: 'ลบบัญชีและข้อมูลส่วนบุคคลของคุณหรือไม่?',
@@ -87,6 +100,7 @@ export function UserAccountActions({
   canApprove,
   canDeactivate,
   canDelete,
+  canResetMfa = false,
   isSelf = false,
 }: {
   userId: string;
@@ -100,6 +114,8 @@ export function UserAccountActions({
   canApprove: boolean;
   canDeactivate: boolean;
   canDelete: boolean;
+  /** มี user_mfa:reset และผู้ใช้เปิด MFA อยู่ */
+  canResetMfa?: boolean;
   isSelf?: boolean;
 }) {
   const router = useRouter();
@@ -119,7 +135,7 @@ export function UserAccountActions({
 
   const showApprove = canApprove && isActive && approvalStatus !== 'approved';
   const showReject = canApprove && isActive && approvalStatus === 'pending';
-  if (!showApprove && !showReject && !canDeactivate && !canDelete) return null;
+  if (!showApprove && !showReject && !canDeactivate && !canDelete && !canResetMfa) return null;
 
   async function confirm(reason: string, confirmText: string) {
     if (!action) return;
@@ -131,8 +147,8 @@ export function UserAccountActions({
       return;
     }
     await apiMutate(`/admin/users/${userId}/${action}`, 'POST', reason ? { reason } : {});
-    if (isSelf && action === 'deactivate') {
-      // session ของตัวเองถูกลบพร้อมการปิดบัญชี
+    if (isSelf && (action === 'deactivate' || action === 'mfa/reset')) {
+      // session ของตัวเองถูกลบพร้อมการปิดบัญชี/รีเซ็ต MFA
       router.push('/login');
       router.refresh();
       return;
@@ -174,6 +190,12 @@ export function UserAccountActions({
               เปิดบัญชีคืน
             </Button>
           ))}
+        {canResetMfa && (
+          <Button variant="secondary" fullWidth onClick={() => setAction('mfa/reset')}>
+            <ShieldOff className="size-5" aria-hidden />
+            รีเซ็ตการยืนยันตัวตนสองขั้นตอน
+          </Button>
+        )}
       </div>
       {showApprove && approveBlockedReason && (
         <p id="approve-blocked-reason" className="text-sm text-muted">

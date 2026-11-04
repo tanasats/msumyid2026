@@ -27,6 +27,7 @@ import { filesRouter } from './routes/files.js';
 import { signingPinRouter } from './routes/signing-pin.js';
 import { signingRouter } from './routes/signing.js';
 import { signatureImageRouter } from './routes/signature-image.js';
+import { mfaRouter } from './routes/mfa.js';
 
 // สร้าง Express app โดยไม่ listen เพื่อให้ test เรียกผ่าน supertest ได้
 export function createApp() {
@@ -51,6 +52,7 @@ export function createApp() {
   app.use(authRouter);
   app.use(meRouter);
   app.use(notificationsRouter);
+  app.use(mfaRouter);
   app.use(adminUsersRouter);
   app.use(adminRolesRouter);
   app.use(adminSystemSettingsRouter);

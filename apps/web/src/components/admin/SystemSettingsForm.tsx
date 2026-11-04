@@ -7,11 +7,12 @@ import { Alert } from '@/components/Alert';
 import { Button } from '@/components/Button';
 import { TextField } from '@/components/TextField';
 import { apiMutate } from '@/lib/api-client';
-import type { SystemSettingsValues } from '@/lib/system-settings';
+import type { StepUpAction, SystemSettingsValues } from '@/lib/system-settings';
+import { STEP_UP_ACTIONS } from '@/lib/system-settings-format';
 
 const DOMAIN_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
 
-type NumberKey = Exclude<keyof SystemSettingsValues, 'allowedEmailDomains'>;
+type NumberKey = Exclude<keyof SystemSettingsValues, 'allowedEmailDomains' | 'mfaStepUpActions'>;
 type FieldErrors = Partial<Record<NumberKey | 'allowedEmailDomains' | 'reason', string>>;
 
 /** โดเมนจากช่องข้อความ (คั่นด้วยจุลภาค/ขึ้นบรรทัดใหม่) — ตัวพิมพ์เล็ก ไม่ซ้ำ */
@@ -32,6 +33,7 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
     crlReissueHours: String(initial.crlReissueHours),
     primaryReissueLimit: String(initial.primaryReissueLimit),
   });
+  const [stepUpActions, setStepUpActions] = useState<StepUpAction[]>(initial.mfaStepUpActions);
   const [reason, setReason] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
         crlValidityDays: Number(values.crlValidityDays),
         crlReissueHours: Number(values.crlReissueHours),
         primaryReissueLimit: Number(values.primaryReissueLimit),
+        mfaStepUpActions: stepUpActions,
         reason: reason.trim(),
       });
       setReason('');
@@ -188,6 +191,47 @@ export function SystemSettingsForm({ initial }: { initial: SystemSettingsValues 
           hint="เกินจำนวนนี้ต้องส่งคำขอใบรับรองให้ผู้อนุมัติ — 0 = เพิกถอนแล้วต้องส่งคำขอทุกครั้ง"
           error={fieldErrors.primaryReissueLimit}
         />
+      </section>
+
+      {/* role=group แทน fieldset: legend ของ fieldset ไปทับเส้นขอบของกล่อง */}
+      <section
+        role="group"
+        aria-labelledby="step-up-heading"
+        className="space-y-4 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6"
+      >
+        <div>
+          <h2 id="step-up-heading" className="font-display text-lg font-semibold">
+            ยืนยันตัวตนซ้ำก่อนรายการสำคัญ
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            ผู้ที่เปิดการยืนยันตัวตนสองขั้นตอนต้องใส่รหัสจากแอปภายใน 10 นาทีก่อนทำรายการ ผู้ที่ไม่เปิดต้องเข้าสู่ระบบใหม่ภายใน 10
+            นาที — กันผู้ที่ได้ session ไปทำรายการแทน การแก้ส่วนนี้ต้องยืนยันตัวตนซ้ำเสมอ
+          </p>
+        </div>
+        <div className="space-y-1">
+          {STEP_UP_ACTIONS.map((action) => (
+            <label key={action.value} className="flex min-h-11 cursor-pointer items-start gap-3 py-1.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-5 shrink-0"
+                checked={stepUpActions.includes(action.value)}
+                onChange={(e) => {
+                  setSaved(false);
+                  setStepUpActions((prev) =>
+                    e.target.checked ? [...prev, action.value] : prev.filter((v) => v !== action.value),
+                  );
+                }}
+              />
+              <span>
+                <span className="block font-medium">{action.label}</span>
+                <span className="block text-sm text-muted">{action.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-sm text-muted">
+          ตั้ง PIN ลงนามใหม่โดยไม่ใส่ PIN เดิม ต้องยืนยันตัวตนซ้ำเสมอ ไม่ขึ้นกับตัวเลือกนี้
+        </p>
       </section>
 
       <section className="space-y-1.5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">

@@ -29,7 +29,14 @@ export type EmailNotice =
       template: 'certificate_expiring';
       params: { kind: CertificateKind; serialNumber: string; notAfter: string; daysBefore: number };
     }
-  | { template: 'approver_digest'; params: ApproverDigestCounts };
+  | { template: 'approver_digest'; params: ApproverDigestCounts }
+  // MFA (docs/design/mfa.md) — หมวดความปลอดภัย ปิดไม่ได้
+  | { template: 'mfa_enabled'; params: Record<string, never> }
+  | { template: 'mfa_disabled'; params: Record<string, never> }
+  | { template: 'mfa_recovery_code_used'; params: { remaining: number } }
+  | { template: 'mfa_recovery_codes_regenerated'; params: Record<string, never> }
+  | { template: 'mfa_locked'; params: { lockedUntil: string } }
+  | { template: 'mfa_reset_by_admin'; params: { reason: string } };
 
 /** จำนวนงานค้างที่ผู้รับมีสิทธิ์ดำเนินการ — คิวที่ไม่มีสิทธิ์ไม่ใส่ */
 export type ApproverDigestCounts = {
@@ -53,6 +60,12 @@ export const EMAIL_TEMPLATES: readonly EmailTemplateName[] = [
   'certificate_downloaded',
   'certificate_expiring',
   'approver_digest',
+  'mfa_enabled',
+  'mfa_disabled',
+  'mfa_recovery_code_used',
+  'mfa_recovery_codes_regenerated',
+  'mfa_locked',
+  'mfa_reset_by_admin',
 ];
 
 export type RenderedEmail = { subject: string; text: string };
@@ -78,6 +91,12 @@ export const NOTICE_CATEGORIES: Record<EmailTemplateName, NotificationCategory> 
   certificate_downloaded: 'security',
   certificate_expiring: 'expiry',
   approver_digest: 'approver_digest',
+  mfa_enabled: 'security',
+  mfa_disabled: 'security',
+  mfa_recovery_code_used: 'security',
+  mfa_recovery_codes_regenerated: 'security',
+  mfa_locked: 'security',
+  mfa_reset_by_admin: 'security',
 };
 
 /** แม่แบบที่ส่งทางอีเมลอย่างเดียว — สรุปงานรายวันในระบบไม่มีประโยชน์ (ตัวเลขงานค้างดูที่เมนูแทน) */
@@ -127,6 +146,10 @@ const DIGEST_QUEUES: { key: keyof ApproverDigestCounts; label: string; path: str
   { key: 'revocationRequests', label: 'คำขอเพิกถอนใบรับรอง', path: '/admin/certificate-requests?type=revocation' },
 ];
 
+/** ส่วนความปลอดภัยของบัญชีในหน้าบัญชีของฉัน */
+const MFA_PATH = '/account#security';
+const MFA_NOT_YOU = ['', 'ถ้าคุณไม่ได้ทำเอง แปลว่าอาจมีผู้อื่นเข้าบัญชีของคุณได้ ให้เปลี่ยนรหัสผ่านบัญชี Google และแจ้งผู้ดูแลระบบทันที'];
+
 function noteLine(label: string, note: string | null): string[] {
   return note ? ['', `${label}: ${note}`] : [];
 }
@@ -154,6 +177,7 @@ function baseBody(input: {
 export function renderEmail(notice: EmailNotice, ctx: { recipientName: string | null; webUrl: string }): RenderedEmail {
   const url = (path: string) => new URL(path, ctx.webUrl).toString();
   const certificatesLink = { label: 'ดูใบรับรองของคุณ', url: url('/certificates') };
+  const mfaLink = { label: 'ดูการตั้งค่าความปลอดภัยของบัญชี', url: url(MFA_PATH) };
   const name = ctx.recipientName;
   const preferencesUrl = isOptionalCategory(NOTICE_CATEGORIES[notice.template]) ? url('/account#notifications') : null;
   const body = (input: { name: string | null; lines: string[]; link: { label: string; url: string } }) =>
@@ -307,6 +331,78 @@ export function renderEmail(notice: EmailNotice, ctx: { recipientName: string | 
           link: certificatesLink,
         }),
       };
+    case 'mfa_enabled':
+      return {
+        subject: 'เปิดการยืนยันตัวตนสองขั้นตอนแล้ว',
+        text: body({
+          name,
+          lines: [
+            'บัญชีของคุณเปิดการยืนยันตัวตนสองขั้นตอน (รหัสจากแอป Authenticator) แล้ว',
+            'เก็บรหัสกู้คืนไว้ในที่ปลอดภัย ใช้แทนรหัสจากแอปได้เมื่อโทรศัพท์หาย',
+            ...MFA_NOT_YOU,
+          ],
+          link: mfaLink,
+        }),
+      };
+    case 'mfa_disabled':
+      return {
+        subject: 'ปิดการยืนยันตัวตนสองขั้นตอนแล้ว',
+        text: body({
+          name,
+          lines: ['บัญชีของคุณปิดการยืนยันตัวตนสองขั้นตอนแล้ว การเข้าสู่ระบบจะใช้เฉพาะบัญชี Google', ...MFA_NOT_YOU],
+          link: mfaLink,
+        }),
+      };
+    case 'mfa_recovery_code_used':
+      return {
+        subject: 'มีการใช้รหัสกู้คืนของบัญชีคุณ',
+        text: body({
+          name,
+          lines: [
+            `มีการใช้รหัสกู้คืนแทนรหัสจากแอป Authenticator เหลือรหัสกู้คืนที่ยังไม่ใช้ ${notice.params.remaining} รหัส`,
+            ...(notice.params.remaining <= 3 ? ['รหัสใกล้หมดแล้ว ออกรหัสกู้คืนชุดใหม่ได้ที่หน้าบัญชีของฉัน'] : []),
+            ...MFA_NOT_YOU,
+          ],
+          link: mfaLink,
+        }),
+      };
+    case 'mfa_recovery_codes_regenerated':
+      return {
+        subject: 'ออกรหัสกู้คืนชุดใหม่แล้ว',
+        text: body({
+          name,
+          lines: ['มีการออกรหัสกู้คืนชุดใหม่ให้บัญชีของคุณ รหัสชุดเดิมใช้ไม่ได้แล้ว', ...MFA_NOT_YOU],
+          link: mfaLink,
+        }),
+      };
+    case 'mfa_reset_by_admin':
+      return {
+        subject: 'ผู้ดูแลระบบรีเซ็ตการยืนยันตัวตนสองขั้นตอนของคุณ',
+        text: body({
+          name,
+          lines: [
+            'ผู้ดูแลระบบลบการตั้งค่าการยืนยันตัวตนสองขั้นตอนของบัญชีคุณ และออกจากระบบทุกอุปกรณ์แล้ว',
+            `เหตุผล: ${notice.params.reason}`,
+            '',
+            'เข้าสู่ระบบอีกครั้งแล้วตั้งค่าใหม่ด้วยแอป Authenticator ในโทรศัพท์เครื่องปัจจุบัน',
+            ...MFA_NOT_YOU,
+          ],
+          link: mfaLink,
+        }),
+      };
+    case 'mfa_locked':
+      return {
+        subject: 'ใส่รหัสยืนยันตัวตนผิดหลายครั้ง',
+        text: body({
+          name,
+          lines: [
+            `มีการใส่รหัสยืนยันตัวตนสองขั้นตอนผิดหลายครั้ง ระบบระงับการใส่รหัสไว้ถึง ${thaiDateTime(notice.params.lockedUntil)}`,
+            '',
+            'ถ้าไม่ใช่คุณ แปลว่ามีผู้อื่นเข้าบัญชี Google ของคุณได้แล้ว ให้เปลี่ยนรหัสผ่านบัญชี Google ทันที',
+          ],
+          link: mfaLink,
+        }),
+      };
   }
 }
 
@@ -374,5 +470,29 @@ export function renderInAppNotification(notice: EmailNotice): RenderedInAppNotif
     case 'approver_digest':
       // ไม่สร้างในระบบ (EMAIL_ONLY_TEMPLATES) — กรณีนี้มีไว้ให้ครบทุกแม่แบบ
       return { title: 'มีงานรอดำเนินการ', body: 'ดูคิวงานที่หน้าจัดการระบบ', href: '/admin' };
+    case 'mfa_enabled':
+      return { title: 'เปิดการยืนยันตัวตนสองขั้นตอนแล้ว', body: 'ถ้าคุณไม่ได้ทำเอง ให้แจ้งผู้ดูแลระบบทันที', href: MFA_PATH };
+    case 'mfa_disabled':
+      return { title: 'ปิดการยืนยันตัวตนสองขั้นตอนแล้ว', body: 'ถ้าคุณไม่ได้ทำเอง ให้แจ้งผู้ดูแลระบบทันที', href: MFA_PATH };
+    case 'mfa_recovery_code_used':
+      return {
+        title: 'มีการใช้รหัสกู้คืน',
+        body: `เหลือรหัสกู้คืน ${notice.params.remaining} รหัส ถ้าคุณไม่ได้ทำเอง ให้แจ้งผู้ดูแลระบบทันที`,
+        href: MFA_PATH,
+      };
+    case 'mfa_recovery_codes_regenerated':
+      return { title: 'ออกรหัสกู้คืนชุดใหม่แล้ว', body: 'รหัสชุดเดิมใช้ไม่ได้แล้ว', href: MFA_PATH };
+    case 'mfa_reset_by_admin':
+      return {
+        title: 'ผู้ดูแลระบบรีเซ็ตการยืนยันตัวตนสองขั้นตอน',
+        body: `เหตุผล: ${notice.params.reason} — ตั้งค่าใหม่ได้ที่หน้าบัญชีของฉัน`,
+        href: MFA_PATH,
+      };
+    case 'mfa_locked':
+      return {
+        title: 'ใส่รหัสยืนยันตัวตนผิดหลายครั้ง',
+        body: `ระงับการใส่รหัสถึง ${thaiDateTime(notice.params.lockedUntil)} ถ้าไม่ใช่คุณ ให้เปลี่ยนรหัสผ่านบัญชี Google ทันที`,
+        href: MFA_PATH,
+      };
   }
 }

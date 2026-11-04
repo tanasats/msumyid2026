@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans_Thai_Looped } from 'next/font/google';
 import localFont from 'next/font/local';
+import { StepUpDialog } from '@/components/mfa/StepUpDialog';
 import { getTextSize, getThemePreference } from '@/lib/theme-server';
 import './globals.css';
 
@@ -62,7 +63,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       data-theme={theme === 'system' ? undefined : theme}
       data-text-size={textSize === 'normal' ? undefined : textSize}
     >
-      <body className="min-h-dvh bg-canvas font-sans text-fg antialiased">{children}</body>
+      <body className="min-h-dvh bg-canvas font-sans text-fg antialiased">
+        {children}
+        {/* กล่องยืนยันตัวตนซ้ำ — apiMutate เปิดเมื่อ API ขอ (รายการสำคัญ เช่น ดาวน์โหลด .p12, ให้ role) */}
+        <StepUpDialog />
+      </body>
     </html>
   );
 }

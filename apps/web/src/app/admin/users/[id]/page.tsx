@@ -37,6 +37,11 @@ const USER_ACTION_LABELS: Record<string, string> = {
   reject: 'ไม่อนุมัติบัญชี',
   link_google: 'ผูกบัญชี Google',
   expire: 'ปิดบัญชีอัตโนมัติ (หมดอายุ)',
+  mfa_enable: 'เปิดการยืนยันตัวตนสองขั้นตอน',
+  mfa_disable: 'ปิดการยืนยันตัวตนสองขั้นตอน',
+  mfa_reset: 'รีเซ็ตการยืนยันตัวตนสองขั้นตอน',
+  mfa_recovery_used: 'ใช้รหัสกู้คืน',
+  mfa_recovery_regenerate: 'ออกรหัสกู้คืนชุดใหม่',
 };
 
 function historyLabel(item: UserHistoryItem): string {
@@ -56,7 +61,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
   const [detail, allRoles] = await Promise.all([getUserDetail(id), listAssignableRoles()]);
   if (!detail) notFound();
 
-  const { user, staffProfile, history, manageable, isSelf } = detail;
+  const { user, staffProfile, history, manageable, isSelf, mfaEnabled } = detail;
   // บัญชีของตัวเองจัดการได้เมื่อ API บอกว่า manageable (super_admin) — ผู้ดูแลอื่นจัดการตัวเองไม่ได้
   const canActOnSelf = !isSelf || manageable;
   const can = (permission: string) => currentUser.permissions.includes(permission);
@@ -176,6 +181,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
                 canApprove={can('user:approve')}
                 canDeactivate={can('user:deactivate')}
                 canDelete={can('user:delete')}
+                canResetMfa={can('user_mfa:reset') && mfaEnabled}
                 isSelf={isSelf}
               />
             )}

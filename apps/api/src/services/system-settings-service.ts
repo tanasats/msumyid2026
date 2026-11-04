@@ -13,6 +13,7 @@ import {
   type SystemSettingsValues,
 } from '../repositories/system-settings-repository.js';
 import { canManageSystemSettings, type AuthUser } from './authorization-service.js';
+import { MFA_STEP_UP_ACTIONS, assertRecentAuth, type ReauthContext } from './reauth-service.js';
 
 // ค่าตั้งของระบบที่ super_admin แก้ได้ (หน้า /admin/settings) — ค่าที่เป็น infra/secret ยังอยู่ใน env (src/config)
 // ทุกจุดที่ใช้อ่านจากฐานข้อมูลทุกครั้ง แก้แล้วมีผลทันทีโดยไม่ต้อง restart
@@ -53,11 +54,17 @@ function normalizeDomains(domains: string[]): string[] {
  */
 export async function changeSystemSettings(
   actor: AuthUser,
+  reauth: ReauthContext,
   input: SystemSettingsValues & { reason: string },
 ): Promise<SystemSettings> {
   assertCanManage(actor);
   const { reason, ...rest } = input;
-  const values: SystemSettingsValues = { ...rest, allowedEmailDomains: normalizeDomains(rest.allowedEmailDomains) };
+  const values: SystemSettingsValues = {
+    ...rest,
+    allowedEmailDomains: normalizeDomains(rest.allowedEmailDomains),
+    // เรียงตามลำดับที่ประกาศ ไม่ซ้ำ — เทียบกับค่าเดิมได้ตรง ๆ
+    mfaStepUpActions: MFA_STEP_UP_ACTIONS.filter((a) => rest.mfaStepUpActions.includes(a)),
+  };
   if (values.allowedEmailDomains.length === 0) {
     throw new AppError(422, 'SETTINGS_INVALID', 'ต้องมีโดเมนที่ไม่ต้องรออนุมัติอย่างน้อย 1 โดเมน');
   }
@@ -77,10 +84,13 @@ export async function changeSystemSettings(
       crlValidityDays: before.crlValidityDays,
       crlReissueHours: before.crlReissueHours,
       primaryReissueLimit: before.primaryReissueLimit,
+      mfaStepUpActions: MFA_STEP_UP_ACTIONS.filter((a) => before.mfaStepUpActions.includes(a)),
     };
     if (JSON.stringify(beforeValues) === JSON.stringify(values)) {
       throw new AppError(400, 'NO_CHANGES', 'ค่าเหมือนเดิม ไม่มีอะไรเปลี่ยน');
     }
+    // ปิดการยืนยันซ้ำ = ลดความปลอดภัยของทั้งระบบ — ต้องยืนยันซ้ำเสมอแม้ปิดกลุ่ม system_settings ไว้
+    if (beforeValues.mfaStepUpActions.join() !== values.mfaStepUpActions.join()) await assertRecentAuth(reauth);
     await updateSystemSettings(client, values, actor.id);
     await insertSystemSettingLog(client, { actorId: actor.id, before: beforeValues, after: values, reason });
     return getSystemSettings(client);

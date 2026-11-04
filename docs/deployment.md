@@ -64,7 +64,7 @@
 | คอมไพล์ api/signer | `apps/{api,signer}/tsconfig.build.json` | `dist/src/server.js`, `dist/scripts/*.js` (seed, cert:import) — ไม่ใช้ `tsx` ใน production |
 | Next.js standalone | `apps/web/next.config.ts` | รันด้วย `node apps/web/server.js` |
 | env ของ web | `apps/web/src/lib/config.ts`, `src/instrumentation.ts` | อ่าน env ตอนใช้งาน (build ได้โดยไม่มี env) และตรวจครบตอนเริ่ม server ขาด = exit 1 |
-| secret จากไฟล์ | `apps/{api,signer}/src/config/secret-files.ts` | `NAME_FILE=/run/secrets/x` แทน `NAME` (signer: `SIGNER_TOKEN`, `CA_KEY_PASSPHRASE`, `ESCROW_KEK`; api: `SIGNER_TOKEN`) |
+| secret จากไฟล์ | `apps/{api,signer}/src/config/secret-files.ts` | `NAME_FILE=/run/secrets/x` แทน `NAME` (signer: `SIGNER_TOKEN`, `CA_KEY_PASSPHRASE`, `ESCROW_KEK`; api: `SIGNER_TOKEN`, `S3_*_KEY`, `MFA_ENCRYPTION_KEY`) |
 | migration ใน image | `apps/api/package.json` | `node-pg-migrate` อยู่ใน dependencies |
 
 ## 4. ไฟล์ใน repo
@@ -196,6 +196,10 @@ curl -s --resolve did.msu.ac.th:443:127.0.0.1 https://did.msu.ac.th/api/health  
 **5.7 super_admin คนแรก**: เจ้าของ `INITIAL_SUPER_ADMIN_EMAIL` login ด้วย Google 1 ครั้ง แล้ว
 ```bash
 docker compose run --rm api node dist/scripts/seed-super-admin.js
+```
+role `super_admin` บังคับ MFA — เข้าระบบครั้งถัดไปต้องตั้งค่าแอป Authenticator และเก็บรหัสกู้คืนไว้ให้ดี ถ้าโทรศัพท์หายและไม่มีรหัสกู้คืน ให้ super_admin คนอื่นรีเซ็ตที่หน้าผู้ใช้ หรือ (ไม่มีผู้ดูแลที่เข้าระบบได้) รีเซ็ตจาก VM:
+```bash
+docker compose run --rm api node dist/scripts/mfa-reset.js --email <อีเมล> --reason "<เหตุผล>"
 ```
 
 **5.8 ย้ายใบรับรองจากระบบเดิม** — หัวข้อ 11 (ก่อนตั้ง timer ดึง CRL บน cdp)

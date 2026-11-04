@@ -10,6 +10,8 @@ export type SystemSettingsValues = {
   crlReissueHours: number;
   /** เพิกถอนใบประจำตัวเองได้กี่ครั้งต่อ 365 วันโดยยังสร้างใบใหม่เองได้ — เกินแล้วต้องส่งคำขอ */
   primaryReissueLimit: number;
+  /** กลุ่มรายการที่ต้องยืนยันตัวตนซ้ำก่อนทำ (เปิดอยู่) — ค่าใน MFA_STEP_UP_ACTIONS ของ reauth-service */
+  mfaStepUpActions: string[];
 };
 
 export type SystemSettings = SystemSettingsValues & {
@@ -22,7 +24,8 @@ const VALUE_COLUMNS = `s.allowed_email_domains AS "allowedEmailDomains",
             s.session_ttl_days      AS "sessionTtlDays",
             s.crl_validity_days     AS "crlValidityDays",
             s.crl_reissue_hours     AS "crlReissueHours",
-            s.primary_reissue_limit AS "primaryReissueLimit"`;
+            s.primary_reissue_limit AS "primaryReissueLimit",
+            s.mfa_step_up_actions   AS "mfaStepUpActions"`;
 
 /** ค่าตั้งที่ใช้งาน (อ่านทุกครั้งที่ต้องใช้ — แถวเดียวผ่าน PK จึงเร็ว และแก้แล้วมีผลทันทีโดยไม่ต้อง restart) */
 export async function getSystemSettingsValues(db: Queryable): Promise<SystemSettingsValues> {
@@ -58,7 +61,8 @@ export async function updateSystemSettings(db: Queryable, values: SystemSettings
          crl_validity_days = $3,
          crl_reissue_hours = $4,
          primary_reissue_limit = $5,
-         updated_by = $6
+         mfa_step_up_actions = $6,
+         updated_by = $7
      WHERE id = true`,
     [
       values.allowedEmailDomains,
@@ -66,6 +70,7 @@ export async function updateSystemSettings(db: Queryable, values: SystemSettings
       values.crlValidityDays,
       values.crlReissueHours,
       values.primaryReissueLimit,
+      values.mfaStepUpActions,
       actorId,
     ],
   );

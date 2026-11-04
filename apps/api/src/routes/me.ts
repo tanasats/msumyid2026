@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requireSession } from '../middlewares/auth.js';
+import { requireAuth, requireMfaPassed } from '../middlewares/auth.js';
 import { acknowledgePrivacyNotice } from '../services/privacy-service.js';
 import { getMyStaffProfile } from '../services/staff-profile-service.js';
 
@@ -14,8 +14,9 @@ meRouter.get('/me/staff-profile', requireAuth, async (req, res) => {
 
 const acknowledgeSchema = z.object({ version: z.number().int().positive() });
 
-// สิทธิ์: ต้อง login (รวมบัญชีรออนุมัติ/ถูกปฏิเสธ — ทุกคนต้องรับทราบก่อนใช้ระบบ) ใช้ requireSession เพราะ requireAuth จะปฏิเสธผู้ที่ยังไม่รับทราบ
-meRouter.post('/me/privacy-acknowledgement', requireSession, async (req, res) => {
+// สิทธิ์: ต้อง login และผ่าน MFA ของ session (ถ้าเปิดไว้) — รวมบัญชีรออนุมัติ/ถูกปฏิเสธ เพราะทุกคนต้องรับทราบก่อนใช้ระบบ
+// ใช้ requireMfaPassed เพราะ requireAuth จะปฏิเสธผู้ที่ยังไม่รับทราบ
+meRouter.post('/me/privacy-acknowledgement', requireMfaPassed, async (req, res) => {
   const { version } = acknowledgeSchema.parse(req.body);
   await acknowledgePrivacyNotice(req.user!, version);
   res.status(204).end();

@@ -1,7 +1,7 @@
 import { pool } from '../../src/db/pool.js';
 import { withTransaction } from '../../src/db/transaction.js';
 import { PRIVACY_NOTICE_VERSION } from '../../src/services/privacy-service.js';
-import { createSession } from '../../src/services/session-service.js';
+import { createSession, hashSessionToken } from '../../src/services/session-service.js';
 
 // ตัวช่วยสร้างข้อมูลสำหรับ test (ใช้ SQL ตรงเพื่อเตรียมสถานะ ไม่ผ่าน business logic)
 
@@ -53,6 +53,9 @@ export async function resetDatabase(): Promise<void> {
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');
     await client.query(`DELETE FROM role_permissions`);
     await client.query(`DELETE FROM roles WHERE code LIKE 'test\\_%'`);
+    // ค่าเริ่มต้นของ test: ไม่บังคับ MFA กับ role ใด (migration บังคับ super_admin/admin) — test ส่วนใหญ่ไม่เกี่ยวกับ MFA
+    // test ของ MFA ตั้งเองด้วย requireMfaForRoles()
+    await client.query(`UPDATE roles SET mfa_required = false WHERE mfa_required`);
   });
 }
 
@@ -117,9 +120,20 @@ export async function createTestRole(code: `test_${string}`, permissions: string
   }
 }
 
-/** สร้าง session แล้วคืนค่า header Cookie ที่ใช้กับ supertest */
-export async function loginAs(userId: string): Promise<string> {
+/** บังคับ MFA กับ role ที่ระบุ (ค่าใน production ตาม migration = super_admin, admin) */
+export async function requireMfaForRoles(codes: string[]): Promise<void> {
+  await pool.query(`UPDATE roles SET mfa_required = true WHERE code = ANY($1::text[])`, [codes]);
+}
+
+/**
+ * สร้าง session แล้วคืนค่า header Cookie ที่ใช้กับ supertest
+ * mfaVerified = session นี้ยืนยัน MFA แล้ว (ตั้งเวลาเป็นตอนนี้) — ค่าเริ่มต้น false เหมือนเพิ่งผ่าน Google
+ */
+export async function loginAs(userId: string, options: { mfaVerified?: boolean } = {}): Promise<string> {
   const { token } = await createSession(pool, userId);
+  if (options.mfaVerified) {
+    await pool.query(`UPDATE sessions SET mfa_verified_at = now() WHERE token_hash = $1`, [hashSessionToken(token)]);
+  }
   return `${process.env.SESSION_COOKIE_NAME}=${token}`;
 }
 

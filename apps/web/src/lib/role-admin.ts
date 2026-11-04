@@ -6,6 +6,8 @@ export type RoleWithAccess = {
   nameTh: string;
   isSystem: boolean;
   isPrivileged: boolean;
+  /** ผู้ถือต้องตั้งค่าการยืนยันตัวตนสองขั้นตอน */
+  mfaRequired: boolean;
   holderCount: number;
   permissionCodes: string[];
   /** ได้ทุกสิทธิ์อยู่แล้ว (API คำนวณ) — ไม่แสดงตัวแก้ไขสิทธิ์ */
@@ -16,7 +18,7 @@ export type PermissionInfo = { code: string; descriptionTh: string };
 
 export type RolePermissionLog = {
   id: string;
-  action: 'create' | 'rename' | 'grant' | 'revoke';
+  action: 'create' | 'rename' | 'grant' | 'revoke' | 'mfa_required';
   role: { code: string; nameTh: string };
   permissionCode: string | null;
   detail: Record<string, unknown> | null;
@@ -42,5 +44,9 @@ export function describeRoleLog(log: RolePermissionLog): string {
       return `ให้สิทธิ์ ${log.permissionCode} แก่ ${log.role.nameTh}`;
     case 'revoke':
       return `ถอนสิทธิ์ ${log.permissionCode} จาก ${log.role.nameTh}`;
+    case 'mfa_required':
+      return log.detail?.to === true
+        ? `บังคับการยืนยันตัวตนสองขั้นตอนกับ ${log.role.nameTh}`
+        : `เลิกบังคับการยืนยันตัวตนสองขั้นตอนกับ ${log.role.nameTh}`;
   }
 }
