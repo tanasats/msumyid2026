@@ -84,7 +84,7 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
   scripts/rollback.sh         กลับไปเวอร์ชันก่อนหน้า (ไม่ย้อน migration)
   scripts/backup.sh           pg_dump + env (ไม่รวม secrets/ และ ca/) + ลบของเก่า + rsync ออกนอก VM
   scripts/archive-logs.sh     เก็บ log ของ container รายวันลง logs/<วันที่>/ + ลบที่เก่ากว่า LOG_KEEP_DAYS (90)
-  scripts/init-secrets.sh     สร้าง signer_token / escrow_kek ครั้งแรก (ไม่สร้างทับ)
+  scripts/init-secrets.sh     สร้าง signer_token / escrow_kek / mfa_encryption_key / secret ของ Garage ครั้งแรก (ไม่สร้างทับ)
   scripts/recover-env.sh      กู้ env/*.env ที่หายจาก container ที่ยังอยู่
   scripts/update-cloudflare-realip.sh  ช่วง IP ของ Cloudflare ให้ nginx (nginx -t ไม่ผ่าน = คืนไฟล์เดิม)
   scripts/init-garage.sh      เปิด Garage + layout + key/bucket + เขียน secrets/s3_* (รันซ้ำได้)
@@ -98,7 +98,7 @@ deploy/                       ← คัดลอกทั้งโฟลเด�
 /opt/msumyid/
   .env                  APP_TAG, IMAGE_PREFIX, APP_UID/GID, port, backup
   env/*.env             api, web, signer, postgres          (600)
-  secrets/              signer_token, ca_key_passphrase, escrow_kek   (700/600) — ไม่อยู่ใน backup
+  secrets/              signer_token, ca_key_passphrase, escrow_kek, mfa_encryption_key, garage_*, s3_*   (700/600) — ไม่อยู่ใน backup
   ca/univ-ca.key.pem    key ของ Intermediate CA (เข้ารหัสด้วย passphrase)  (600) — ไม่อยู่ใน backup
   backups/  deployed.log
 ```
@@ -140,8 +140,8 @@ sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/; s/^APP_GID=.*/APP_GID=$(id -g)/" .env
 
 **5.4 CA และ secret ของ signer** — ดูหัวข้อ 9 ก่อนทำ
 ```bash
-./scripts/init-secrets.sh            # สร้าง secrets/signer_token และ secrets/escrow_kek
-# ⚠ สำรอง escrow_kek นอก VM ทันที (หัวข้อ 9)
+./scripts/init-secrets.sh            # สร้าง secrets/signer_token, secrets/escrow_kek และ secrets/mfa_encryption_key
+# ⚠ สำรอง escrow_kek และ mfa_encryption_key นอก VM ทันที (หัวข้อ 9)
 read -rs P && printf '%s' "$P" > secrets/ca_key_passphrase && unset P   # passphrase ของ key CA
 # คัดลอก univ-ca.key.pem มาที่ ca/ (scp จากเครื่องที่เก็บ key) แล้ว
 chmod 600 ca/univ-ca.key.pem secrets/*
@@ -247,6 +247,16 @@ downtime ระหว่างสลับ container ไม่กี่วิน
 
 **เพิ่ม worker ลงนามเอกสาร (D1, ครั้งเดียว):** คัดลอก `deploy/compose.yml` และ `deploy/scripts/` ไปที่ `/opt/msumyid` ก่อน deploy เวอร์ชันที่มี worker — `deploy.sh` สลับ `worker` (image เดียวกับ api, ไม่เปิด port, healthcheck จากไฟล์ heartbeat) พร้อม signer/api/web ส่วน rollback ไปเวอร์ชันก่อน D1 จะหยุด worker ให้เอง (งานที่รออยู่ค้างในคิว ไม่หาย) — ตรวจ: `docker compose ps worker` ต้อง healthy และ `docker compose logs --tail 20 worker`
 
+**เพิ่ม MFA (PR #51, ครั้งเดียว):** API และ worker ไม่เริ่มทำงานถ้าไม่มี key ของ MFA (`ค่า env ไม่ถูกต้อง ... MFA_ENCRYPTION_KEY`) — ทำก่อน deploy เวอร์ชันที่มี MFA
+1. คัดลอก `deploy/compose.yml` และ `deploy/scripts/` ไปที่ `/opt/msumyid` (ห้ามทับ `.env`, `env/*.env`, `secrets/`, `ca/`)
+2. `./scripts/init-secrets.sh` — สร้าง `secrets/mfa_encryption_key` (ไม่สร้างทับไฟล์ที่มีอยู่)
+3. เพิ่มใน `env/api.env`: `MFA_ENCRYPTION_KEY_ID=prod-1`
+4. สำรอง key นอก VM ทันที (`cat secrets/mfa_encryption_key` → password manager เดียวกับ `escrow_kek`) ห้ามเก็บรวมกับ backup ฐานข้อมูล (หัวข้อ 9)
+5. `./scripts/deploy.sh sha-<commit>` ตามปกติ (`deploy.sh` ตรวจว่ามี key และ `MFA_ENCRYPTION_KEY_ID` ก่อน)
+6. หลัง deploy: super_admin และ admin ต้องตั้งค่าแอป Authenticator เมื่อเข้าระบบครั้งถัดไป — เตรียมโทรศัพท์ไว้ และเก็บรหัสกู้คืน (ทางออกฉุกเฉิน: หัวข้อ 5.7)
+
+ถ้า deploy ล้มเพราะยังไม่ได้ทำขั้นข้างบน `deploy.sh` จะกลับไปเวอร์ชันเดิมเอง migration ของ MFA ที่รันไปแล้วไม่ต้องย้อน (เพิ่มตาราง/คอลัมน์ที่มีค่าเริ่มต้นเท่านั้น เวอร์ชันเดิมทำงานได้) ทำขั้น 1–4 แล้ว deploy ซ้ำได้เลย
+
 **ค่าตั้งที่ย้ายจาก env ไปฐานข้อมูล (2026-10-24):** `ALLOWED_EMAIL_DOMAINS`, `SESSION_TTL_DAYS`, `CRL_VALIDITY_DAYS`, `CRL_REISSUE_HOURS` อยู่ในตาราง `system_settings` แก้ที่ `/admin/settings` (super_admin) มีผลทันทีไม่ต้อง restart — migration ตั้งค่าเริ่มต้น `msu.ac.th` / 7 / 7 / 24 ถ้า `env/api.env` บน VM ตั้งค่าอื่นไว้ ให้แก้ในหน้าตั้งค่าหลัง deploy แล้วลบ 4 บรรทัดนี้ออกจาก `env/api.env` (API ไม่อ่านแล้ว)
 
 ## 7. Rollback
@@ -296,9 +306,10 @@ key สำรองใน `db.dump` ใช้ได้เฉพาะกับ K
 | `ca/univ-ca.key.pem` | mount `:ro` เข้า signer | ที่เก็บ key ของ CA เดิม (offline) | ออกใบใหม่/CRL ไม่ได้ |
 | `secrets/ca_key_passphrase` | Docker secret | password manager ผู้ดูแล CA | เหมือนกัน |
 | `secrets/escrow_kek` | Docker secret | **password manager ของผู้ดูแล 2 คน** แยกจาก backup | กู้ key สำรองของผู้ใช้ไม่ได้ทั้งหมด (ดาวน์โหลด .p12 ซ้ำไม่ได้) |
+| `secrets/mfa_encryption_key` | Docker secret (api + worker) | **password manager ของผู้ดูแล 2 คน** แยกจาก backup | secret ของ MFA ที่เข้ารหัสไว้ใช้ไม่ได้ — ผู้ใช้ที่เปิด MFA เข้าระบบไม่ได้จนกว่าจะรีเซ็ตทีละคน (`mfa-reset.js`, หัวข้อ 5.7) แล้วตั้งค่าใหม่ |
 | `secrets/signer_token` | Docker secret (signer + api) | ไม่ต้อง | สร้างใหม่ได้: ลบไฟล์ → `init-secrets.sh` → `docker compose up -d --force-recreate signer api` |
 
-- **ห้าม** เก็บ `escrow_kek` ไว้ใน `backups/`, `env.tgz` หรือปลายทาง `BACKUP_REMOTE` เดียวกับ `db.dump`
+- **ห้าม** เก็บ `escrow_kek` และ `mfa_encryption_key` ไว้ใน `backups/`, `env.tgz` หรือปลายทาง `BACKUP_REMOTE` เดียวกับ `db.dump`
 - **หมุน KEK** (เมื่อสงสัยว่ารั่ว): ยังไม่มีเครื่องมือ re-wrap key เดิม — `ESCROW_KEK_ID` เก็บคู่กับ key สำรองทุกก้อนไว้รองรับแล้ว ต้องพัฒนาสคริปต์ก่อนใช้งานจริง
 - **ใบ root ของ TUC หมดอายุ 2030-03-25** — ต่ออายุแล้วแก้ `apps/signer/ca/root.cert.pem`, `apps/web/src/lib/root-ca.ts` และ `apps/api/src/services/signature-verification/university-ca.ts` (test ตรวจว่าตรงกัน) แล้ว deploy ใหม่ (`docs/design/certificates.md`)
 - ใบของ CA (`univ-ca.cert.pem`, `root.cert.pem`) อยู่ใน image ของ signer — แก้ใบ = build image ใหม่
@@ -401,7 +412,7 @@ or (http.host eq "did.msu.ac.th" and http.request.uri.path eq "/api/crl/msu-ca.c
 - [ ] realip ของ Cloudflare — `access.log` ของ nginx แสดง IP จริง ไม่ใช่ `104.x`/`172.64–71.x`/`162.158.x`
 - [ ] WAF Skip rule ของ Cloudflare ครบ (หัวข้อ 12) — ลองลงนาม PDF, ตั้งภาพลายเซ็นแบบอัปโหลด และตรวจ PDF ที่ `/verify` ผ่าน
 - [ ] secret ทุกตัวสุ่มใหม่ ไม่ใช้ค่าจาก dev; `.env`, `env/*.env`, `secrets/*`, `ca/*.key.pem` สิทธิ์ `600` เจ้าของ deploy
-- [ ] `escrow_kek` สำรองนอก VM แล้ว (ผู้ดูแล 2 คน) และ**ไม่อยู่**ในปลายทาง backup
+- [ ] `escrow_kek` และ `mfa_encryption_key` สำรองนอก VM แล้ว (ผู้ดูแล 2 คน) และ**ไม่อยู่**ในปลายทาง backup
 - [ ] redirect URI ของ Google ตรงทุกตัวอักษร, OAuth consent screen เป็น Internal
 - [ ] `docker compose ps` — postgres และ signer ไม่มี port, web/api เป็น `127.0.0.1:` เท่านั้น
 - [ ] ใบรับรอง TLS รวม intermediate chain (`openssl s_client -connect did.msu.ac.th:443 -servername did.msu.ac.th`)
@@ -409,7 +420,7 @@ or (http.host eq "did.msu.ac.th" and http.request.uri.path eq "/api/crl/msu-ca.c
 - [ ] cron backup ทำงาน และกำหนด `BACKUP_REMOTE` แล้ว
 - [ ] cron `archive-logs.sh` ทำงาน และ logrotate ของ nginx เก็บ 90 วัน (`docs/design/pdpa.md`)
 - [ ] ทดลอง restore อย่างน้อย 1 ครั้ง (รวมดาวน์โหลด `.p12` ซ้ำจาก key สำรองหลัง restore)
-- [ ] super_admin คนแรกเข้าใช้ได้
+- [ ] super_admin คนแรกเข้าใช้ได้ ตั้งค่า MFA แล้ว และเก็บรหัสกู้คืนไว้นอกโทรศัพท์
 - [ ] อีเมลแจ้งเตือน (`docs/design/email.md`): ประกาศฉบับที่ 2 ผ่าน DPO, retention rule 30 วันของกล่อง "ส่งแล้ว" ของบัญชีผู้ส่ง, `MAIL_TRANSPORT=gmail` + `MAIL_FROM_*` + `GMAIL_*` ใน `env/api.env` และ `node dist/scripts/mail-test.js --to <อีเมล>` ส่งถึง
 
 ## 14. เรื่องที่ยังเปิดอยู่
