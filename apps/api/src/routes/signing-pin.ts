@@ -15,8 +15,8 @@ signingPinRouter.get('/me/signing-pin', requireAuth, async (req, res) => {
   res.json(await getSigningPinStatus(req.user!));
 });
 
-// สิทธิ์: document:sign — ตั้ง/เปลี่ยน PIN (เปลี่ยนต้องใส่ PIN เดิม หรือเพิ่ง login ภายใน 10 นาที)
+// สิทธิ์: document:sign — ตั้ง/เปลี่ยน PIN (เปลี่ยนต้องใส่ PIN เดิม หรือยืนยันตัวตนซ้ำภายใน 10 นาที)
 signingPinRouter.put('/me/signing-pin', requirePermission(PERMISSIONS.DOCUMENT_SIGN), async (req, res) => {
-  await setSigningPin(req.user!, req.sessionId!, setBody.parse(req.body));
+  await setSigningPin(req.user!, { sessionId: req.sessionId!, mfa: req.mfa! }, setBody.parse(req.body));
   res.json(await getSigningPinStatus(req.user!));
 });

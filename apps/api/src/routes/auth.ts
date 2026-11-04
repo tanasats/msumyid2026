@@ -79,7 +79,7 @@ authRouter.get('/auth/google/callback', async (req, res) => {
 
 // สิทธิ์: ต้อง login (รวมบัญชีรออนุมัติ เพื่อให้ web แสดงหน้ารออนุมัติได้)
 authRouter.get('/auth/me', requireSession, async (req, res) => {
-  const user = await getCurrentUser(req.user!);
+  const user = await getCurrentUser(req.user!, req.mfa!);
   res.json({ user });
 });
 

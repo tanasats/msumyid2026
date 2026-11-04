@@ -2,7 +2,6 @@ import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOpti
 import { pool } from '../db/pool.js';
 import { withTransaction } from '../db/transaction.js';
 import { AppError } from '../errors.js';
-import { findSessionCreatedAt } from '../repositories/session-repository.js';
 import {
   findSigningPin,
   lockSigningPin,
@@ -11,16 +10,16 @@ import {
   upsertSigningPin,
 } from '../repositories/signing-pin-repository.js';
 import type { AuthUser } from './authorization-service.js';
+import { assertRecentAuth, type ReauthContext } from './reauth-service.js';
 
 // PIN ลงนามเอกสาร (ยืนยัน 2026-10-25) — ยืนยันตัวก่อน server ลงนามด้วย key สำรอง (docs/design/document-signing.md)
 // - เก็บเฉพาะ scrypt hash + salt ต่อผู้ใช้ (ไม่ต้องเพิ่ม dependency)
 // - ใส่ผิดครบ 5 ครั้งติดกัน → ล็อก 15 นาที
-// - เปลี่ยน PIN ต้องใส่ PIN เดิม หรือเพิ่ง login ภายใน 10 นาที (ลืม PIN → login ใหม่แล้วตั้งใหม่)
+// - เปลี่ยน PIN ต้องใส่ PIN เดิม หรือยืนยันตัวตนซ้ำภายใน 10 นาที (reauth-service: รหัส MFA หรือ login ใหม่) — ลืม PIN ก็ตั้งใหม่ได้
 
 export const PIN_PATTERN = /^\d{6,12}$/;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
-const RECENT_LOGIN_MINUTES = 10;
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLength: 32 } as const;
 
 function scrypt(password: string, salt: Buffer, keyLength: number, options: ScryptOptions): Promise<Buffer> {
@@ -108,12 +107,12 @@ export async function verifySigningPin(userId: string, pin: string): Promise<voi
 /**
  * ตั้ง/เปลี่ยน PIN ลงนาม
  * - ยังไม่เคยตั้ง: ตั้งได้เลย
- * - เคยตั้งแล้ว: ใส่ PIN เดิมให้ถูก (นับครั้งที่ผิดเหมือนตอนลงนาม) หรือ login ใหม่ภายใน 10 นาทีที่ผ่านมา (กรณีลืม PIN)
- *   กันผู้ที่ได้ session ไปเปลี่ยน PIN แล้วลงนามแทนเจ้าของ
+ * - เคยตั้งแล้ว: ใส่ PIN เดิมให้ถูก (นับครั้งที่ผิดเหมือนตอนลงนาม) หรือยืนยันตัวตนซ้ำภายใน 10 นาที (กรณีลืม PIN)
+ *   กันผู้ที่ได้ session ไปเปลี่ยน PIN แล้วลงนามแทนเจ้าของ — ต้องยืนยันเสมอ ไม่ขึ้นกับสวิตช์ที่ /admin/settings
  */
 export async function setSigningPin(
   user: AuthUser,
-  sessionId: string,
+  reauth: ReauthContext,
   input: { currentPin: string | null; newPin: string },
 ): Promise<void> {
   if (!PIN_PATTERN.test(input.newPin)) throw new AppError(400, 'PIN_INVALID', 'PIN ต้องเป็นตัวเลข 6–12 หลัก');
@@ -126,15 +125,7 @@ export async function setSigningPin(
     if (input.currentPin) {
       await verifySigningPin(user.id, input.currentPin);
     } else {
-      const loggedInAt = await findSessionCreatedAt(pool, sessionId);
-      const recent = loggedInAt !== null && Date.now() - loggedInAt.getTime() <= RECENT_LOGIN_MINUTES * 60_000;
-      if (!recent) {
-        throw new AppError(
-          403,
-          'RECENT_LOGIN_REQUIRED',
-          `ใส่ PIN เดิม หรือออกจากระบบแล้วเข้าสู่ระบบใหม่ภายใน ${RECENT_LOGIN_MINUTES} นาทีเพื่อตั้ง PIN ใหม่`,
-        );
-      }
+      await assertRecentAuth(reauth);
     }
   }
   await upsertSigningPin(pool, { userId: user.id, pinHash: await hashPin(input.newPin) });

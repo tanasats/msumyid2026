@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requirePermission } from '../middlewares/auth.js';
+import { requireAuth, requirePermission, requireStepUp } from '../middlewares/auth.js';
 import { PERMISSIONS } from '../services/permissions.js';
 import {
   cancelMyPrimaryRequest,
@@ -66,10 +66,12 @@ primaryCertificateRequestsRouter.post(
   },
 );
 
-// สิทธิ์: certificate:apply หรือ certificate:request (ตรวจใน service) — รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
+// สิทธิ์: certificate:apply หรือ certificate:request (ตรวจใน service) + ยืนยันตัวตนซ้ำ (กลุ่ม certificate)
+// รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
 primaryCertificateRequestsRouter.post(
   '/me/primary-certificate-requests/:id/certificate',
   requireAuth,
+  requireStepUp('certificate'),
   async (req, res) => {
     const { id } = requestIdParams.parse(req.params);
     const { certificate, p12, fileName } = await claimPrimaryCertificate(req.user!, id, p12Body.parse(req.body));

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requirePermission } from '../middlewares/auth.js';
+import { requireAuth, requirePermission, requireStepUp } from '../middlewares/auth.js';
 import { PERMISSIONS } from '../services/permissions.js';
 import {
   cancelMySupplementaryRequest,
@@ -49,10 +49,12 @@ supplementaryCertificatesRouter.post(
   },
 );
 
-// สิทธิ์: supplementary_certificate:request — รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
+// สิทธิ์: supplementary_certificate:request + ยืนยันตัวตนซ้ำ (กลุ่ม certificate)
+// รับใบรับรองจากคำขอที่อนุมัติแล้ว ได้ไฟล์ .p12 กลับไปครั้งเดียว
 supplementaryCertificatesRouter.post(
   '/me/supplementary-certificate-requests/:id/certificate',
   requirePermission(PERMISSIONS.SUPPLEMENTARY_CERTIFICATE_REQUEST),
+  requireStepUp('certificate'),
   async (req, res) => {
     const { id } = requestIdParams.parse(req.params);
     const input = p12Body.parse(req.body);

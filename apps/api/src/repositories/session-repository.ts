@@ -21,6 +21,12 @@ export type SessionUserRow = {
   privacyAcknowledged: boolean;
   roles: string[];
   permissions: string[];
+  /** เปิด MFA แล้ว (ยืนยันรหัสแรกแล้ว) */
+  mfaEnabled: boolean;
+  /** ถือ role ที่บังคับ MFA อย่างน้อย 1 role */
+  mfaRequired: boolean;
+  /** session นี้ยืนยัน MFA ล่าสุดเมื่อไร (NULL = ยังไม่ยืนยัน) */
+  mfaVerifiedAt: Date | null;
 };
 
 export async function insertSession(
@@ -43,6 +49,7 @@ export async function insertSession(
  * - ไม่กรอง is_active ที่นี่ เพื่อให้ service ตัดสินและลบ session ของผู้ใช้ที่ถูกระงับได้
  * - บัญชีที่ถึงวันหมดอายุแล้วถือว่าถูกระงับทันที (isActive = false) ไม่ต้องรอ job ปิดบัญชี
  * - privacyAcknowledged: EXISTS บน UNIQUE (user_id, notice_version) — อ่าน index แถวเดียว ไม่เพิ่มภาระต่อ request
+ * - mfaEnabled: EXISTS บน UNIQUE (user_id) ของ user_mfa_totp, mfaRequired: มี role ที่ถืออยู่และบังคับ MFA หรือไม่
  */
 export async function findSessionUser(
   db: Queryable,
@@ -76,7 +83,18 @@ export async function findSessionUser(
               JOIN permissions p ON p.id = rp.permission_id
               WHERE ur.user_id = u.id
               ORDER BY p.code
-            ) AS permissions
+            ) AS permissions,
+            EXISTS (
+              SELECT 1 FROM user_mfa_totp t
+              WHERE t.user_id = u.id AND t.confirmed_at IS NOT NULL
+            ) AS "mfaEnabled",
+            EXISTS (
+              SELECT 1
+              FROM user_roles ur
+              JOIN roles r ON r.id = ur.role_id
+              WHERE ur.user_id = u.id AND r.mfa_required
+            ) AS "mfaRequired",
+            s.mfa_verified_at  AS "mfaVerifiedAt"
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1
@@ -129,4 +147,27 @@ export async function findSessionCreatedAt(db: Queryable, sessionId: string): Pr
     sessionId,
   ]);
   return result.rows[0]?.createdAt ?? null;
+}
+
+/** session นี้ยืนยัน MFA แล้ว (ตอนเปิด MFA หรือยืนยันซ้ำก่อนทำรายการสำคัญ) */
+export async function markSessionMfaVerified(db: Queryable, sessionId: string): Promise<void> {
+  await db.query(`UPDATE sessions SET mfa_verified_at = now() WHERE id = $1`, [sessionId]);
+}
+
+/**
+ * ยืนยัน MFA ตอนเข้าสู่ระบบ: เปลี่ยน token ของ session พร้อมตั้งเวลาที่ยืนยัน (กัน session fixation —
+ * token ที่ใช้ก่อนยืนยันใช้ต่อไม่ได้) คืนวันหมดอายุเดิมของ session ไว้ตั้ง cookie ใหม่
+ */
+export async function rotateSessionTokenAfterMfa(
+  db: Queryable,
+  input: { sessionId: string; tokenHash: Buffer },
+): Promise<{ expiresAt: Date } | null> {
+  const result = await db.query<{ expiresAt: Date }>(
+    `UPDATE sessions
+     SET token_hash = $2, mfa_verified_at = now()
+     WHERE id = $1 AND expires_at > now()
+     RETURNING expires_at AS "expiresAt"`,
+    [input.sessionId, input.tokenHash],
+  );
+  return result.rows[0] ?? null;
 }

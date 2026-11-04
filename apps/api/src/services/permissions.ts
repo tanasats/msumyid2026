@@ -15,6 +15,8 @@ export const PERMISSIONS = {
   USER_DEACTIVATE: 'user:deactivate',
   /** ลบบัญชีและข้อมูลส่วนบุคคลของผู้ใช้ */
   USER_DELETE: 'user:delete',
+  /** รีเซ็ต MFA ของผู้ใช้อื่น */
+  USER_MFA_RESET: 'user_mfa:reset',
   /** ขอ ดาวน์โหลด และเพิกถอนใบรับรองของตัวเอง */
   CERTIFICATE_REQUEST: 'certificate:request',
   /** ดูใบรับรองของผู้อื่น */

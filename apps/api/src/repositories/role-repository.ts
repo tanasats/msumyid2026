@@ -191,6 +191,8 @@ export async function revokeAllRolesByActor(
 // ---- หน้ากำหนด role และสิทธิ์ (/admin/roles — super_admin เท่านั้น) ----
 
 export type RoleWithAccess = RoleRow & {
+  /** ผู้ถือ role นี้ต้องตั้งค่า MFA (docs/design/mfa.md) */
+  mfaRequired: boolean;
   /** ผู้ใช้ที่ถือ role นี้ (ไม่นับบัญชีที่ถูกลบ) */
   holderCount: number;
   permissionCodes: string[];
@@ -207,6 +209,7 @@ export async function listRolesWithAccess(db: Queryable): Promise<RoleWithAccess
             r.name_th       AS "nameTh",
             r.is_system     AS "isSystem",
             r.is_privileged AS "isPrivileged",
+            r.mfa_required  AS "mfaRequired",
             (SELECT count(*)::int
              FROM user_roles ur
              JOIN users u ON u.id = ur.user_id
@@ -224,13 +227,14 @@ export async function listRolesWithAccess(db: Queryable): Promise<RoleWithAccess
 }
 
 /** อ่าน role พร้อมล็อกแถว (FOR UPDATE) — การแก้ role เดียวกันพร้อมกันต้องทำทีละรายการ (diff สิทธิ์จึงถูกต้อง) */
-export async function lockRoleByCode(db: Queryable, code: string): Promise<RoleRow | null> {
-  const result = await db.query<RoleRow>(
+export async function lockRoleByCode(db: Queryable, code: string): Promise<(RoleRow & { mfaRequired: boolean }) | null> {
+  const result = await db.query<RoleRow & { mfaRequired: boolean }>(
     `SELECT id,
             code,
             name_th       AS "nameTh",
             is_system     AS "isSystem",
-            is_privileged AS "isPrivileged"
+            is_privileged AS "isPrivileged",
+            mfa_required  AS "mfaRequired"
      FROM roles
      WHERE code = $1
      FOR UPDATE`,
@@ -252,6 +256,11 @@ export async function insertRole(
     [input.code, input.nameTh, input.isPrivileged],
   );
   return result.rows[0] ?? null;
+}
+
+/** เปิด/ปิดการบังคับ MFA ของ role — มีผลกับ request ถัดไปของผู้ถือ role ทันที (findSessionUser อ่านใหม่ทุกครั้ง) */
+export async function updateRoleMfaRequired(db: Queryable, input: { id: string; mfaRequired: boolean }): Promise<void> {
+  await db.query(`UPDATE roles SET mfa_required = $2 WHERE id = $1`, [input.id, input.mfaRequired]);
 }
 
 export async function updateRoleName(db: Queryable, input: { id: string; nameTh: string }): Promise<void> {
@@ -278,7 +287,7 @@ export async function deleteRolePermission(db: Queryable, input: { roleId: strin
   return result.rowCount === 1;
 }
 
-export type RolePermissionLogAction = 'create' | 'rename' | 'grant' | 'revoke';
+export type RolePermissionLogAction = 'create' | 'rename' | 'grant' | 'revoke' | 'mfa_required';
 
 export async function insertRolePermissionLog(
   db: Queryable,

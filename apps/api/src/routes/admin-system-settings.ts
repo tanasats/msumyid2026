@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middlewares/auth.js';
+import { requireAuth, requireStepUp } from '../middlewares/auth.js';
+import { MFA_STEP_UP_ACTIONS } from '../services/reauth-service.js';
 import { changeSystemSettings, getSystemSettingsForAdmin } from '../services/system-settings-service.js';
 
 // ค่าตั้งของระบบ (หน้า /admin/settings)
@@ -23,6 +24,7 @@ const settingsBody = z.object({
   crlValidityDays: z.number().int().min(1).max(30),
   crlReissueHours: z.number().int().min(1).max(168),
   primaryReissueLimit: z.number().int().min(0).max(20),
+  mfaStepUpActions: z.array(z.enum(MFA_STEP_UP_ACTIONS)).max(MFA_STEP_UP_ACTIONS.length),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
 });
 
@@ -31,8 +33,9 @@ adminSystemSettingsRouter.get('/admin/system-settings', requireAuth, async (req,
   res.json(await getSystemSettingsForAdmin(req.user!));
 });
 
-// สิทธิ์: super_admin เท่านั้น — แก้ค่าตั้ง (ส่งครบทุกช่อง) มีผลทันที
-adminSystemSettingsRouter.put('/admin/system-settings', requireAuth, async (req, res) => {
-  await changeSystemSettings(req.user!, settingsBody.parse(req.body));
+// สิทธิ์: super_admin เท่านั้น + ยืนยันตัวตนซ้ำ (กลุ่ม system_settings; แก้รายการที่ต้องยืนยันซ้ำ = ต้องยืนยันเสมอ)
+// แก้ค่าตั้ง (ส่งครบทุกช่อง) มีผลทันที
+adminSystemSettingsRouter.put('/admin/system-settings', requireAuth, requireStepUp('system_settings'), async (req, res) => {
+  await changeSystemSettings(req.user!, { sessionId: req.sessionId!, mfa: req.mfa! }, settingsBody.parse(req.body));
   res.json(await getSystemSettingsForAdmin(req.user!));
 });

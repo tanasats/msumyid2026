@@ -92,6 +92,12 @@ describe('แม่แบบ', () => {
       params: { kind: 'primary', serialNumber: '1abc', notAfter: '2027-05-31T16:59:59.000Z', daysBefore: 30 },
     },
     { template: 'approver_digest', params: { primaryRequests: 3, revocationRequests: 1 } },
+    { template: 'mfa_enabled', params: {} },
+    { template: 'mfa_disabled', params: {} },
+    { template: 'mfa_recovery_code_used', params: { remaining: 2 } },
+    { template: 'mfa_recovery_codes_regenerated', params: {} },
+    { template: 'mfa_locked', params: { lockedUntil: '2026-11-04T05:15:00.000Z' } },
+    { template: 'mfa_reset_by_admin', params: { reason: 'โทรศัพท์หาย' } },
   ];
 
   it('ทุกแม่แบบแสดงผลได้: มีชื่อผู้รับ ลิงก์ไป WEB_URL และไม่มีค่าว่าง/undefined', () => {

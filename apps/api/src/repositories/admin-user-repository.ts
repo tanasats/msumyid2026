@@ -251,7 +251,12 @@ export type UserAuditAction =
   | 'approve'
   | 'reject'
   | 'link_google'
-  | 'expire';
+  | 'expire'
+  | 'mfa_enable'
+  | 'mfa_disable'
+  | 'mfa_reset'
+  | 'mfa_recovery_used'
+  | 'mfa_recovery_regenerate';
 
 /** บันทึกประวัติการจัดการบัญชี — changes ห้ามมีค่าข้อมูลส่วนบุคคล (ดูคอมเมนต์ใน migration) */
 export async function insertUserAuditLog(

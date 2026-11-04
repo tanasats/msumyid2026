@@ -11,6 +11,7 @@ import {
   listRolePermissionLogs,
   listRolesWithAccess,
   lockRoleByCode,
+  updateRoleMfaRequired,
   updateRoleName,
   type RolePermissionLog,
   type RoleWithAccess,
@@ -18,6 +19,7 @@ import {
 import type { Queryable } from '../db/types.js';
 import { canManageRoles, roleHasAllPermissions, type AuthUser } from './authorization-service.js';
 import { PERMISSIONS } from './permissions.js';
+import { assertRecentAuth, type ReauthContext } from './reauth-service.js';
 
 // กำหนด role และสิทธิ์ของ role (หน้า /admin/roles) — super_admin เท่านั้น (canManageRoles)
 // นักพัฒนาประกาศ permission ผ่าน migration ส่วน super_admin สร้าง role และผูก permission ที่นี่ (CLAUDE.md หัวข้อ 9)
@@ -176,6 +178,34 @@ export async function setRoleCertificateMode(
       actorId: actor.id,
       roleId: role.id,
       wanted: [...others, ...MODE_PERMISSIONS[input.mode]],
+      reason: input.reason,
+    });
+  });
+}
+
+/**
+ * เปิด/ปิด "บังคับ MFA" ของ role (docs/design/mfa.md) — ใช้ได้ทุก role รวม role ระบบ
+ * เปิด = ผู้ถือ role ที่ยังไม่ตั้งค่าต้องตั้งค่าก่อนใช้ระบบ (MFA_ENROLLMENT_REQUIRED) และปิด MFA เองไม่ได้
+ * ปิด = ลดความปลอดภัยของผู้ถือ role ทั้งหมด → ต้องยืนยันตัวตนซ้ำเสมอ ไม่ขึ้นกับสวิตช์กลุ่ม role ที่ /admin/settings
+ */
+export async function setRoleMfaRequired(
+  actor: AuthUser,
+  reauth: ReauthContext,
+  code: string,
+  input: { required: boolean; reason: string },
+): Promise<void> {
+  assertCanManageRoles(actor);
+  if (!input.required) await assertRecentAuth(reauth);
+  await withTransaction(async (client) => {
+    const role = await lockRoleByCode(client, code);
+    if (!role) throw new AppError(404, 'ROLE_NOT_FOUND', 'ไม่พบ role ที่ระบุ');
+    if (role.mfaRequired === input.required) throw new AppError(400, 'NO_CHANGES', 'ค่าเหมือนเดิม ไม่มีอะไรเปลี่ยน');
+    await updateRoleMfaRequired(client, { id: role.id, mfaRequired: input.required });
+    await insertRolePermissionLog(client, {
+      actorId: actor.id,
+      roleId: role.id,
+      action: 'mfa_required',
+      detail: { from: role.mfaRequired, to: input.required },
       reason: input.reason,
     });
   });

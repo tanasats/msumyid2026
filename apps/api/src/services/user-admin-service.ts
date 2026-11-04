@@ -31,6 +31,7 @@ import {
   type RoleRow,
 } from '../repositories/role-repository.js';
 import { findActiveOrgUnit, listActiveOrgUnits, type OrgUnitRow } from '../repositories/org-unit-repository.js';
+import { findMfaTotpStatus } from '../repositories/mfa-repository.js';
 import { deleteSessionsByUser, type AccountType } from '../repositories/session-repository.js';
 import { findUsersByEmail } from '../repositories/user-repository.js';
 import { deleteStaffProfile, findStaffProfileByUserId, type StaffProfileRow } from '../repositories/staff-profile-repository.js';
@@ -40,6 +41,7 @@ import { erasePersonalDataFromPrimaryRequests } from '../repositories/primary-ce
 import { erasePersonalDataFromRevocationRequests } from '../repositories/certificate-revocation-request-repository.js';
 import { expireFilesOfUser } from '../repositories/file-repository.js';
 import { deleteSigningPin } from '../repositories/signing-pin-repository.js';
+import { deleteMfaOfUser } from '../repositories/mfa-repository.js';
 import { eraseSigningJobNamesOfUser } from '../repositories/signing-repository.js';
 import { deleteSignatureImage } from '../repositories/signature-image-repository.js';
 import { deleteEmailsOfUser } from '../repositories/email-outbox-repository.js';
@@ -49,6 +51,7 @@ import {
 } from '../repositories/user-notification-repository.js';
 import { notify } from './user-notification-service.js';
 import { canGrantRole, canManageUser, type AuthUser, type RoleChangeDenial } from './authorization-service.js';
+import { resetMfaOfUser } from './mfa-service.js';
 import { revokeCertificatesOfClosedAccount } from './certificate-service.js';
 import { issueCrlSafely } from './crl-service.js';
 import { SUPER_ADMIN_ROLE } from './permissions.js';
@@ -72,14 +75,17 @@ export type UserDetail = {
   /** ผู้ดูแลคนปัจจุบันจัดการบัญชีนี้ได้หรือไม่ (ตามกฎ canManageUser: ตัวเองได้เฉพาะ super_admin) — ใช้ซ่อนปุ่มบนหน้าจอเท่านั้น */
   manageable: boolean;
   isSelf: boolean;
+  /** เปิด MFA แล้วหรือยัง (แสดงปุ่มรีเซ็ต) — ไม่คืน secret หรือรหัสใด ๆ */
+  mfaEnabled: boolean;
 };
 
 export async function getUserDetail(actor: AuthUser, userId: string): Promise<UserDetail> {
   const user = await findUserDetail(pool, userId);
   if (!user) throw notFound();
-  const [staffProfile, history] = await Promise.all([
+  const [staffProfile, history, mfa] = await Promise.all([
     findStaffProfileByUserId(pool, userId),
     listUserHistory(pool, userId, HISTORY_LIMIT),
+    findMfaTotpStatus(pool, userId),
   ]);
   const hasPrivilegedRole = user.roles.some((r) => r.isPrivileged);
   return {
@@ -88,6 +94,7 @@ export async function getUserDetail(actor: AuthUser, userId: string): Promise<Us
     history,
     manageable: canManageUser(actor, { id: user.id, hasPrivilegedRole }) === null,
     isSelf: actor.id === user.id,
+    mfaEnabled: mfa?.confirmedAt != null,
   };
 }
 
@@ -482,6 +489,8 @@ export async function deleteUser(
     const erasedSigningJobs = await eraseSigningJobNamesOfUser(client, userId);
     await deleteSigningPin(client, userId);
     await deleteSignatureImage(client, userId);
+    // MFA: secret (เข้ารหัส) และ hash ของรหัสกู้คืน — แถว users ไม่ถูกลบจริง (anonymize) ON DELETE CASCADE จึงไม่ทำงาน
+    const deletedMfa = await deleteMfaOfUser(client, userId);
     // อีเมลในคิว (รวมที่ยังไม่ส่ง) มีบันทึกของผู้อนุมัติได้ — ลบพร้อมข้อมูลอื่น
     const deletedEmails = await deleteEmailsOfUser(client, userId);
     // การแจ้งเตือนในระบบมีเหตุผล/บันทึกของผู้พิจารณาเช่นกัน + การตั้งค่าการแจ้งเตือน
@@ -506,6 +515,7 @@ export async function deleteUser(
         deletedKeyEscrows: erased.keyEscrows,
         deletedEmails,
         deletedNotifications,
+        deletedMfa,
       },
       reason,
     });
@@ -585,5 +595,16 @@ export async function preRegisterUser(
       reason,
     });
     return { id: userId };
+  });
+}
+
+/**
+ * รีเซ็ต MFA ของผู้ใช้อื่น (user_mfa:reset ที่ route + กฎ canManageUser) — ผู้ใช้ทำโทรศัพท์หายและไม่มีรหัสกู้คืน
+ * ผู้ถือ role ที่บังคับ MFA จะถูกขอให้ตั้งค่าใหม่ตอนเข้าสู่ระบบครั้งถัดไป
+ */
+export async function resetUserMfa(actor: AuthUser, userId: string, reason: string): Promise<void> {
+  await withTransaction(async (client) => {
+    await lockTarget(client, actor, userId);
+    await resetMfaOfUser(client, { actorId: actor.id, userId, reason });
   });
 }

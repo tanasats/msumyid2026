@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config/index.js';
 import { AppError } from '../errors.js';
-import { requireAuth, requirePermission } from '../middlewares/auth.js';
+import { requireAuth, requirePermission, requireStepUp } from '../middlewares/auth.js';
 import {
   SELF_REVOCATION_REASONS,
   downloadMyCertificateP12,
@@ -32,8 +32,12 @@ certificatesRouter.get('/me/certificates', requireAuth, async (req, res) => {
   res.json({ certificates, primaryRequest });
 });
 
-// สิทธิ์: certificate:request — ขอใบรับรองใหม่ได้ไฟล์ .p12 กลับไปครั้งเดียว (ระบบไม่เก็บไฟล์และรหัสผ่าน)
-certificatesRouter.post('/me/certificates', requirePermission(PERMISSIONS.CERTIFICATE_REQUEST), async (req, res) => {
+// สิทธิ์: certificate:request + ยืนยันตัวตนซ้ำ (กลุ่ม certificate) — ขอใบรับรองใหม่ได้ไฟล์ .p12 กลับไปครั้งเดียว (ระบบไม่เก็บไฟล์และรหัสผ่าน)
+certificatesRouter.post(
+  '/me/certificates',
+  requirePermission(PERMISSIONS.CERTIFICATE_REQUEST),
+  requireStepUp('certificate'),
+  async (req, res) => {
   const input = p12Body.parse(req.body);
   const { certificate, p12 } = await requestCertificate(req.user!, input);
   // ไฟล์ที่มี private key ห้ามถูกเก็บใน cache ใด ๆ
@@ -43,7 +47,8 @@ certificatesRouter.post('/me/certificates', requirePermission(PERMISSIONS.CERTIF
     p12: p12.toString('base64'),
     fileName: `${certificate.email}.p12`,
   });
-});
+  },
+);
 
 const certificateIdParams = z.object({ id: z.uuid() });
 const revokeBody = z.object({ reason: z.enum(SELF_REVOCATION_REASONS) });
@@ -61,11 +66,12 @@ certificatesRouter.post(
   },
 );
 
-// สิทธิ์: ตามประเภทใบ (ตรวจใน service) เหมือนการเพิกถอน
+// สิทธิ์: ตามประเภทใบ (ตรวจใน service) เหมือนการเพิกถอน + ยืนยันตัวตนซ้ำ (กลุ่ม certificate)
 // ดาวน์โหลด .p12 ใหม่จาก key สำรอง ด้วยรหัสผ่านใหม่ (ใบรับรองเดิม)
 certificatesRouter.post(
   '/me/certificates/:id/p12',
   requireAuth,
+  requireStepUp('certificate'),
   async (req, res) => {
     const { id } = certificateIdParams.parse(req.params);
     const input = p12Body.parse(req.body);

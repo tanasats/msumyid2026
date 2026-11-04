@@ -4,7 +4,8 @@ import { config } from '../config/index.js';
 import { AppError } from '../errors.js';
 import { hasPermission, type AuthUser } from '../services/authorization-service.js';
 import type { Permission } from '../services/permissions.js';
-import { resolveSession } from '../services/session-service.js';
+import { assertStepUp, type StepUpAction } from '../services/reauth-service.js';
+import { resolveSession, type MfaSessionState } from '../services/session-service.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace -- วิธีมาตรฐานในการเพิ่ม field ให้ Request ของ Express
@@ -13,6 +14,8 @@ declare global {
       /** ผู้ใช้จาก session (ตั้งโดย loadSession) — undefined = ยังไม่ login */
       user?: AuthUser;
       sessionId?: string;
+      /** สถานะ MFA ของ session (ตั้งพร้อม user) */
+      mfa?: MfaSessionState;
     }
   }
 }
@@ -85,6 +88,7 @@ export const loadSession: RequestHandler = async (req, res, next) => {
   if (session) {
     req.user = session.user;
     req.sessionId = session.sessionId;
+    req.mfa = session.mfa;
   } else {
     clearSessionCookie(res);
   }
@@ -100,29 +104,72 @@ export const requireSession: RequestHandler = (req, _res, next) => {
   next();
 };
 
+const mfaRequiredError = () =>
+  new AppError(403, 'MFA_REQUIRED', 'กรุณายืนยันตัวตนด้วยรหัสจากแอป Authenticator ก่อนใช้งาน');
+
+/** session ที่ผู้ใช้เปิด MFA แต่ยังไม่ได้ใส่รหัส */
+const mfaPending = (mfa: MfaSessionState | undefined) => mfa?.enabled === true && mfa.verifiedAt === null;
+
 /**
- * ต้อง login, รับทราบประกาศความเป็นส่วนตัวเวอร์ชันปัจจุบัน และบัญชีได้รับอนุมัติแล้ว — ค่าเริ่มต้นของ endpoint ที่ "ต้อง login เท่านั้น"
- * ตรวจการรับทราบก่อนสถานะบัญชี: ผู้ใช้ทุกคน (รวมรออนุมัติ) ต้องรับทราบก่อนใช้ระบบ (ยืนยัน 2026-10-26)
+ * ต้อง login และผ่าน MFA ของ session นี้แล้ว (ถ้าเปิดไว้) แต่สถานะบัญชีใดก็ได้
+ * ใช้กับ endpoint ที่ต้องเรียกได้ก่อนรับทราบประกาศ/ก่อนอนุมัติ เช่น กดรับทราบประกาศความเป็นส่วนตัว
  */
-export const requireAuth: RequestHandler = (req, _res, next) => {
+export const requireMfaPassed: RequestHandler = (req, _res, next) => {
   if (!req.user) {
     next(new AppError(401, 'UNAUTHENTICATED', 'กรุณาเข้าสู่ระบบ'));
     return;
   }
-  if (!req.user.privacyAcknowledged) {
-    next(new AppError(403, 'PRIVACY_NOTICE_REQUIRED', 'กรุณาอ่านและรับทราบประกาศความเป็นส่วนตัวก่อนใช้งาน'));
-    return;
-  }
-  if (req.user.approvalStatus === 'pending') {
-    next(new AppError(403, 'ACCOUNT_PENDING', 'บัญชีของคุณอยู่ระหว่างรอการอนุมัติ'));
-    return;
-  }
-  if (req.user.approvalStatus === 'rejected') {
-    next(new AppError(403, 'ACCOUNT_REJECTED', 'บัญชีของคุณไม่ได้รับการอนุมัติ'));
-    return;
-  }
-  next();
+  next(mfaPending(req.mfa) ? mfaRequiredError() : undefined);
 };
+
+/**
+ * ตรวจตามลำดับ (docs/design/mfa.md):
+ * 1. login แล้ว
+ * 2. ผ่าน MFA ของ session นี้ (ถ้าเปิดไว้) — ก่อนทุกอย่าง เพราะผู้ที่ได้ session ไปยังไม่ได้พิสูจน์ปัจจัยที่สอง
+ * 3. รับทราบประกาศความเป็นส่วนตัว (ยืนยัน 2026-10-26) — ก่อนตั้งค่า MFA เพราะการตั้งค่าคือการเก็บข้อมูลยืนยันตัวตนใหม่
+ * 4. ตั้งค่า MFA แล้วถ้า role ที่ถือบังคับ (ข้ามได้เฉพาะ endpoint ตั้งค่า MFA เอง)
+ * 5. บัญชีได้รับอนุมัติแล้ว
+ */
+function checkAuth(options: { allowMfaEnrollment: boolean }): RequestHandler {
+  return (req, _res, next) => {
+    if (!req.user) {
+      next(new AppError(401, 'UNAUTHENTICATED', 'กรุณาเข้าสู่ระบบ'));
+      return;
+    }
+    if (mfaPending(req.mfa)) {
+      next(mfaRequiredError());
+      return;
+    }
+    if (!req.user.privacyAcknowledged) {
+      next(new AppError(403, 'PRIVACY_NOTICE_REQUIRED', 'กรุณาอ่านและรับทราบประกาศความเป็นส่วนตัวก่อนใช้งาน'));
+      return;
+    }
+    if (!options.allowMfaEnrollment && req.mfa?.required && !req.mfa.enabled) {
+      next(
+        new AppError(403, 'MFA_ENROLLMENT_REQUIRED', 'บัญชีของคุณต้องตั้งค่าการยืนยันตัวตนสองขั้นตอนก่อนใช้งาน'),
+      );
+      return;
+    }
+    if (req.user.approvalStatus === 'pending') {
+      next(new AppError(403, 'ACCOUNT_PENDING', 'บัญชีของคุณอยู่ระหว่างรอการอนุมัติ'));
+      return;
+    }
+    if (req.user.approvalStatus === 'rejected') {
+      next(new AppError(403, 'ACCOUNT_REJECTED', 'บัญชีของคุณไม่ได้รับการอนุมัติ'));
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * ต้อง login, ผ่าน MFA (ถ้าเปิด/บังคับ), รับทราบประกาศความเป็นส่วนตัวเวอร์ชันปัจจุบัน และบัญชีได้รับอนุมัติแล้ว
+ * — ค่าเริ่มต้นของ endpoint ที่ "ต้อง login เท่านั้น"
+ */
+export const requireAuth: RequestHandler = checkAuth({ allowMfaEnrollment: false });
+
+/** เหมือน requireAuth แต่ยอมให้ผู้ที่ role บังคับ MFA และยังไม่ได้ตั้งค่า — ใช้กับ endpoint ตั้งค่า MFA เท่านั้น */
+export const requireAuthForMfaSetup: RequestHandler = checkAuth({ allowMfaEnrollment: true });
 
 /** ต้องมี permission ที่ระบุ (รวมการตรวจ requireAuth ไว้แล้ว) */
 export function requirePermission(permission: Permission): RequestHandler {
@@ -138,5 +185,16 @@ export function requirePermission(permission: Permission): RequestHandler {
       }
       next();
     });
+  };
+}
+
+/**
+ * ต้องยืนยันตัวตนซ้ำภายใน 10 นาที ถ้า super_admin เปิดกลุ่มนี้ไว้ (reauth-service) — วางต่อจาก requireAuth/requirePermission
+ * หน้าเว็บจับ MFA_STEP_UP_REQUIRED / RECENT_LOGIN_REQUIRED แล้วขอรหัส (StepUpDialog) ก่อนส่งคำขอเดิมซ้ำ
+ */
+export function requireStepUp(action: StepUpAction): RequestHandler {
+  return async (req, _res, next) => {
+    await assertStepUp({ sessionId: req.sessionId!, mfa: req.mfa! }, action);
+    next();
   };
 }

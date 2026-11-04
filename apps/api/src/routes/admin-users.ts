@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requirePermission } from '../middlewares/auth.js';
+import { requirePermission, requireStepUp } from '../middlewares/auth.js';
 import { PERMISSIONS } from '../services/permissions.js';
 import {
   activateUser,
@@ -13,6 +13,7 @@ import {
   listRolesForActor,
   preRegisterUser,
   rejectUser,
+  resetUserMfa,
   revokeRole,
   searchUsers,
   updateUser,
@@ -127,10 +128,11 @@ adminUsersRouter.post('/admin/users/:id/reject', requirePermission(PERMISSIONS.U
   res.status(204).end();
 });
 
-// สิทธิ์: user_role:assign (role สิทธิ์สูงต้องเป็น super_admin — ตรวจใน canGrantRole)
+// สิทธิ์: user_role:assign (role สิทธิ์สูงต้องเป็น super_admin — ตรวจใน canGrantRole) + ยืนยันตัวตนซ้ำ (กลุ่ม role)
 adminUsersRouter.post(
   '/admin/users/:id/roles/:roleCode',
   requirePermission(PERMISSIONS.USER_ROLE_ASSIGN),
+  requireStepUp('role'),
   async (req, res) => {
     const { id, roleCode } = userRoleParams.parse(req.params);
     const { reason } = reasonBody.parse(req.body);
@@ -139,14 +141,29 @@ adminUsersRouter.post(
   },
 );
 
-// สิทธิ์: user_role:assign — ถอน role (เหตุผลส่งใน body)
+// สิทธิ์: user_role:assign + ยืนยันตัวตนซ้ำ (กลุ่ม role) — ถอน role (เหตุผลส่งใน body)
 adminUsersRouter.delete(
   '/admin/users/:id/roles/:roleCode',
   requirePermission(PERMISSIONS.USER_ROLE_ASSIGN),
+  requireStepUp('role'),
   async (req, res) => {
     const { id, roleCode } = userRoleParams.parse(req.params);
     const { reason } = reasonBody.parse(req.body);
     await revokeRole(req.user!, id, roleCode, reason);
+    res.status(204).end();
+  },
+);
+
+// สิทธิ์: user_mfa:reset (กฎ canManageUser — บัญชีผู้ดูแลต้องเป็น super_admin) + ยืนยันตัวตนซ้ำ (กลุ่ม user_admin)
+// รีเซ็ต MFA ของผู้ใช้ที่ทำโทรศัพท์หาย — ลบการตั้งค่าและออกจากระบบทุกอุปกรณ์
+adminUsersRouter.post(
+  '/admin/users/:id/mfa/reset',
+  requirePermission(PERMISSIONS.USER_MFA_RESET),
+  requireStepUp('user_admin'),
+  async (req, res) => {
+    const { id } = userIdParams.parse(req.params);
+    const { reason } = reasonBody.parse(req.body);
+    await resetUserMfa(req.user!, id, reason);
     res.status(204).end();
   },
 );
@@ -185,8 +202,8 @@ const deleteBody = z.object({
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผล').max(500),
 });
 
-// สิทธิ์: user:delete — ลบบัญชีและข้อมูลส่วนบุคคล (ย้อนกลับไม่ได้ ต้องพิมพ์อีเมลยืนยัน)
-adminUsersRouter.delete('/admin/users/:id', requirePermission(PERMISSIONS.USER_DELETE), async (req, res) => {
+// สิทธิ์: user:delete + ยืนยันตัวตนซ้ำ (กลุ่ม user_admin) — ลบบัญชีและข้อมูลส่วนบุคคล (ย้อนกลับไม่ได้ ต้องพิมพ์อีเมลยืนยัน)
+adminUsersRouter.delete('/admin/users/:id', requirePermission(PERMISSIONS.USER_DELETE), requireStepUp('user_admin'), async (req, res) => {
   const { id } = userIdParams.parse(req.params);
   const { confirmEmail, reason } = deleteBody.parse(req.body);
   await deleteUser(req.user!, id, confirmEmail, reason);
