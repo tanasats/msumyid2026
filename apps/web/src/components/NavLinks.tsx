@@ -31,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'จัดการระบบ',
     shortLabel: 'จัดการ',
     icon: LayoutDashboard,
-    permission: ['user:read', 'certificate:read', 'certificate_policy:manage'],
+    permission: ['user:read', 'certificate:read', 'certificate_policy:manage', 'org_unit:manage'],
   },
   // คำขอที่รออนุมัติ (ใบประจำตัว + ใบเสริม = certificate:approve, เพิกถอน = certificate:revoke)
   // ทางเข้าของผู้อนุมัติที่ไม่เห็น จัดการระบบ — เห็น จัดการระบบ แล้วเข้าคิวจากส่วน รอดำเนินการ ได้ จึงซ่อน (ตัดสินใจ 2026-10-31)

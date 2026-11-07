@@ -66,7 +66,8 @@ export default async function AdminUsersPage({
   const canOpenSettings =
     user.capabilities.manageSettings ||
     user.capabilities.manageRoles ||
-    user.permissions.includes('certificate_policy:manage');
+    user.permissions.includes('certificate_policy:manage') ||
+    user.permissions.includes('org_unit:manage');
 
   return (
     <PageShell title="จัดการผู้ใช้" user={user}>
