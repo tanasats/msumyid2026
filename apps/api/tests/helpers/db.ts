@@ -22,6 +22,10 @@ export async function resetDatabase(): Promise<void> {
     await client.query('ALTER TABLE role_permission_logs DISABLE TRIGGER trg_role_permission_logs_no_truncate');
     await client.query('TRUNCATE role_permission_logs');
     await client.query('ALTER TABLE role_change_logs DISABLE TRIGGER trg_role_change_logs_no_truncate');
+    // ประวัติการจับคู่หน่วยงาน ERP — TRUNCATE erp_org_units/users CASCADE มาถึง (FK)
+    await client.query(
+      'ALTER TABLE erp_org_unit_mapping_logs DISABLE TRIGGER trg_erp_org_unit_mapping_logs_no_truncate',
+    );
     await client.query('ALTER TABLE user_audit_logs DISABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE certificate_audit_logs DISABLE TRIGGER trg_certificate_audit_logs_no_truncate');
     await client.query(
@@ -51,6 +55,9 @@ export async function resetDatabase(): Promise<void> {
     );
     await client.query('ALTER TABLE user_audit_logs ENABLE TRIGGER trg_user_audit_logs_no_truncate');
     await client.query('ALTER TABLE role_change_logs ENABLE TRIGGER trg_role_change_logs_no_truncate');
+    await client.query(
+      'ALTER TABLE erp_org_unit_mapping_logs ENABLE TRIGGER trg_erp_org_unit_mapping_logs_no_truncate',
+    );
     await client.query(`DELETE FROM role_permissions`);
     await client.query(`DELETE FROM roles WHERE code LIKE 'test\\_%'`);
     // ค่าเริ่มต้นของ test: ไม่บังคับ MFA กับ role ใด (migration บังคับ super_admin/admin) — test ส่วนใหญ่ไม่เกี่ยวกับ MFA
