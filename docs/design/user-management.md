@@ -42,6 +42,7 @@
 | 5 | บัญชีหน่วยงาน (`service`): หน่วยงาน + ผู้รับผิดชอบก่อนอนุมัติ, วันหมดอายุ + ปิดอัตโนมัติ | เสร็จ |
 | 6 | บัญชีรอจำแนกประเภท (`unclassified`): บัญชี มมส. ใหม่ที่ ERP ไม่ยืนยัน (ไม่พบ/ล่ม) → รออนุมัติ, ผู้อนุมัติเลือกบุคลากรภายนอกหรือบัญชีหน่วยงาน (แก้ไขข้อมูล → ประเภทบัญชี) ก่อนอนุมัติ, login ครั้งถัดไป ERP พบ → บุคลากรอัตโนมัติ | เสร็จ |
 | 7 | หน้าบทบาทและสิทธิ์ `/admin/roles` (super_admin เท่านั้น): สร้างบทบาท, เปลี่ยนชื่อ, กำหนดชุดสิทธิ์ + ประวัติ `role_permission_logs` | เสร็จ |
+| 8 | หน้าจับคู่หน่วยงาน ERP `/admin/org-units` (`org_unit:manage`): จับคู่เอง (`manual`), คืนให้ระบบจับคู่จากชื่อ, หน่วยงานของบุคลากรเปลี่ยนทันที + ประวัติ `erp_org_unit_mapping_logs` | เสร็จ |
 | แยก | บัญชีแบบรหัสผ่าน (ต้องมีระบบอีเมลก่อน) | ยังไม่ทำ |
 
 ## API
@@ -57,10 +58,19 @@
 | POST · DELETE | `/admin/users/:id/roles/:roleCode` (บังคับเหตุผล) | `user_role:assign` |
 | PATCH | `/admin/users/:id` (`displayNameOverride`, `accountType`, `orgUnitId`, `responsibleUserId`, `accountExpiresAt` + บังคับเหตุผล) | `user:update` |
 | GET | `/admin/org-units` | `user:read` |
+| GET | `/admin/erp-org-units?status=&level=&q=&page=` — หน่วยงาน ERP 50 รายการต่อหน้า (`status` = unmatched (ค่าเริ่มต้น) / auto / manual / all, ยังไม่จับคู่ก่อน แล้วตามจำนวนบุคลากร) + `unmatchedCount` + ตัวเลือก `orgUnits` | `org_unit:manage` |
+| GET | `/admin/erp-org-units/:id/logs` — ประวัติการจับคู่ 50 รายการล่าสุด | `org_unit:manage` |
+| PUT | `/admin/erp-org-units/:id/mapping` (`orgUnitId`, `reason`) — จับคู่เอง (`manual` — login ไม่ทับ) คืน `affectedUsers`; ค่าเดิม = 409 `MAPPING_UNCHANGED`, หน่วยงานปิด = 422 `ORG_UNIT_INACTIVE` | `org_unit:manage` + step-up (`system_settings`) |
+| DELETE | `/admin/erp-org-units/:id/mapping` (`reason`) — คืนให้ระบบจับคู่จากชื่อ (เฉพาะ `manual` ไม่ใช่ = 409 `MAPPING_NOT_MANUAL`) คืน `affectedUsers`, `matched` | `org_unit:manage` + step-up (`system_settings`) |
 | DELETE | `/admin/users/:id` (`confirmEmail` + บังคับเหตุผล) — ลบข้อมูลส่วนบุคคล ย้อนกลับไม่ได้ | `user:delete` |
 | GET | `/admin/role-permissions` — บทบาททั้งหมด (จำนวนผู้ถือ, สิทธิ์, `hasAllPermissions`) + permission ทั้งหมด + ประวัติ 30 รายการ | super_admin (`canManageRoles`) |
 | POST | `/admin/role-permissions/roles` (`code`, `nameTh`, `isPrivileged`, `reason`) — สร้างบทบาท (ไม่ใช่บทบาทระบบ, `isPrivileged` เปลี่ยนภายหลังไม่ได้) | super_admin |
 | PATCH | `/admin/role-permissions/roles/:code` (`nameTh`, `reason`) — เปลี่ยนชื่อไทย (รวมบทบาทระบบ, code เปลี่ยนไม่ได้) | super_admin |
 | PUT | `/admin/role-permissions/roles/:code/permissions` (`permissions[]`, `reason`) — กำหนดชุดสิทธิ์ทั้งชุด ผูก/ถอนเฉพาะที่ต่าง log ทีละรายการ ล็อกแถว role; `super_admin` = 409 `SUPER_ADMIN_HAS_ALL` | super_admin |
+
+การจับคู่หน่วยงาน ERP (ระยะ 8, ตัดสินใจ 2026-11-07):
+- เปลี่ยนการจับคู่แล้วคำนวณ `users.org_unit_id` ใหม่ทันทีให้บุคลากรทุกคนที่ ERP ระบุคณะ/กองนั้น (กฎเดียวกับตอน login: กอง/ฝ่ายก่อน แล้วคณะ/สำนัก) ใน transaction เดียวกับ log
+- ไม่เขียน `user_audit_logs` รายคน — ประวัติอยู่ที่ `erp_org_unit_mapping_logs` (append-only) พร้อมจำนวนบุคลากรที่ได้รับผล (`affected_users`)
+- ยังไม่มีการจับคู่ "ไม่ให้มีหน่วยงาน" แบบกำหนดเอง และหน้านี้ไม่เพิ่ม/แก้ `org_units` (เพิ่มหน่วยงานผ่าน migration)
 
 รายการผู้ใช้แบ่งหน้าแบบ keyset ด้วย `id` (uuidv7 เรียงตามเวลาสร้าง) และค้นหาบางส่วนด้วย index `pg_trgm`
