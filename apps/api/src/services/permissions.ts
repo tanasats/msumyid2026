@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   SUPPLEMENTARY_CERTIFICATE_REQUEST: 'supplementary_certificate:request',
   /** ลงนามเอกสารด้วยใบรับรองของตัวเอง */
   DOCUMENT_SIGN: 'document:sign',
+  /** จับคู่หน่วยงาน ERP กับหน่วยงานในระบบ */
+  ORG_UNIT_MANAGE: 'org_unit:manage',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -149,6 +149,32 @@ export async function syncStaffOrgUnit(db: Queryable, userId: string): Promise<v
 }
 
 /**
+ * คำนวณหน่วยงานใหม่ให้บุคลากรทุกคนที่ ERP ระบุว่าอยู่คณะหรือกองนี้ — หลังผู้ดูแลเปลี่ยนการจับคู่ (มีผลทันที ไม่ต้องรอ login)
+ * - กฎเดียวกับ syncStaffOrgUnit: ใช้ของกอง/ฝ่ายก่อน แล้วค่อยคณะ/สำนัก (เปลี่ยนคณะแต่กองจับคู่แล้ว = ไม่เปลี่ยน)
+ * - เฉพาะบัญชีบุคลากรที่ยังไม่ถูกลบ (ตอน login ก็ sync เฉพาะบุคลากร)
+ * - IS DISTINCT FROM: แก้เฉพาะคนที่ค่าเปลี่ยนจริง — rowCount จึงเป็นจำนวนคนที่ได้รับผล
+ */
+export async function syncStaffOrgUnitsByErpOrgUnit(db: Queryable, erpOrgUnitId: string): Promise<number> {
+  const result = await db.query(
+    `UPDATE users u
+     SET org_unit_id = m.org_unit_id
+     FROM (
+       SELECT sp.user_id, COALESCE(d.org_unit_id, f.org_unit_id) AS org_unit_id
+       FROM staff_profiles sp
+       LEFT JOIN erp_org_units d ON d.id = sp.department_erp_org_unit_id
+       LEFT JOIN erp_org_units f ON f.id = sp.faculty_erp_org_unit_id
+       WHERE sp.department_erp_org_unit_id = $1 OR sp.faculty_erp_org_unit_id = $1
+     ) m
+     WHERE u.id = m.user_id
+       AND u.account_type = 'staff'
+       AND u.deleted_at IS NULL
+       AND u.org_unit_id IS DISTINCT FROM m.org_unit_id`,
+    [erpOrgUnitId],
+  );
+  return result.rowCount ?? 0;
+}
+
+/**
  * ผูกบัญชีที่ผู้ดูแลลงทะเบียนล่วงหน้า (google_sub = NULL) กับบัญชี Google ตอน login ครั้งแรก
  * - หาแถวด้วยอีเมล (ไม่สนตัวพิมพ์) — unique index users_pre_registered_email_idx รับประกันว่ามีไม่เกิน 1 แถว
  * - FOR UPDATE ในซับคิวรีล็อกแถวนั้น กัน login 2 แท็บพร้อมกันผูกซ้ำ

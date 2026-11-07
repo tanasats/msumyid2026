@@ -49,7 +49,7 @@ export default async function HomePage() {
       detail: 'ให้ Acrobat และ Foxit เชื่อถือลายมือชื่อของมหาวิทยาลัย',
     },
     // สิทธิ์ชุดเดียวกับเมนู จัดการระบบ ใน NavLinks
-    ['user:read', 'certificate:read', 'certificate_policy:manage'].some((p) => user.permissions.includes(p))
+    ['user:read', 'certificate:read', 'certificate_policy:manage', 'org_unit:manage'].some((p) => user.permissions.includes(p))
       ? { href: '/admin', icon: LayoutDashboard, title: 'จัดการระบบ', detail: 'งานที่รอดำเนินการ สถานะระบบ และเครื่องมือผู้ดูแล' }
       : { href: '/account', icon: UserRound, title: 'บัญชีของฉัน', detail: 'ข้อมูลบัญชี โหมดสว่าง/มืด และขนาดตัวอักษร' },
   ];

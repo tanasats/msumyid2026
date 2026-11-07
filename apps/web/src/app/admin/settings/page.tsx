@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { CalendarClock, ChevronRight, History, KeyRound, type LucideIcon } from 'lucide-react';
+import { Building2, CalendarClock, ChevronRight, History, KeyRound, type LucideIcon } from 'lucide-react';
 import { SystemSettingsForm } from '@/components/admin/SystemSettingsForm';
 import { PageShell } from '@/components/PageShell';
 import { StatusState } from '@/components/StatusState';
@@ -36,6 +36,16 @@ export default async function AdminSettingsPage() {
             icon: CalendarClock,
             title: 'นโยบายอายุใบรับรอง',
             detail: 'อายุใบรับรองประจำตัว ช่วงต่ออายุ และเพดานของใบรับรองเสริม',
+          },
+        ]
+      : []),
+    ...(user.permissions.includes('org_unit:manage')
+      ? [
+          {
+            href: '/admin/org-units',
+            icon: Building2,
+            title: 'จับคู่หน่วยงาน ERP',
+            detail: 'จับคู่หน่วยงานจาก ERP-HR ที่ชื่อไม่ตรงกับหน่วยงานในระบบ',
           },
         ]
       : []),
