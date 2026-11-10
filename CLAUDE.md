@@ -250,6 +250,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 | `certificate:approve` | ดู อนุมัติ และปฏิเสธคำขอใบรับรองประจำตัวและใบรับรองเสริมของผู้อื่น |
 | `certificate:apply` | ส่งคำขอใบรับรองประจำตัว (รออนุมัติ) — มี `certificate:request` ด้วย = สร้างเองได้ (super_admin ตั้งต่อ role ที่หน้านโยบายอายุใบรับรอง) |
 | `document:sign` | ลงนามเอกสารด้วยใบรับรองของตัวเอง |
+| `org_unit:manage` | จับคู่หน่วยงาน ERP กับหน่วยงานในระบบ (หน้า `/admin/org-units`) |
 
 ระบบจัดการบัญชีผู้ใช้ (หน้า `/admin/users`, กฎ `canManageUser`, `user_audit_logs`, ระยะการพัฒนา): ดู `docs/design/user-management.md`
 ระบบใบรับรอง (บริการเซ็น `apps/signer`, key สำรอง, CRL, นำเข้าใบเดิม, ระยะการพัฒนา): ดู `docs/design/certificates.md` — ลงนามเอกสารบนเว็บ: `docs/design/document-signing.md` — ตรวจลายมือชื่อบนเอกสาร (หน้า `/verify` สาธารณะ): `docs/design/signature-verification.md` — การแจ้งเตือน (ในระบบ + อีเมล ตามการตั้งค่าของผู้ใช้ — ทุกเหตุการณ์เรียก `notify()` ใน transaction ของงาน ห้ามเรียก `enqueueEmail` ตรง): `docs/design/notifications.md`, ช่องทางอีเมล: `docs/design/email.md`
@@ -376,7 +377,7 @@ Permission ที่ลงทะเบียนแล้ว (ยังไม่�
 - **สรุปท้ายงาน:** บอกว่าแก้ไฟล์ไหนบ้าง และต้องรันคำสั่งอะไรต่อ (เช่น migration)
 
 ## 18. ข้อควรระวังเฉพาะโปรเจกต์
-> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) PDPA สร้างแล้ว (2026-10-26, ประกาศฉบับที่ 1 มีผล 2026-11-05) อีเมลแจ้งเตือนระยะที่ 1–2 สร้างแล้ว (2026-11-03, `docs/design/email.md`) ส่วนต่อไปนี้ **ยังไม่ได้สร้าง**: หน้าจับคู่หน่วยงาน ERP แบบ `manual` — กฎด้านล่างใช้เมื่อเริ่มพัฒนาส่วนนั้น deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) สร้างแล้ว 2026-10-15 (production ยังไม่มี Garage)
+> **สถานะ:** โปรเจกต์เริ่มสร้างใหม่ทั้งหมดเมื่อ 2026-10-06 ERP-HR สร้างแล้ว (2026-10-08) PDPA สร้างแล้ว (2026-10-26, ประกาศฉบับที่ 1 มีผล 2026-11-05) อีเมลแจ้งเตือนระยะที่ 1–2 สร้างแล้ว (2026-11-03, `docs/design/email.md`) หน้าจับคู่หน่วยงาน ERP แบบ `manual` สร้างแล้ว (2026-11-07, `/admin/org-units`, `docs/design/user-management.md` ระยะ 8) deploy/CI (`/deploy`, `.github/workflows`, `docs/deployment.md`) สร้างแล้ว 2026-10-15 (production ยังไม่มี Garage)
 - **ERP-HR** (`ERP_HR_STAFFINFO_URL`): เรียกด้วย Google access token ของผู้ใช้ตอน callback เท่านั้น ห้ามเก็บ access token ลงฐานข้อมูลหรือ log เรียกนอก transaction และถ้าล้มเหลวต้องไม่ทำให้ login ล้ม (รายละเอียด API: `docs/erp_hr_msu_staff_info_integration.md`)
 - ข้อมูลบุคลากรเก็บที่ `staff_profiles` (รหัสบุคลากร, ชื่อไทย/อังกฤษ, ตำแหน่ง, คณะ/กอง/กลุ่มงาน) อัปเดตทุกครั้งที่ login ถ้า ERP ล้มเหลวใช้ข้อมูลเดิม — `users.display_name` ของบุคลากร = ชื่อ-นามสกุลไทยจาก ERP (ไม่มีคำนำหน้า) ส่วนนิสิต/บุคลากรภายนอก = ชื่อจาก Google ทุกหน้าที่แสดงชื่อผู้ใช้ต้องใช้ `display_name`
 - รหัสหน่วยงานของ ERP (`facultyid`/`departmentid` 12 หลัก) เป็นคนละชุดกับ `org_units.code` (2 หลัก) ห้ามนำมาเทียบกันตรง ๆ ให้ผูกผ่านตาราง `erp_org_units` (จับคู่ด้วยรหัส ERP, ระบบจับคู่จากชื่อที่ตรงกันให้อัตโนมัติ, การจับคู่แบบ `manual` ห้ามถูกทับ) หน่วยงานของบุคลากรใช้ระดับกอง/ฝ่ายก่อน แล้วค่อยคณะ/สำนัก

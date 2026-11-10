@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
+  Building2,
   CalendarClock,
   ChevronRight,
   CircleCheck,
@@ -122,6 +123,12 @@ function toolsFor(user: CurrentUser): Tool[] {
       icon: CalendarClock,
       title: 'นโยบายอายุใบรับรอง',
       detail: 'อายุใบรับรองประจำตัว ช่วงต่ออายุ และเพดานของใบรับรองเสริม',
+    },
+    can('org_unit:manage') && {
+      href: '/admin/org-units',
+      icon: Building2,
+      title: 'จับคู่หน่วยงาน ERP',
+      detail: 'จับคู่หน่วยงานจาก ERP-HR ที่ชื่อไม่ตรงกับหน่วยงานในระบบ',
     },
     user.capabilities.manageRoles && {
       href: '/admin/roles',

@@ -18,6 +18,7 @@ import { adminSystemSettingsRouter } from './routes/admin-system-settings.js';
 import { adminDashboardRouter } from './routes/admin-dashboard.js';
 import { adminSupplementaryRequestsRouter } from './routes/admin-supplementary-certificate-requests.js';
 import { adminUsersRouter } from './routes/admin-users.js';
+import { adminErpOrgUnitsRouter } from './routes/admin-erp-org-units.js';
 import { certificatesRouter } from './routes/certificates.js';
 import { supplementaryCertificatesRouter } from './routes/supplementary-certificates.js';
 import { primaryCertificateRequestsRouter } from './routes/primary-certificate-requests.js';
@@ -54,6 +55,7 @@ export function createApp() {
   app.use(notificationsRouter);
   app.use(mfaRouter);
   app.use(adminUsersRouter);
+  app.use(adminErpOrgUnitsRouter);
   app.use(adminRolesRouter);
   app.use(adminSystemSettingsRouter);
   app.use(adminDashboardRouter);
